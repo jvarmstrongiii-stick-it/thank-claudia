@@ -1,25 +1,70 @@
 {
   "expo": {
-    "name": "mobile",
-    "slug": "mobile",
+    "name": "TMC Mechanical",
+    "slug": "tmc-mechanical",
     "version": "1.0.0",
     "orientation": "portrait",
+    "scheme": "tmc",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tmc.mechanical",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "TMC Mechanical uses speech recognition to log jobs hands-free.",
+        "NSMicrophoneUsageDescription": "TMC Mechanical needs the microphone to take voice job orders."
+      }
     },
     "android": {
+      "package": "com.tmc.mechanical",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0b0c08",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.CAMERA"
+      ]
     },
     "web": {
+      "bundler": "metro",
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "@react-native-community/datetimepicker",
+      "expo-dev-client",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "TMC Mechanical needs the microphone to take voice job orders.",
+          "speechRecognitionPermission": "TMC Mechanical uses speech recognition to log jobs hands-free."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "TMC Mechanical needs the camera to photograph equipment nameplates and documents."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "TMC Mechanical needs photo library access to attach equipment photos to jobs."
+        }
+      ]
+    ],
+    "extra": {
+      "backendUrl": "http://10.0.0.120:3001",
+      "router": {},
+      "eas": {
+        "projectId": "aba42329-1d35-4f9e-8b56-03f5654b0859"
+      }
+    },
+    "owner": "jacksteriii"
   }
 }
