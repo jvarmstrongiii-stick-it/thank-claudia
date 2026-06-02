@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Claudia r9 — TMC Mechanical</title>
+<title>Claudia r10 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 9;
+const APP_REV = 10;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -208,6 +208,29 @@ async function fetchJobs() {
   const notesByJob = {};
   (notes||[]).forEach(n => { (notesByJob[n.job_id] = notesByJob[n.job_id]||[]).push(n); });
   return rows.map(r => fromRow(r, notesByJob[r.id]||[]));
+}
+
+async function fetchPhotos(jobId) {
+  const { data, error } = await sb.from('job_photos')
+    .select('*').eq('job_id', jobId).order('created_at', { ascending: true });
+  if (error) { console.warn('fetchPhotos error', error); return []; }
+  return (data||[]).map(p => ({ id: p.id, url: p.url || p.photo_url || p.storage_path || '' }));
+}
+
+async function uploadPhoto(jobId, file) {
+  const ext = (file.name||'jpg').split('.').pop().toLowerCase();
+  const path = `${jobId}/${Date.now()}.${ext}`;
+  const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
+  if (upErr) { console.error('upload error', upErr); return null; }
+  const { data: urlData } = sb.storage.from('job-photos').getPublicUrl(path);
+  const url = urlData.publicUrl;
+  await sb.from('job_photos').insert({ job_id: jobId, url, storage_path: path, created_at: new Date().toISOString() });
+  return url;
+}
+
+async function deletePhoto(photoId, storagePath) {
+  if (storagePath) await sb.storage.from('job-photos').remove([storagePath]);
+  await sb.from('job_photos').delete().eq('id', photoId);
 }
 
 async function fetchChores() {
@@ -757,6 +780,32 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete }) {
   const [showResched, setShowResched] = useState(false);
   const [date, setDate] = useState(job.scheduled_date);
   const [time, setTime] = useState(job.scheduled_time);
+  const [photos, setPhotos] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const fileRef = useRef();
+
+  useEffect(() => {
+    fetchPhotos(job.id).then(setPhotos);
+  }, [job.id]);
+
+  async function handlePhotoInput(e) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploading(true);
+    for (const file of files) {
+      const url = await uploadPhoto(job.id, file);
+      if (url) setPhotos(prev => [...prev, { id: Date.now(), url }]);
+    }
+    setUploading(false);
+    e.target.value = '';
+  }
+
+  async function handleDeletePhoto(photo, idx) {
+    if (!confirm('Remove this photo?')) return;
+    await deletePhoto(photo.id, photo.storage_path);
+    setPhotos(prev => prev.filter((_,i) => i !== idx));
+  }
 
   return (
     <div className="fade-in" style={{ paddingBottom:40 }}>
@@ -806,6 +855,41 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete }) {
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
           <textarea value={job.notes} onChange={e => onUpdate({ notes: e.target.value })} rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
         </div>
+
+        {/* Photo strip */}
+        <div style={{ marginTop:16 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>PHOTOS</div>
+            <button onClick={() => fileRef.current.click()} className="head"
+              style={{ fontSize:13, fontWeight:600, padding:"5px 12px", borderRadius:6,
+                background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
+              {uploading ? 'UPLOADING…' : '📷 ADD'}
+            </button>
+          </div>
+          <input ref={fileRef} type="file" accept="image/*" multiple capture="environment"
+            style={{ display:'none' }} onChange={handlePhotoInput} />
+          {photos.length === 0 && !uploading && (
+            <div className="mono" style={{ fontSize:12, color:"var(--line)", padding:"14px 0" }}>No photos yet</div>
+          )}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {photos.map((p,i) => (
+              <div key={p.id} style={{ position:"relative" }}>
+                <img src={p.url} alt="" onClick={() => setLightbox(p.url)}
+                  style={{ width:90, height:90, objectFit:"cover", borderRadius:8, border:"1px solid var(--line)", cursor:"pointer" }} />
+                <button onClick={() => handleDeletePhoto(p,i)}
+                  style={{ position:"absolute", top:2, right:2, width:20, height:20, borderRadius:"50%",
+                    background:"rgba(0,0,0,0.7)", color:"#fff", fontSize:12, lineHeight:"20px", textAlign:"center" }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {lightbox && (
+          <div onClick={() => setLightbox(null)}
+            style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.92)", zIndex:200, display:"flex", alignItems:"center", justifyContent:"center" }}>
+            <img src={lightbox} alt="" style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain" }} />
+          </div>
+        )}
 
         {job.history && job.history.length > 0 && (
           <div style={{ marginTop:16 }}>
