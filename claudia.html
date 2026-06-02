@@ -61,12 +61,15 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 22;
+const APP_REV = 24;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzaXZpd3dzdGdsbml1aHNyeXplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDkzOTcsImV4cCI6MjA5NTU4NTM5N30.Eo_waRUbNxdq3xEfEd7AxCAEnVc4VobaV8N5ZPyGi0o';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const ANTHROPIC_KEY_STORAGE = 'tmc_anthropic_key';
+function getAnthropicKey() { return localStorage.getItem(ANTHROPIC_KEY_STORAGE) || ''; }
+function setAnthropicKey(k) { localStorage.setItem(ANTHROPIC_KEY_STORAGE, k); }
 
 /* ── Storage keys ──────────────────────────────────────────────────────────── */
 const STORAGE_KEY       = "tmc_jobs_v1";
@@ -155,6 +158,17 @@ function fromRow(row, notes=[]) {
       date: (n.created_at||'').slice(0,10),
       note: n.content,
     })),
+    equipment_type: row.equipment_type || '',
+    brand: row.brand || '',
+    model_number: row.model_number || '',
+    serial_number: row.serial_number || '',
+    tonnage: row.tonnage || '',
+    refrigerant: row.refrigerant || '',
+    voltage: row.voltage || '',
+    seer: row.seer || '',
+    mca: row.mca || '',
+    mop: row.mop || '',
+    year_manufactured: row.year_manufactured || '',
     _customer_id: row.customer_id,
     _assigned_to: row.assigned_to,
   };
@@ -177,6 +191,17 @@ function toRow(job, customerId, userId) {
     value: Number(job.value) || null,
     scheduled_at,
     notes: job.notes || null,
+    equipment_type: job.equipment_type || null,
+    brand: job.brand || null,
+    model_number: job.model_number || null,
+    serial_number: job.serial_number || null,
+    tonnage: job.tonnage || null,
+    refrigerant: job.refrigerant || null,
+    voltage: job.voltage || null,
+    seer: job.seer || null,
+    mca: job.mca || null,
+    mop: job.mop || null,
+    year_manufactured: job.year_manufactured || null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -234,6 +259,52 @@ async function uploadPhoto(jobId, file) {
 async function deletePhoto(photoId, storagePath) {
   if (storagePath) await sb.storage.from('job-photos').remove([storagePath]);
   await sb.from('job_photos').delete().eq('id', photoId);
+}
+
+async function scanNameplate(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('File read failed'));
+    reader.onload = async (e) => {
+      try {
+        const dataUrl = e.target.result;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) { reject(new Error('Invalid image data')); return; }
+        const rawType = match[1];
+        const base64Data = match[2];
+        const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType) ? rawType : 'image/jpeg';
+        const apiKey = getAnthropicKey();
+        if (!apiKey) { reject(new Error('No API key — tap ⚙ SETTINGS to add your Anthropic key')); return; }
+        const res = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-allow-browser': 'true',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 512,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                { type: 'text', text: 'This is a photo of HVAC equipment or its nameplate/data tag. Extract every field you can find. Reply with ONLY a JSON object using these exact keys (set to null if not visible): {"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
+              ],
+            }],
+          }),
+        });
+        if (!res.ok) { const t = await res.text(); reject(new Error(`API ${res.status}: ${t}`)); return; }
+        const data = await res.json();
+        const text = (data.content[0].text || '').trim();
+        const m = text.match(/\{[\s\S]*\}/);
+        if (!m) { reject(new Error('No JSON in response')); return; }
+        resolve(JSON.parse(m[0]));
+      } catch(err) { reject(err); }
+    };
+    reader.readAsDataURL(file);
+  });
 }
 
 async function fetchChores() {
@@ -338,6 +409,7 @@ function App() {
   const [choresExpanded, setChoresExpanded] = useState(false);
   const [showChoresView, setShowChoresView] = useState(false);
   const [focusPhotos, setFocusPhotos] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [users, setUsers] = useState(FALLBACK_USERS);
 
   function showToast(msg, isError=false) {
@@ -411,6 +483,8 @@ function App() {
       const t = ('scheduled_time' in patch ? patch.scheduled_time : job.scheduled_time);
       if (d && t) { const dt = new Date(`${d}T${t}:00`); updateData.scheduled_at = isNaN(dt) ? null : dt.toISOString(); }
     }
+    ['equipment_type','brand','model_number','serial_number','tonnage','refrigerant','voltage','seer','mca','mop','year_manufactured']
+      .forEach(k => { if (k in patch) updateData[k] = patch[k]||null; });
     const { error } = await sb.from('jobs').update(updateData).eq('id', id);
     if (error) { showToast("Error updating job", true); console.error(error); return; }
     if (patch.status && patch.status !== job.status) {
@@ -648,6 +722,11 @@ function App() {
             style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
             ↺
           </button>
+          <button onClick={() => setShowSettings(true)} className="mono"
+            style={{ fontSize:11, color: getAnthropicKey() ? "var(--brass-bright)" : "var(--danger)",
+              padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
+            ⚙
+          </button>
           <div className="mono" style={{ fontSize:10, color:"var(--line)", marginLeft:2 }}>r{APP_REV}</div>
         </div>
       </div>
@@ -819,7 +898,35 @@ function App() {
         />
       )}
 
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+    </div>
+  );
+}
+
+/* ── SettingsModal ─────────────────────────────────────────────────────────── */
+function SettingsModal({ onClose }) {
+  const [key, setKey] = useState(getAnthropicKey());
+  function save() { setAnthropicKey(key.trim()); onClose(); }
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="fade-in"
+        style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+          borderRadius:"16px 16px 0 0", padding:"20px 16px 36px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <div className="head" style={{ fontSize:16, fontWeight:700 }}>SETTINGS</div>
+          <button onClick={onClose} className="mono" style={{ color:"var(--muted)", fontSize:18 }}>✕</button>
+        </div>
+        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>ANTHROPIC API KEY</div>
+        <div className="mono" style={{ fontSize:11, color:"var(--line)", marginBottom:8 }}>Used for nameplate scanning. Stored locally on this device only.</div>
+        <input type="password" value={key} onChange={e => setKey(e.target.value)}
+          placeholder="sk-ant-api03-…" style={{ marginBottom:14, fontFamily:"monospace", fontSize:13 }} />
+        <button onClick={save} className="head"
+          style={{ width:"100%", padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+            background:"var(--brass-bright)", color:"var(--bg)" }}>
+          SAVE
+        </button>
+      </div>
     </div>
   );
 }
@@ -917,6 +1024,20 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onOpenJob, onAdd, 
   );
 }
 
+const EQUIP_FIELDS = [
+  { key:'equipment_type',   label:'TYPE',        span:2 },
+  { key:'brand',            label:'BRAND',       span:1 },
+  { key:'year_manufactured',label:'YEAR MFG',    span:1 },
+  { key:'model_number',     label:'MODEL #',     span:2 },
+  { key:'serial_number',    label:'SERIAL #',    span:2 },
+  { key:'tonnage',          label:'TONNAGE',     span:1 },
+  { key:'refrigerant',      label:'REFRIGERANT', span:1 },
+  { key:'voltage',          label:'VOLTAGE',     span:1 },
+  { key:'seer',             label:'SEER',        span:1 },
+  { key:'mca',              label:'MCA',         span:1 },
+  { key:'mop',              label:'MOP',         span:1 },
+];
+
 /* ── Lightbox ──────────────────────────────────────────────────────────────── */
 function Lightbox({ url, onClose }) {
   const [scale, setScale] = useState(1);
@@ -1003,8 +1124,17 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
+  const [equip, setEquip] = useState({
+    equipment_type: job.equipment_type||'', brand: job.brand||'',
+    model_number: job.model_number||'', serial_number: job.serial_number||'',
+    tonnage: job.tonnage||'', refrigerant: job.refrigerant||'',
+    voltage: job.voltage||'', seer: job.seer||'',
+    mca: job.mca||'', mop: job.mop||'', year_manufactured: job.year_manufactured||'',
+  });
+  const [scanning, setScanning] = useState(false);
   const fileRef = useRef();
   const cameraRef = useRef();
+  const scanRef = useRef();
   const photoRef = useRef();
 
   useEffect(() => {
@@ -1134,6 +1264,52 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
         {lightbox && (
           <Lightbox url={lightbox} onClose={() => setLightbox(null)} />
         )}
+
+        {/* Equipment */}
+        <div style={{ marginTop:20 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>EQUIPMENT</div>
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => scanRef.current.click()} disabled={scanning} className="head"
+                style={{ fontSize:12, fontWeight:600, padding:"5px 12px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--brass)", color: scanning ? "var(--muted)" : "var(--brass-bright)" }}>
+                {scanning ? '🔍 SCANNING…' : '📷 SCAN NAMEPLATE'}
+              </button>
+            </div>
+          </div>
+          <input ref={scanRef} type="file" accept="image/*" capture="environment"
+            style={{ display:'none' }} onChange={async (e) => {
+              const file = e.target.files[0];
+              if (!file) return;
+              setScanning(true);
+              e.target.value = '';
+              try {
+                const result = await scanNameplate(file);
+                const updated = { ...equip };
+                Object.keys(result).forEach(k => { if (result[k] != null) updated[k] = String(result[k]); });
+                setEquip(updated);
+                const patch = {};
+                Object.keys(result).forEach(k => { if (result[k] != null) patch[k] = String(result[k]); });
+                if (Object.keys(patch).length) onUpdate(patch);
+              } catch(err) {
+                alert(`Scan failed: ${err.message}`);
+              } finally {
+                setScanning(false);
+              }
+            }} />
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
+            {EQUIP_FIELDS.map(({ key, label, span }) => (
+              <div key={key} style={{ gridColumn:`span ${span}` }}>
+                <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginBottom:3 }}>{label}</div>
+                <input value={equip[key]}
+                  onChange={e => setEquip(prev => ({ ...prev, [key]: e.target.value }))}
+                  onBlur={() => { if (equip[key] !== (job[key]||'')) onUpdate({ [key]: equip[key]||null }); }}
+                  placeholder="—"
+                  style={{ padding:"6px 8px", fontSize:13 }} />
+              </div>
+            ))}
+          </div>
+        </div>
 
         {job.history && job.history.length > 0 && (
           <div style={{ marginTop:16 }}>
