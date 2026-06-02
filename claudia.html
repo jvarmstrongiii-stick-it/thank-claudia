@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 26;
+const APP_REV = 27;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -310,20 +310,6 @@ async function scanNameplate(file) {
 async function scanNameplateFromUrl(url) {
   const apiKey = getAnthropicKey();
   if (!apiKey) throw new Error('No API key — tap ⚙ SETTINGS to add your Anthropic key');
-  const res = await fetch(url);
-  const blob = await res.blob();
-  const base64Data = await new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = reject;
-    reader.onload = e => {
-      const m = e.target.result.match(/^data:([^;]+);base64,(.+)$/);
-      if (m) resolve({ mediaType: m[1], data: m[2] });
-      else reject(new Error('Could not read image'));
-    };
-    reader.readAsDataURL(blob);
-  });
-  const rawType = base64Data.mediaType;
-  const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType) ? rawType : 'image/jpeg';
   const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -338,7 +324,7 @@ async function scanNameplateFromUrl(url) {
       messages: [{
         role: 'user',
         content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data.data } },
+          { type: 'image', source: { type: 'url', url } },
           { type: 'text', text: 'This is a photo of HVAC equipment or its nameplate/data tag. Extract every field you can find. Reply with ONLY a JSON object using these exact keys (set to null if not visible): {"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
         ],
       }],
