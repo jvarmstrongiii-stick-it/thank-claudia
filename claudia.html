@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Claudia r11 — TMC Mechanical</title>
+<title>Claudia r12 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 11;
+const APP_REV = 12;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -446,15 +446,17 @@ function App() {
     if (chores.some(c => c.job_id === job.id && c.kind === 'billing')) return;
     const { data, error } = await sb.from('chores').insert({
       description: `Create bill for ${job.customer}`,
-      job_id: job.id, customer_id: job._customer_id||null,
+      job_id: job.id,
       priority: 'billing', status: 'open',
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).select().single();
-    if (!error && data) {
+    if (error) { showToast(`Chore error: ${error.message}`, true); console.error('spawnBillingChore', error); return; }
+    if (data) {
       setChores(cs => [{
         id: data.id, kind:'billing', job_id: job.id,
         label: `Create bill for ${job.customer}`, created: todayISO(), done: false,
       }, ...cs]);
+      showToast("Billing chore created");
     }
   }
 
