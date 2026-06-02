@@ -463,16 +463,42 @@ function App() {
         showToast("Nothing to import", true); return;
       }
       showToast(`Importing ${importList.length} jobs…`);
-      let ok = 0, fail = 0;
+      let ok = 0, fail = 0, firstErr = null;
       for (const job of importList) {
-        const customerId = await resolveCustomer(job);
-        if (!customerId) { fail++; continue; }
+        // resolve or create customer
+        const name = (job.customer||'').trim();
+        let customerId = null;
+        if (name) {
+          const { data: ex } = await sb.from('customers').select('id').ilike('name', name).limit(1).maybeSingle();
+          if (ex) {
+            customerId = ex.id;
+          } else {
+            const addr = job.customer_address || job.address || null;
+            const { data: nc, error: ce } = await sb.from('customers').insert({
+              name, phone: job.phone||null, address: addr,
+              created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            }).select('id').single();
+            if (ce) {
+              fail++;
+              if (!firstErr) firstErr = `Customer insert: ${ce.message||JSON.stringify(ce)}`;
+              console.error('import customer error', ce, job);
+              continue;
+            }
+            customerId = nc.id;
+          }
+        }
+        if (!customerId) { fail++; if (!firstErr) firstErr = `No customer name for job: ${job.id}`; continue; }
+
         const { data, error } = await sb.from('jobs').insert({
           ...toRow(job, customerId, currentUser?.id),
           created_at: new Date().toISOString(),
         }).select('id').single();
-        if (error) { fail++; console.warn('import job error', error); continue; }
-        // seed history notes
+        if (error) {
+          fail++;
+          if (!firstErr) firstErr = `Job insert: ${error.message||JSON.stringify(error)}`;
+          console.error('import job error', error, job);
+          continue;
+        }
         for (const h of (job.history || [])) {
           await sb.from('job_notes').insert({
             job_id: data.id, content: h.note,
@@ -490,7 +516,8 @@ function App() {
           created_at: new Date().toISOString(),
         });
       }
-      showToast(`Imported ${ok} job${ok!==1?'s':''}${fail ? `, ${fail} failed` : ''}`);
+      if (firstErr) showToast(`Failed: ${firstErr}`, true);
+      else showToast(`Imported ${ok} job${ok!==1?'s':''}${fail ? `, ${fail} failed` : ''}`);
       await refresh();
     };
     input.click();
