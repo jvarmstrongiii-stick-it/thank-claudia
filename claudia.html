@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Claudia r15 — TMC Mechanical</title>
+<title>Claudia r16 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 15;
+const APP_REV = 16;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -238,7 +238,8 @@ async function fetchChores() {
     .select('*').neq('status','done').order('created_at', { ascending: false });
   if (error) { console.warn('fetchChores error', error); return []; }
   return (data||[]).map(c => ({
-    id: c.id, kind: c.priority||'billing', job_id: c.job_id,
+    id: c.id, kind: c.priority||null, job_id: c.job_id,
+    assigned_to: c.assigned_to||null,
     label: c.description||'', created: (c.created_at||'').slice(0,10)||todayISO(), done: false,
   }));
 }
@@ -790,17 +791,19 @@ function App() {
       {/* Chores management view */}
       {showChoresView && (
         <ChoresView
-          chores={chores} jobs={jobs}
+          chores={chores} jobs={jobs} users={users}
           onClose={() => setShowChoresView(false)}
           onToggle={toggleChore}
           onOpenJob={(jobId) => { setShowChoresView(false); openJobPhotos(jobId); }}
-          onAdd={async (desc, jobId) => {
+          onAdd={async (desc, jobId, assignedTo) => {
             const { data, error } = await sb.from('chores').insert({
               description: desc, job_id: jobId||null,
+              assigned_to: validUUID(assignedTo)||null,
               status: 'open', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
             }).select().single();
             if (error) { showToast(`Error: ${error.message}`, true); return; }
             setChores(cs => [{ id: data.id, kind: null, job_id: jobId||null,
+              assigned_to: assignedTo||null,
               label: desc, created: todayISO(), done: false }, ...cs]);
             showToast("Chore added");
           }}
@@ -817,16 +820,17 @@ function App() {
 }
 
 /* ── ChoresView ────────────────────────────────────────────────────────────── */
-function ChoresView({ chores, jobs, onClose, onToggle, onOpenJob, onAdd, onDelete }) {
+function ChoresView({ chores, jobs, users, onClose, onToggle, onOpenJob, onAdd, onDelete }) {
   const [desc, setDesc] = useState('');
   const [jobId, setJobId] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
   const [adding, setAdding] = useState(false);
   const open = chores.filter(c => !c.done);
 
   async function submit() {
     if (!desc.trim()) return;
-    await onAdd(desc.trim(), jobId||null);
-    setDesc(''); setJobId(''); setAdding(false);
+    await onAdd(desc.trim(), jobId||null, assignedTo||null);
+    setDesc(''); setJobId(''); setAssignedTo(''); setAdding(false);
   }
 
   return (
@@ -848,10 +852,16 @@ function ChoresView({ chores, jobs, onClose, onToggle, onOpenJob, onAdd, onDelet
           <input value={desc} onChange={e=>setDesc(e.target.value)}
             placeholder="What needs doing?" autoFocus
             style={{ marginBottom:10 }} />
-          <select value={jobId} onChange={e=>setJobId(e.target.value)} style={{ marginBottom:12 }}>
+          <select value={jobId} onChange={e=>setJobId(e.target.value)} style={{ marginBottom:10 }}>
             <option value="">— Link to a job (optional) —</option>
             {jobs.filter(j => j.status !== 'Closed').map(j => (
               <option key={j.id} value={j.id}>{j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
+            ))}
+          </select>
+          <select value={assignedTo} onChange={e=>setAssignedTo(e.target.value)} style={{ marginBottom:12 }}>
+            <option value="">— Assign to someone (optional) —</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.name}</option>
             ))}
           </select>
           <button onClick={submit} className="head"
@@ -870,6 +880,7 @@ function ChoresView({ chores, jobs, onClose, onToggle, onOpenJob, onAdd, onDelet
         )}
         {open.map(c => {
           const linkedJob = c.job_id ? jobs.find(j => j.id === c.job_id) : null;
+          const assignee = c.assigned_to ? users.find(u => u.id === c.assigned_to) : null;
           return (
             <div key={c.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
               <button onClick={() => onToggle(c.id)} style={{ flexShrink:0, paddingTop:2 }}>
@@ -877,12 +888,19 @@ function ChoresView({ chores, jobs, onClose, onToggle, onOpenJob, onAdd, onDelet
               </button>
               <div style={{ flex:1 }}>
                 <div style={{ fontSize:15 }}>{c.label}</div>
-                {linkedJob && (
-                  <button onClick={() => onOpenJob(c.job_id)}
-                    style={{ marginTop:4, fontSize:12, color:"var(--brass-bright)", textAlign:"left" }}>
-                    📋 {linkedJob.customer} →
-                  </button>
-                )}
+                <div style={{ display:"flex", gap:10, marginTop:4, flexWrap:"wrap" }}>
+                  {assignee && (
+                    <span className="mono" style={{ fontSize:11, color:"var(--olive-bright)" }}>
+                      👤 {assignee.name}
+                    </span>
+                  )}
+                  {linkedJob && (
+                    <button onClick={() => onOpenJob(c.job_id)}
+                      style={{ fontSize:12, color:"var(--brass-bright)", textAlign:"left" }}>
+                      📋 {linkedJob.customer} →
+                    </button>
+                  )}
+                </div>
               </div>
               <button onClick={() => onDelete(c.id)}
                 style={{ flexShrink:0, fontSize:18, color:"var(--line)", paddingTop:2 }}>✕</button>
