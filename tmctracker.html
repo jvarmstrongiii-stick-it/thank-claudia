@@ -209,13 +209,19 @@ async function fetchChores() {
   }));
 }
 
+const FALLBACK_USERS = [
+  { id: 'tyler', name: 'Tyler' },
+  { id: 'jack',  name: 'Jack'  },
+];
+
 async function fetchUsers() {
   const { data, error } = await sb.from('users').select('*');
-  if (error) { console.warn('fetchUsers error', error); return []; }
-  return (data||[]).map(u => ({
+  if (error) { console.warn('fetchUsers error', error.message || error); return null; }
+  const mapped = (data||[]).map(u => ({
     id: u.id,
     name: u.name || u.display_name || u.full_name || u.email || 'Tech',
   }));
+  return mapped.length > 0 ? mapped : null;
 }
 
 /* ── Components ────────────────────────────────────────────────────────────── */
@@ -243,14 +249,13 @@ function Toast({ msg, isError }) {
 }
 
 function Splash({ onSelect }) {
-  const [users, setUsers] = useState([]);
+  const [users, setUsers] = useState(FALLBACK_USERS);
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(null);
   useEffect(() => {
     fetchUsers().then(u => {
       setLoading(false);
-      if (u.length === 0) setErr("No users found. Add rows to the users table in Supabase, then reload.");
-      else setUsers(u);
+      if (u) setUsers(u);
+      // if null, FALLBACK_USERS stays — Tyler/Jack always work
     });
   }, []);
   return (
@@ -260,8 +265,7 @@ function Splash({ onSelect }) {
       </div>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:8, letterSpacing:"0.1em" }}>FIELD JOB TRACKER</div>
       <div className="head" style={{ fontSize:16, color:"var(--muted)", marginTop:40, marginBottom:20 }}>WHO'S THIS?</div>
-      {loading && <div className="mono" style={{ color:"var(--muted)", fontSize:13 }}>LOADING…</div>}
-      {err && <div style={{ color:"var(--danger)", fontSize:14, textAlign:"center", maxWidth:320 }}>{err}</div>}
+      {loading && <div className="mono" style={{ color:"var(--muted)", fontSize:13, marginBottom:12 }}>…</div>}
       {users.map(u => (
         <button key={u.id} onClick={() => onSelect(u)} className="head"
           style={{ width:"100%", maxWidth:320, marginBottom:12, padding:"18px 24px", borderRadius:10,
