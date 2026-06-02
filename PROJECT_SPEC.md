@@ -1,10 +1,10 @@
 # PROJECT_SPEC.md
-## TMC Mechanical — Caitlyn App
-**Last Updated:** 2026-05-30  
-**Stack:** React Native (Expo) · Node.js · Supabase · Claude API  
-**Platform:** Android (internal, no Play Store) · iOS future  
-**Build Tool:** EAS (Expo Application Services)  
-**Repo:** jacksteriii/tmc-mechanical · apps/mobile
+## TMC Mechanical — Claudia (Field Job Tracker)
+**Last Updated:** 2026-06-02  
+**Stack:** Single-file HTML/React (CDN + Babel) · Supabase · Claude API (planned)  
+**Platform:** Mobile browser (Chrome/Safari) — installable as PWA via Add to Home Screen  
+**Repo:** jvarmstrongiii-stick-it/thank-claudia · branch: claude/hvac-supabase-integration-Di5df  
+**Working file:** tmctracker.html
 
 ---
 
@@ -169,29 +169,51 @@ Full-page view (not bottom sheet) containing:
 
 | Layer | Technology |
 |---|---|
-| Mobile Frontend | React Native (Expo SDK 54) |
-| Routing | Expo Router v6 |
-| Build/Deploy | EAS (Expo Application Services) |
-| Backend | Node.js |
-| Database | Supabase (PostgreSQL + Realtime + Storage) |
-| AI/OCR | Claude API (claude-sonnet-4-20250514) |
-| Speech | expo-speech-recognition |
-| Camera | expo-camera + expo-image-picker |
-| Fonts | Barlow, Russo One, Share Tech Mono |
-| Maps | TBD (Google Maps SDK or expo-location) |
-| SMS | Twilio (future) |
+| Frontend | Single-file HTML · React 18 CDN · Babel standalone (no build step) |
+| Backend | Supabase (PostgreSQL + REST API + Storage) |
+| Auth | Splash-page user picker → localStorage (anon key, no Supabase Auth) |
+| AI/OCR | Claude API — planned for nameplate scanning, voice intake |
+| Fonts | Russo One (headers) · Share Tech Mono (data) |
+| Maps | Browser tappable address links → Google Maps |
+| Future | PWA manifest (installable) · Twilio SMS · Real-time subscriptions |
+
+**Why single-file HTML instead of React Native:**  
+Zero build step — works offline, deployed by downloading one file. Tyler and Jack open it in Chrome, add to home screen, done. Native app remains the long-term target once the workflow is validated in the field.
 
 ---
 
-## 14. Current Build State
+## 14. Current Build State — 2026-06-02
 
-- EAS project initialized: `@jacksteriii/tmc-mechanical`
-- Android development build completed and installed on device
-- App shell running, dev client launcher confirmed working
-- Tunnel mode (`npx expo start --tunnel`) configured for remote dev
-- OTA updates configured for field testing without LAN
-- App code in `apps/mobile/` with Expo Router structure
-- Components built: JobCard, VoiceBar, EquipmentCard, OCRResultCard, PhotoCapture, PhotoStrip, ConfirmJobModal
+### ✅ Done
+- Single-file React app (`tmctracker.html`) wired to Supabase
+- Splash screen: tap your name (reads from `users` table, falls back to Tyler/Jack)
+- Full job CRUD — all writes go to Supabase, read by any device on reload
+- Field mapping layer: flat local job shape ↔ normalized `jobs` + `customers` tables
+- `resolveCustomer`: case-insensitive lookup → insert new customer if not found
+- `job_notes` table used for work history (filters out `source='system'` entries from display)
+- Status changes write a system note to `job_notes`
+- Chores sync to `chores` table
+- Refetch on window focus — near-live sync without subscriptions
+- localStorage write-through cache for instant render before fetch resolves
+- Toast notifications for all errors and confirmations
+- Import button — seeds Supabase from exported legacy JSON (localStorage → Supabase)
+- Export button — downloads full job+chore snapshot as JSON
+- 15 real jobs imported and live on both phones ✅
+
+### Supabase Project
+- **URL:** https://asiviwwstglniuhsryze.supabase.co
+- **Project ID:** asiviwwstglniuhsryze
+- **Compute:** NANO
+
+### RLS Policies in place (anon key)
+Tables with SELECT: `jobs`, `customers`, `job_notes`, `chores`, `users`, `job_status_history`  
+Tables with INSERT: `jobs`, `customers`, `job_notes`, `chores`, `job_status_history`  
+Tables with UPDATE: `jobs`, `customers`, `chores`  
+Tables with DELETE: `jobs`
+
+### DB fixes applied
+- Dropped `jobs_flow_type_check` constraint (was blocking job type text values)
+- Added anon INSERT policy on `job_status_history` (DB trigger fires on every job insert)
 
 ---
 
@@ -199,13 +221,14 @@ Full-page view (not bottom sheet) containing:
 
 | Issue | Priority | Notes |
 |---|---|---|
-| Speech recognition 8-sec processing lag | High | expo-speech-recognition threading issue |
-| Network request failed on tunnel (mobile data) | Medium | Flaky on cellular, stable on WiFi |
-| EAS Workflow (auto-build on git push) | Low | Set up when app is stable |
-| iOS build | Low | Android first, iOS later |
-| User list pills not yet in native build | High | Was in prototype, needs porting |
-| Floating mic button | High | Needs drag-to-reposition implementation |
-| Job assignment to users | High | UI needed |
+| Photo upload | High | Supabase Storage bucket not set up yet — camera button is stubbed |
+| OCR nameplate scanning | High | Photo → Claude vision → populate model/serial on equipment table |
+| PWA manifest | Medium | Add to Home Screen feels like a native app install |
+| Real-time subscriptions | Medium | Currently refetch-on-focus; Supabase Realtime would push instantly |
+| `location` / `site_address` not persisted | Medium | No separate DB column yet — mirrors customer_address on load |
+| Customer deduplication | Low | ilike lookup is best-effort; DB unique constraint + upsert would be cleaner |
+| Job assignment UI | Medium | `assigned_to` column exists, no picker in UI yet |
+| Pull-to-refresh gesture | Low | Currently refresh button only |
 
 ---
 
