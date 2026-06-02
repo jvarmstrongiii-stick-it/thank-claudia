@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 25;
+const APP_REV = 26;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -305,6 +305,51 @@ async function scanNameplate(file) {
     };
     reader.readAsDataURL(file);
   });
+}
+
+async function scanNameplateFromUrl(url) {
+  const apiKey = getAnthropicKey();
+  if (!apiKey) throw new Error('No API key — tap ⚙ SETTINGS to add your Anthropic key');
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const base64Data = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = e => {
+      const m = e.target.result.match(/^data:([^;]+);base64,(.+)$/);
+      if (m) resolve({ mediaType: m[1], data: m[2] });
+      else reject(new Error('Could not read image'));
+    };
+    reader.readAsDataURL(blob);
+  });
+  const rawType = base64Data.mediaType;
+  const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType) ? rawType : 'image/jpeg';
+  const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-allow-browser': 'true',
+    },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data.data } },
+          { type: 'text', text: 'This is a photo of HVAC equipment or its nameplate/data tag. Extract every field you can find. Reply with ONLY a JSON object using these exact keys (set to null if not visible): {"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
+        ],
+      }],
+    }),
+  });
+  if (!apiRes.ok) { const t = await apiRes.text(); throw new Error(`API ${apiRes.status}: ${t}`); }
+  const data = await apiRes.json();
+  const text = (data.content[0].text || '').trim();
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('No JSON in response');
+  return JSON.parse(m[0]);
 }
 
 async function fetchChores() {
@@ -1039,13 +1084,16 @@ const EQUIP_FIELDS = [
 ];
 
 /* ── Lightbox ──────────────────────────────────────────────────────────────── */
-function Lightbox({ url, onClose }) {
+function Lightbox({ url, onClose, onImportEquipment }) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x:0, y:0 });
   const lastDist = useRef(null);
   const lastMid  = useRef(null);
   const dragStart = useRef(null);
   const lastOffset = useRef({ x:0, y:0 });
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState(null);
 
   function onTouchStart(e) {
     if (e.touches.length === 2) {
@@ -1086,8 +1134,24 @@ function Lightbox({ url, onClose }) {
   }
 
   function handleTap(e) {
+    if (scanResult) return;
     if (scale === 1) onClose();
     else { setScale(1); setOffset({ x:0, y:0 }); lastOffset.current = { x:0, y:0 }; }
+  }
+
+  async function doScan(e) {
+    e.stopPropagation();
+    setScanning(true); setScanResult(null); setScanError(null);
+    try {
+      const result = await scanNameplateFromUrl(url);
+      const found = Object.entries(result).filter(([,v]) => v != null);
+      if (found.length === 0) setScanError('No equipment data found in this photo.');
+      else setScanResult(result);
+    } catch(err) {
+      setScanError(err.message);
+    } finally {
+      setScanning(false);
+    }
   }
 
   return (
@@ -1106,10 +1170,52 @@ function Lightbox({ url, onClose }) {
         style={{ position:"absolute", top:16, right:16, width:36, height:36, borderRadius:"50%",
           background:"rgba(0,0,0,0.6)", color:"#fff", fontSize:20, lineHeight:"36px", textAlign:"center",
           border:"1px solid rgba(255,255,255,0.2)" }}>✕</button>
-      {scale === 1 && (
-        <div className="mono" style={{ position:"absolute", bottom:24, left:0, right:0, textAlign:"center",
-          fontSize:11, color:"rgba(255,255,255,0.4)" }}>PINCH TO ZOOM · TAP TO CLOSE</div>
-      )}
+
+      {/* Bottom bar */}
+      <div onClick={e => e.stopPropagation()}
+        style={{ position:"absolute", bottom:0, left:0, right:0, padding:"12px 16px 28px",
+          background:"linear-gradient(transparent, rgba(0,0,0,0.85))" }}>
+        {!scanResult && !scanError && (
+          <button onClick={doScan} disabled={scanning} className="head"
+            style={{ display:"block", width:"100%", padding:"12px", borderRadius:9, fontSize:14, fontWeight:700,
+              background: scanning ? "rgba(255,255,255,0.1)" : "rgba(180,150,60,0.85)",
+              color: scanning ? "rgba(255,255,255,0.5)" : "#000",
+              border:"none", marginBottom:8 }}>
+            {scanning ? '🔍 SCANNING…' : '🔍 SCAN FOR EQUIPMENT'}
+          </button>
+        )}
+        {scanError && (
+          <div className="mono" style={{ fontSize:12, color:"#f87171", textAlign:"center", marginBottom:8 }}>{scanError}</div>
+        )}
+        {scanResult && (
+          <div style={{ background:"rgba(0,0,0,0.8)", border:"1px solid rgba(180,150,60,0.5)", borderRadius:10, padding:12, marginBottom:8 }}>
+            <div className="mono" style={{ fontSize:11, color:"rgba(180,150,60,0.9)", marginBottom:8 }}>FOUND ON NAMEPLATE</div>
+            {Object.entries(scanResult).filter(([,v]) => v != null).map(([k,v]) => (
+              <div key={k} style={{ display:"flex", gap:8, marginBottom:4 }}>
+                <span className="mono" style={{ fontSize:11, color:"rgba(255,255,255,0.5)", minWidth:80 }}>{k.replace(/_/g,' ').toUpperCase()}</span>
+                <span style={{ fontSize:12, color:"#fff" }}>{v}</span>
+              </div>
+            ))}
+            <div style={{ display:"flex", gap:8, marginTop:12 }}>
+              <button onClick={() => { onImportEquipment(scanResult); onClose(); }} className="head"
+                style={{ flex:1, padding:"10px", borderRadius:8, fontSize:13, fontWeight:700,
+                  background:"rgba(180,150,60,0.9)", color:"#000" }}>
+                IMPORT TO JOB
+              </button>
+              <button onClick={() => setScanResult(null)} className="head"
+                style={{ padding:"10px 16px", borderRadius:8, fontSize:13,
+                  background:"rgba(255,255,255,0.1)", color:"#fff" }}>
+                DISMISS
+              </button>
+            </div>
+          </div>
+        )}
+        {!scanResult && scale === 1 && (
+          <div className="mono" style={{ textAlign:"center", fontSize:11, color:"rgba(255,255,255,0.3)" }}>
+            PINCH TO ZOOM · TAP TO CLOSE
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1282,7 +1388,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
         </div>
 
         {lightbox && (
-          <Lightbox url={lightbox} onClose={() => setLightbox(null)} />
+          <Lightbox url={lightbox} onClose={() => setLightbox(null)}
+            onImportEquipment={(result) => {
+              const updated = { ...equip };
+              const patch = {};
+              Object.keys(result).forEach(k => { if (result[k] != null) { updated[k] = String(result[k]); patch[k] = String(result[k]); } });
+              setEquip(updated);
+              if (Object.keys(patch).length) onUpdate(patch);
+            }} />
         )}
 
         {/* Equipment */}
