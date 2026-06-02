@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>TMC Mechanical — Job Tracker</title>
+<title>Claudia r8 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -60,6 +60,8 @@
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
+
+const APP_REV = 8;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -607,6 +609,7 @@ function App() {
             style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
             ↺
           </button>
+          <div className="mono" style={{ fontSize:10, color:"var(--line)", marginLeft:2 }}>r{APP_REV}</div>
         </div>
       </div>
 
