@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 19;
+const APP_REV = 20;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -221,13 +221,13 @@ async function uploadPhoto(jobId, file) {
   const ext = (file.name||'photo.jpg').split('.').pop().toLowerCase() || 'jpg';
   const path = `${jobId}/${Date.now()}.${ext}`;
   const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
-  if (upErr) { console.error('upload error', upErr); return null; }
+  if (upErr) { console.error('upload error', upErr); return { error: upErr.message || JSON.stringify(upErr) }; }
   const { data: urlData } = sb.storage.from('job-photos').getPublicUrl(path);
   const url = urlData.publicUrl;
   const { data: row, error: dbErr } = await sb.from('job_photos')
     .insert({ job_id: jobId, url, storage_path: path, created_at: new Date().toISOString() })
     .select().single();
-  if (dbErr) { console.error('job_photos insert error', dbErr); return null; }
+  if (dbErr) { console.error('job_photos insert error', dbErr); return { error: dbErr.message || JSON.stringify(dbErr) }; }
   return row ? { id: row.id, url, storage_path: path } : null;
 }
 
@@ -944,15 +944,16 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     const files = Array.from(e.target.files);
     if (!files.length) return;
     setUploading(true);
-    let failed = 0;
+    let errors = [];
     for (const file of files) {
       const photo = await uploadPhoto(job.id, file);
-      if (photo) setPhotos(prev => [...prev, photo]);
-      else failed++;
+      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
+      else if (photo && photo.error) errors.push(photo.error);
+      else errors.push('unknown error');
     }
     setUploading(false);
     e.target.value = '';
-    if (failed > 0) alert(`${failed} photo(s) failed to upload. Check that the "job-photos" storage bucket exists and is public in Supabase.`);
+    if (errors.length > 0) alert(`Upload failed:\n${errors.join('\n')}`);
   }
 
   async function handleDeletePhoto(photo, idx) {
