@@ -4,6 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>TMC Mechanical — Job Tracker</title>
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="TMC" />
+<meta name="theme-color" content="#0e0f0c" />
+<link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;TMC Mechanical&quot;,&quot;short_name&quot;:&quot;TMC&quot;,&quot;start_url&quot;:&quot;.&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%230e0f0c&quot;,&quot;theme_color&quot;:&quot;%230e0f0c&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230e0f0c'/%3E%3Ctext y='.9em' font-size='80' x='10' fill='%2393a046'%3ET%3C/text%3E%3C/svg%3E&quot;,&quot;sizes&quot;:&quot;any&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
@@ -334,7 +340,8 @@ function App() {
     if (!currentUser) return;
     refresh();
     window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
+    const timer = setInterval(refresh, 60000); // auto-refresh every 60s
+    return () => { window.removeEventListener('focus', refresh); clearInterval(timer); };
   }, [currentUser, refresh]);
 
   /* ── CRUD ── */
