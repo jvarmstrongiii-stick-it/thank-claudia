@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Claudia r13 — TMC Mechanical</title>
+<title>Claudia r14 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 13;
+const APP_REV = 14;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -332,6 +332,7 @@ function App() {
   const [search, setSearch] = useState("");
   const [searchClosed, setSearchClosed] = useState(false);
   const [choresExpanded, setChoresExpanded] = useState(false);
+  const [showChoresView, setShowChoresView] = useState(false);
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -771,11 +772,123 @@ function App() {
         width:"100%", maxWidth:520, background:"var(--panel)", borderTop:"1px solid var(--line)",
         padding:"12px 16px", display:"flex", gap:10, boxShadow:"0 -8px 24px rgba(0,0,0,0.4)" }}>
         <button onClick={() => setAdding(true)} className="head"
-          style={{ flex:1, padding:"15px", borderRadius:9, fontSize:16, fontWeight:700,
+          style={{ flex:2, padding:"15px", borderRadius:9, fontSize:16, fontWeight:700,
             background:"var(--olive-bright)", color:"var(--bg)" }}>+ NEW JOB</button>
+        <button onClick={() => setShowChoresView(true)} className="head"
+          style={{ flex:1, padding:"15px", borderRadius:9, fontSize:14, fontWeight:700,
+            background:"transparent", border:"1px solid var(--brass)", color:"var(--brass-bright)",
+            position:"relative" }}>
+          ⚑ CHORES
+          {chores.filter(c=>!c.done).length > 0 && (
+            <span style={{ position:"absolute", top:6, right:6, width:8, height:8,
+              borderRadius:"50%", background:"var(--brass-bright)" }} />
+          )}
+        </button>
       </div>
 
+      {/* Chores management view */}
+      {showChoresView && (
+        <ChoresView
+          chores={chores} jobs={jobs}
+          onClose={() => setShowChoresView(false)}
+          onToggle={toggleChore}
+          onOpenJob={(jobId) => { setShowChoresView(false); openJobPhotos(jobId); }}
+          onAdd={async (desc, jobId) => {
+            const { data, error } = await sb.from('chores').insert({
+              description: desc, job_id: jobId||null,
+              status: 'open', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            }).select().single();
+            if (error) { showToast(`Error: ${error.message}`, true); return; }
+            setChores(cs => [{ id: data.id, kind: null, job_id: jobId||null,
+              label: desc, created: todayISO(), done: false }, ...cs]);
+            showToast("Chore added");
+          }}
+          onDelete={async (choreId) => {
+            await sb.from('chores').delete().eq('id', choreId);
+            setChores(cs => cs.filter(c => c.id !== choreId));
+          }}
+        />
+      )}
+
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+    </div>
+  );
+}
+
+/* ── ChoresView ────────────────────────────────────────────────────────────── */
+function ChoresView({ chores, jobs, onClose, onToggle, onOpenJob, onAdd, onDelete }) {
+  const [desc, setDesc] = useState('');
+  const [jobId, setJobId] = useState('');
+  const [adding, setAdding] = useState(false);
+  const open = chores.filter(c => !c.done);
+
+  async function submit() {
+    if (!desc.trim()) return;
+    await onAdd(desc.trim(), jobId||null);
+    setDesc(''); setJobId(''); setAdding(false);
+  }
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:100, background:"var(--bg)", overflowY:"auto", paddingBottom:40 }}>
+      <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:10 }}>
+        <button onClick={onClose} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
+        <div className="head" style={{ fontSize:18, fontWeight:600 }}>CHORES</div>
+        <button onClick={() => setAdding(v=>!v)} className="head"
+          style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
+            background: adding ? "var(--panel-2)" : "var(--olive-bright)",
+            border: adding ? "1px solid var(--olive)" : "none",
+            color: adding ? "var(--text)" : "var(--bg)" }}>
+          {adding ? 'CANCEL' : '+ ADD'}
+        </button>
+      </div>
+
+      {adding && (
+        <div className="fade-in" style={{ padding:16, borderBottom:"1px solid var(--line)", background:"var(--panel-2)" }}>
+          <input value={desc} onChange={e=>setDesc(e.target.value)}
+            placeholder="What needs doing?" autoFocus
+            style={{ marginBottom:10 }} />
+          <select value={jobId} onChange={e=>setJobId(e.target.value)} style={{ marginBottom:12 }}>
+            <option value="">— Link to a job (optional) —</option>
+            {jobs.filter(j => j.status !== 'Closed').map(j => (
+              <option key={j.id} value={j.id}>{j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
+            ))}
+          </select>
+          <button onClick={submit} className="head"
+            style={{ width:"100%", padding:"14px", borderRadius:9, fontSize:15, fontWeight:700,
+              background:"var(--olive-bright)", color:"var(--bg)" }}>
+            SAVE CHORE
+          </button>
+        </div>
+      )}
+
+      <div style={{ padding:"12px 16px" }}>
+        {open.length === 0 && (
+          <div className="mono" style={{ color:"var(--muted)", fontSize:13, textAlign:"center", padding:"40px 0" }}>
+            NO OPEN CHORES
+          </div>
+        )}
+        {open.map(c => {
+          const linkedJob = c.job_id ? jobs.find(j => j.id === c.job_id) : null;
+          return (
+            <div key={c.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
+              <button onClick={() => onToggle(c.id)} style={{ flexShrink:0, paddingTop:2 }}>
+                <span style={{ display:"block", width:20, height:20, borderRadius:4, border:"1.5px solid var(--brass)" }} />
+              </button>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:15 }}>{c.label}</div>
+                {linkedJob && (
+                  <button onClick={() => onOpenJob(c.job_id)}
+                    style={{ marginTop:4, fontSize:12, color:"var(--brass-bright)", textAlign:"left" }}>
+                    📋 {linkedJob.customer} →
+                  </button>
+                )}
+              </div>
+              <button onClick={() => onDelete(c.id)}
+                style={{ flexShrink:0, fontSize:18, color:"var(--line)", paddingTop:2 }}>✕</button>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
