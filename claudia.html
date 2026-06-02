@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Claudia r10 — TMC Mechanical</title>
+<title>Claudia r11 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 10;
+const APP_REV = 11;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -759,14 +759,8 @@ function App() {
         width:"100%", maxWidth:520, background:"var(--panel)", borderTop:"1px solid var(--line)",
         padding:"12px 16px", display:"flex", gap:10, boxShadow:"0 -8px 24px rgba(0,0,0,0.4)" }}>
         <button onClick={() => setAdding(true)} className="head"
-          style={{ flex:2, padding:"15px", borderRadius:9, fontSize:16, fontWeight:700,
+          style={{ flex:1, padding:"15px", borderRadius:9, fontSize:16, fontWeight:700,
             background:"var(--olive-bright)", color:"var(--bg)" }}>+ NEW JOB</button>
-        <button onClick={exportJobs} className="head"
-          style={{ flex:1, padding:"15px", borderRadius:9, fontSize:14, fontWeight:600,
-            background:"transparent", color:"var(--brass-bright)", border:"1px solid var(--brass)" }}>EXPORT</button>
-        <button onClick={importJobs} className="head"
-          style={{ flex:1, padding:"15px", borderRadius:9, fontSize:14, fontWeight:600,
-            background:"transparent", color:"var(--olive-bright)", border:"1px solid var(--olive)" }}>IMPORT</button>
       </div>
 
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
