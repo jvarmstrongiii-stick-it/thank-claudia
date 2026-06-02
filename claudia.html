@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 18;
+const APP_REV = 19;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -927,6 +927,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const fileRef = useRef();
+  const cameraRef = useRef();
   const photoRef = useRef();
 
   useEffect(() => {
@@ -1013,12 +1014,25 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
         <div ref={photoRef} style={{ marginTop:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
             <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>PHOTOS</div>
-            <button onClick={() => fileRef.current.click()} className="head"
-              style={{ fontSize:13, fontWeight:600, padding:"5px 12px", borderRadius:6,
-                background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
-              {uploading ? 'UPLOADING…' : '📷 ADD'}
-            </button>
+            {uploading ? (
+              <span className="mono" style={{ fontSize:12, color:"var(--muted)" }}>UPLOADING…</span>
+            ) : (
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => cameraRef.current.click()} className="head"
+                  style={{ fontSize:13, fontWeight:600, padding:"5px 12px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
+                  📷 CAMERA
+                </button>
+                <button onClick={() => fileRef.current.click()} className="head"
+                  style={{ fontSize:13, fontWeight:600, padding:"5px 12px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  🖼 GALLERY
+                </button>
+              </div>
+            )}
           </div>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+            style={{ display:'none' }} onChange={handlePhotoInput} />
           <input ref={fileRef} type="file" accept="image/*" multiple
             style={{ display:'none' }} onChange={handlePhotoInput} />
           {photos.length === 0 && !uploading && (
