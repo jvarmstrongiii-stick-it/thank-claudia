@@ -447,6 +447,55 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  function importJobs() {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".json";
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      let payload;
+      try { payload = JSON.parse(await file.text()); } catch {
+        showToast("Invalid JSON file", true); return;
+      }
+      const importList = payload.jobs || [];
+      const choreList  = payload.chores || [];
+      if (!importList.length && !choreList.length) {
+        showToast("Nothing to import", true); return;
+      }
+      showToast(`Importing ${importList.length} jobs…`);
+      let ok = 0, fail = 0;
+      for (const job of importList) {
+        const customerId = await resolveCustomer(job);
+        if (!customerId) { fail++; continue; }
+        const { data, error } = await sb.from('jobs').insert({
+          ...toRow(job, customerId, currentUser?.id),
+          created_at: new Date().toISOString(),
+        }).select('id').single();
+        if (error) { fail++; console.warn('import job error', error); continue; }
+        // seed history notes
+        for (const h of (job.history || [])) {
+          await sb.from('job_notes').insert({
+            job_id: data.id, content: h.note,
+            source: 'user',
+            created_at: h.date ? new Date(h.date).toISOString() : new Date().toISOString(),
+          });
+        }
+        ok++;
+      }
+      for (const chore of choreList) {
+        await sb.from('chores').insert({
+          description: chore.label || chore.description || '',
+          status: chore.done ? 'done' : 'open',
+          priority: chore.kind || null,
+          created_at: new Date().toISOString(),
+        });
+      }
+      showToast(`Imported ${ok} job${ok!==1?'s':''}${fail ? `, ${fail} failed` : ''}`);
+      await refresh();
+    };
+    input.click();
+  }
+
   /* ── Render ── */
   if (!currentUser) return <Splash onSelect={selectUser} />;
 
@@ -652,6 +701,9 @@ function App() {
         <button onClick={exportJobs} className="head"
           style={{ flex:1, padding:"15px", borderRadius:9, fontSize:14, fontWeight:600,
             background:"transparent", color:"var(--brass-bright)", border:"1px solid var(--brass)" }}>EXPORT</button>
+        <button onClick={importJobs} className="head"
+          style={{ flex:1, padding:"15px", borderRadius:9, fontSize:14, fontWeight:600,
+            background:"transparent", color:"var(--olive-bright)", border:"1px solid var(--olive)" }}>IMPORT</button>
       </div>
 
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
