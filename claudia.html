@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 20;
+const APP_REV = 21;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -923,6 +923,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [showResched, setShowResched] = useState(false);
   const [date, setDate] = useState(job.scheduled_date);
   const [time, setTime] = useState(job.scheduled_time);
+  const [notes, setNotes] = useState(job.notes || '');
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -1008,7 +1009,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
 
         <div style={{ marginTop:10 }}>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
-          <textarea value={job.notes} onChange={e => onUpdate({ notes: e.target.value })} rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
+          <textarea value={notes} onChange={e => setNotes(e.target.value)}
+            onBlur={() => { if (notes !== (job.notes||'')) onUpdate({ notes }); }}
+            rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
         </div>
 
         {/* Photo strip */}
