@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 16;
+const APP_REV = 17;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -335,6 +335,7 @@ function App() {
   const [choresExpanded, setChoresExpanded] = useState(false);
   const [showChoresView, setShowChoresView] = useState(false);
   const [focusPhotos, setFocusPhotos] = useState(false);
+  const [users, setUsers] = useState(FALLBACK_USERS);
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -352,7 +353,7 @@ function App() {
   }
 
   const refresh = useCallback(async () => {
-    const [jobData, choreData] = await Promise.all([fetchJobs(), fetchChores()]);
+    const [jobData, choreData, userData] = await Promise.all([fetchJobs(), fetchChores(), fetchUsers()]);
     if (jobData === null) {
       showToast("Can't reach Supabase — showing cached data", true);
     } else {
@@ -361,6 +362,7 @@ function App() {
       try { localStorage.setItem(STORAGE_KEY, JSON.stringify(jobData)); } catch(e){}
     }
     setChores(choreData);
+    if (userData) setUsers(userData);
     setLoading(false);
   }, []);
 
