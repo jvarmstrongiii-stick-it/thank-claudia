@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 24;
+const APP_REV = 25;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1135,6 +1135,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const fileRef = useRef();
   const cameraRef = useRef();
   const scanRef = useRef();
+  const scanGalleryRef = useRef();
   const photoRef = useRef();
 
   useEffect(() => {
@@ -1167,6 +1168,25 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     if (!confirm('Remove this photo?')) return;
     await deletePhoto(photo.id, photo.storage_path);
     setPhotos(prev => prev.filter((_,i) => i !== idx));
+  }
+
+  async function runScan(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanning(true);
+    e.target.value = '';
+    try {
+      const result = await scanNameplate(file);
+      const updated = { ...equip };
+      const patch = {};
+      Object.keys(result).forEach(k => { if (result[k] != null) { updated[k] = String(result[k]); patch[k] = String(result[k]); } });
+      setEquip(updated);
+      if (Object.keys(patch).length) onUpdate(patch);
+    } catch(err) {
+      alert(`Scan failed: ${err.message}`);
+    } finally {
+      setScanning(false);
+    }
   }
 
   return (
@@ -1269,34 +1289,27 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
         <div style={{ marginTop:20 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
             <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>EQUIPMENT</div>
-            <div style={{ display:"flex", gap:8 }}>
-              <button onClick={() => scanRef.current.click()} disabled={scanning} className="head"
-                style={{ fontSize:12, fontWeight:600, padding:"5px 12px", borderRadius:6,
-                  background:"var(--panel)", border:"1px solid var(--brass)", color: scanning ? "var(--muted)" : "var(--brass-bright)" }}>
-                {scanning ? '🔍 SCANNING…' : '📷 SCAN NAMEPLATE'}
-              </button>
-            </div>
+            {scanning ? (
+              <span className="mono" style={{ fontSize:12, color:"var(--muted)" }}>🔍 SCANNING…</span>
+            ) : (
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => scanRef.current.click()} className="head"
+                  style={{ fontSize:12, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
+                  📷 CAMERA
+                </button>
+                <button onClick={() => scanGalleryRef.current.click()} className="head"
+                  style={{ fontSize:12, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  🖼 UPLOAD
+                </button>
+              </div>
+            )}
           </div>
-          <input ref={scanRef} type="file" accept="image/*" capture="environment"
-            style={{ display:'none' }} onChange={async (e) => {
-              const file = e.target.files[0];
-              if (!file) return;
-              setScanning(true);
-              e.target.value = '';
-              try {
-                const result = await scanNameplate(file);
-                const updated = { ...equip };
-                Object.keys(result).forEach(k => { if (result[k] != null) updated[k] = String(result[k]); });
-                setEquip(updated);
-                const patch = {};
-                Object.keys(result).forEach(k => { if (result[k] != null) patch[k] = String(result[k]); });
-                if (Object.keys(patch).length) onUpdate(patch);
-              } catch(err) {
-                alert(`Scan failed: ${err.message}`);
-              } finally {
-                setScanning(false);
-              }
-            }} />
+          <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
+            onChange={async (e) => { await runScan(e); }} />
+          <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }}
+            onChange={async (e) => { await runScan(e); }} />
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
             {EQUIP_FIELDS.map(({ key, label, span }) => (
               <div key={key} style={{ gridColumn:`span ${span}` }}>
