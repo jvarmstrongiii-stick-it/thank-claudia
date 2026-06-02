@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Claudia r12 — TMC Mechanical</title>
+<title>Claudia r13 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 12;
+const APP_REV = 13;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -460,7 +460,12 @@ function App() {
     }
   }
 
-  function fixOldStatuses() {
+  const [focusPhotos, setFocusPhotos] = useState(false);
+
+  function openJobPhotos(jobId) {
+    setSelectedId(jobId);
+    setFocusPhotos(true);
+  }
     const MAP = {
       "Needs Billing":"Completed/Needs Billing","Paid":"Completed/Paid",
       "Completed":"Completed/Needs Billing","Estimate Scheduled":"Evaluation Needed",
@@ -582,10 +587,11 @@ function App() {
   if (selected) return (
     <React.Fragment>
       <JobDetail job={selected}
-        onBack={() => setSelectedId(null)}
+        onBack={() => { setSelectedId(null); setFocusPhotos(false); }}
         onUpdate={(patch) => updateJob(selected.id, patch)}
         onEdit={() => setEditingId(selected.id)}
-        onDelete={() => deleteJob(selected.id)} />
+        onDelete={() => deleteJob(selected.id)}
+        focusPhotos={focusPhotos} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
     </React.Fragment>
   );
@@ -705,11 +711,15 @@ function App() {
               {choresExpanded && (
                 <div className="fade-in" style={{ padding:"0 14px 10px" }}>
                   {chores.filter(c=>!c.done).map(c => (
-                    <button key={c.id} onClick={() => toggleChore(c.id)}
-                      style={{ display:"flex", width:"100%", alignItems:"center", gap:10, padding:"8px 0", textAlign:"left", borderTop:"1px solid var(--line)" }}>
-                      <span style={{ width:18, height:18, borderRadius:4, border:"1.5px solid var(--brass)", flexShrink:0 }}></span>
-                      <span style={{ fontSize:14 }}>{c.label}</span>
-                    </button>
+                    <div key={c.id} style={{ display:"flex", width:"100%", alignItems:"center", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
+                      <button onClick={() => toggleChore(c.id)} style={{ flexShrink:0 }}>
+                        <span style={{ display:"block", width:18, height:18, borderRadius:4, border:"1.5px solid var(--brass)" }}></span>
+                      </button>
+                      <button onClick={() => c.job_id ? openJobPhotos(c.job_id) : null}
+                        style={{ flex:1, textAlign:"left", fontSize:14, color: c.job_id ? "var(--text)" : "var(--muted)" }}>
+                        {c.label}{c.job_id ? " →" : ""}
+                      </button>
+                    </div>
                   ))}
                 </div>
               )}
@@ -771,7 +781,7 @@ function App() {
 }
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
-function JobDetail({ job, onBack, onUpdate, onEdit, onDelete }) {
+function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [showStatus, setShowStatus] = useState(false);
   const [showResched, setShowResched] = useState(false);
   const [date, setDate] = useState(job.scheduled_date);
@@ -780,10 +790,17 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete }) {
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const fileRef = useRef();
+  const photoRef = useRef();
 
   useEffect(() => {
     fetchPhotos(job.id).then(setPhotos);
   }, [job.id]);
+
+  useEffect(() => {
+    if (focusPhotos && photoRef.current) {
+      setTimeout(() => photoRef.current.scrollIntoView({ behavior:'smooth', block:'center' }), 150);
+    }
+  }, [focusPhotos]);
 
   async function handlePhotoInput(e) {
     const files = Array.from(e.target.files);
@@ -853,7 +870,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete }) {
         </div>
 
         {/* Photo strip */}
-        <div style={{ marginTop:16 }}>
+        <div ref={photoRef} style={{ marginTop:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
             <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>PHOTOS</div>
             <button onClick={() => fileRef.current.click()} className="head"
