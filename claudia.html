@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>Claudia r14 — TMC Mechanical</title>
+<title>Claudia r15 — TMC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 14;
+const APP_REV = 15;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -333,6 +333,7 @@ function App() {
   const [searchClosed, setSearchClosed] = useState(false);
   const [choresExpanded, setChoresExpanded] = useState(false);
   const [showChoresView, setShowChoresView] = useState(false);
+  const [focusPhotos, setFocusPhotos] = useState(false);
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -461,12 +462,12 @@ function App() {
     }
   }
 
-  const [focusPhotos, setFocusPhotos] = useState(false);
-
   function openJobPhotos(jobId) {
     setSelectedId(jobId);
     setFocusPhotos(true);
   }
+
+  function fixOldStatuses() {
     const MAP = {
       "Needs Billing":"Completed/Needs Billing","Paid":"Completed/Paid",
       "Completed":"Completed/Needs Billing","Estimate Scheduled":"Evaluation Needed",
