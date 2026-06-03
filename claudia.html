@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 29;
+const APP_REV = 30;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -417,7 +417,12 @@ function App() {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
-  const [selectedId, setSelectedId] = useState(null);
+  const [selectedId, setSelectedIdRaw] = useState(() => sessionStorage.getItem('tmc_selected_job') || null);
+  function setSelectedId(id) {
+    if (id) sessionStorage.setItem('tmc_selected_job', id);
+    else sessionStorage.removeItem('tmc_selected_job');
+    setSelectedIdRaw(id);
+  }
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [filter, setFilter] = useState("All");
