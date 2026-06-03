@@ -182,38 +182,69 @@ Zero build step — works offline, deployed by downloading one file. Tyler and J
 
 ---
 
-## 14. Current Build State — 2026-06-02
+## 14. Current Build State — 2026-06-03
 
 ### ✅ Done
-- Single-file React app (`tmctracker.html`) wired to Supabase
+- Single-file React app (`claudia.html`) wired to Supabase, deployed via GitHub Actions → GitHub Pages
+- **Live URL:** https://jvarmstrongiii-stick-it.github.io/thank-claudia/
+- **Current revision:** r31 (APP_REV constant displayed in header)
 - Splash screen: tap your name (reads from `users` table, falls back to Tyler/Jack)
 - Full job CRUD — all writes go to Supabase, read by any device on reload
 - Field mapping layer: flat local job shape ↔ normalized `jobs` + `customers` tables
 - `resolveCustomer`: case-insensitive lookup → insert new customer if not found
 - `job_notes` table used for work history (filters out `source='system'` entries from display)
 - Status changes write a system note to `job_notes`
-- Chores sync to `chores` table
-- Refetch on window focus — near-live sync without subscriptions
+- Chores sync to `chores` table; full chores management view (⚑ CHORES button)
+- Chores can be assigned to users and linked to jobs
+- Billing chore auto-created when job reaches "Completed/Needs Billing"
+- 60-second auto-refresh + window focus refresh for near-live sync
 - localStorage write-through cache for instant render before fetch resolves
+- Selected job persists across page reloads via sessionStorage
 - Toast notifications for all errors and confirmations
-- Import button — seeds Supabase from exported legacy JSON (localStorage → Supabase)
-- Export button — downloads full job+chore snapshot as JSON
+- PWA manifest + Apple meta tags — installable via Add to Home Screen
 - 15 real jobs imported and live on both phones ✅
+- **Photo upload:** camera + gallery buttons → uploads to Supabase Storage `job-photos` bucket → persists to `job_photos` table
+- **Pinch-to-zoom lightbox:** pinch to zoom 6×, pan, tap to close; ✕ button always visible
+- **OCR nameplate scanning:** 📷 SCAN (camera) + 🖼 UPLOAD (gallery) in equipment section, plus 🔍 SCAN FOR EQUIPMENT from any photo lightbox → Claude vision API via Supabase Edge Function proxy (`claude-proxy`) → label prompt with suggestion chips → saves to `equipment` table
+- **Equipment table:** linked to customers (not jobs), each unit has a user-defined label (e.g. "Living Room", "Outdoor Unit"), expandable cards showing all specs; all equipment for a customer shows on every job for that address
+- Notes textarea: local state while typing, saves to Supabase on blur (no per-keystroke writes)
+- Users state loaded in App — available for chore assignment dropdowns
 
 ### Supabase Project
 - **URL:** https://asiviwwstglniuhsryze.supabase.co
 - **Project ID:** asiviwwstglniuhsryze
 - **Compute:** NANO
+- **Edge Function:** `claude-proxy` — proxies Claude API calls to avoid browser CORS; `ANTHROPIC_KEY` stored as Edge Function secret
+
+### Storage
+- **Bucket:** `job-photos` (public) — stores job site photos
+- **Table:** `job_photos` (id, job_id, url, storage_path, created_at)
+
+### Equipment Table
+```sql
+equipment (
+  id uuid PK,
+  customer_id uuid → customers.id CASCADE,
+  label text NOT NULL,
+  equipment_type, brand, model_number, serial_number,
+  tonnage, refrigerant, voltage, seer, mca, mop,
+  year_manufactured, notes text,
+  created_at, updated_at timestamptz
+)
+```
+RLS: `anon_all` policy (FOR ALL TO anon USING (true) WITH CHECK (true))
 
 ### RLS Policies in place (anon key)
-Tables with SELECT: `jobs`, `customers`, `job_notes`, `chores`, `users`, `job_status_history`  
-Tables with INSERT: `jobs`, `customers`, `job_notes`, `chores`, `job_status_history`  
-Tables with UPDATE: `jobs`, `customers`, `chores`  
-Tables with DELETE: `jobs`
+Tables with SELECT: `jobs`, `customers`, `job_notes`, `chores`, `users`, `job_status_history`, `job_photos`, `equipment`
+Tables with INSERT: `jobs`, `customers`, `job_notes`, `chores`, `job_status_history`, `job_photos`, `equipment`
+Tables with UPDATE: `jobs`, `customers`, `chores`, `equipment`
+Tables with DELETE: `jobs`, `job_photos`, `equipment`
 
 ### DB fixes applied
 - Dropped `jobs_flow_type_check` constraint (was blocking job type text values)
+- Dropped `chores_status_check` and `chores_priority_check` constraints
 - Added anon INSERT policy on `job_status_history` (DB trigger fires on every job insert)
+- Added `url` column to `job_photos` table
 
 ---
 
@@ -221,14 +252,14 @@ Tables with DELETE: `jobs`
 
 | Issue | Priority | Notes |
 |---|---|---|
-| Photo upload | High | Supabase Storage bucket not set up yet — camera button is stubbed |
-| OCR nameplate scanning | High | Photo → Claude vision → populate model/serial on equipment table |
-| PWA manifest | Medium | Add to Home Screen feels like a native app install |
-| Real-time subscriptions | Medium | Currently refetch-on-focus; Supabase Realtime would push instantly |
+| `job_notes` not populating | High | RLS INSERT policy for anon may be missing — run `CREATE POLICY "anon_insert" ON job_notes FOR INSERT TO anon WITH CHECK (true)` |
+| Real-time subscriptions | Medium | Currently refetch-on-focus + 60s timer; Supabase Realtime would push instantly |
 | `location` / `site_address` not persisted | Medium | No separate DB column yet — mirrors customer_address on load |
 | Customer deduplication | Low | ilike lookup is best-effort; DB unique constraint + upsert would be cleaner |
-| Job assignment UI | Medium | `assigned_to` column exists, no picker in UI yet |
-| Pull-to-refresh gesture | Low | Currently refresh button only |
+| Job assignment UI | Medium | `assigned_to` column exists on jobs, no picker in UI yet |
+| Pull-to-refresh gesture | Low | Currently ↺ button only |
+| Camera photos don't save to device roll | Low | Browser limitation — use native camera app then 🖼 GALLERY to import |
+| Equipment manual add | Low | Currently scan-only; add a manual entry form for equipment without a legible tag |
 
 ---
 
