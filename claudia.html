@@ -61,14 +61,14 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 27;
+const APP_REV = 28;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzaXZpd3dzdGdsbml1aHNyeXplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDkzOTcsImV4cCI6MjA5NTU4NTM5N30.Eo_waRUbNxdq3xEfEd7AxCAEnVc4VobaV8N5ZPyGi0o';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-const ANTHROPIC_KEY_STORAGE = 'tmc_anthropic_key';
-function getAnthropicKey() { return localStorage.getItem(ANTHROPIC_KEY_STORAGE) || ''; }
+const CLAUDE_PROXY = `${SUPABASE_URL}/functions/v1/claude-proxy`;
+function getAnthropicKey() { return ''; } // key lives in Supabase Edge Function secret
 function setAnthropicKey(k) { localStorage.setItem(ANTHROPIC_KEY_STORAGE, k); }
 
 /* ── Storage keys ──────────────────────────────────────────────────────────── */
@@ -273,16 +273,9 @@ async function scanNameplate(file) {
         const rawType = match[1];
         const base64Data = match[2];
         const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType) ? rawType : 'image/jpeg';
-        const apiKey = getAnthropicKey();
-        if (!apiKey) { reject(new Error('No API key — tap ⚙ SETTINGS to add your Anthropic key')); return; }
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
+        const res = await fetch(CLAUDE_PROXY, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': apiKey,
-            'anthropic-version': '2023-06-01',
-            'anthropic-dangerous-allow-browser': 'true',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             model: 'claude-haiku-4-5-20251001',
             max_tokens: 512,
@@ -308,16 +301,9 @@ async function scanNameplate(file) {
 }
 
 async function scanNameplateFromUrl(url) {
-  const apiKey = getAnthropicKey();
-  if (!apiKey) throw new Error('No API key — tap ⚙ SETTINGS to add your Anthropic key');
-  const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+  const apiRes = await fetch(CLAUDE_PROXY, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-allow-browser': 'true',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 512,
@@ -754,8 +740,7 @@ function App() {
             ↺
           </button>
           <button onClick={() => setShowSettings(true)} className="mono"
-            style={{ fontSize:11, color: getAnthropicKey() ? "var(--brass-bright)" : "var(--danger)",
-              padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
+            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
             ⚙
           </button>
           <div className="mono" style={{ fontSize:10, color:"var(--line)", marginLeft:2 }}>r{APP_REV}</div>
@@ -937,8 +922,6 @@ function App() {
 
 /* ── SettingsModal ─────────────────────────────────────────────────────────── */
 function SettingsModal({ onClose }) {
-  const [key, setKey] = useState(getAnthropicKey());
-  function save() { setAnthropicKey(key.trim()); onClose(); }
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
       <div onClick={e => e.stopPropagation()} className="fade-in"
@@ -948,14 +931,14 @@ function SettingsModal({ onClose }) {
           <div className="head" style={{ fontSize:16, fontWeight:700 }}>SETTINGS</div>
           <button onClick={onClose} className="mono" style={{ color:"var(--muted)", fontSize:18 }}>✕</button>
         </div>
-        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>ANTHROPIC API KEY</div>
-        <div className="mono" style={{ fontSize:11, color:"var(--line)", marginBottom:8 }}>Used for nameplate scanning. Stored locally on this device only.</div>
-        <input type="password" value={key} onChange={e => setKey(e.target.value)}
-          placeholder="sk-ant-api03-…" style={{ marginBottom:14, fontFamily:"monospace", fontSize:13 }} />
-        <button onClick={save} className="head"
-          style={{ width:"100%", padding:14, borderRadius:9, fontSize:15, fontWeight:700,
-            background:"var(--brass-bright)", color:"var(--bg)" }}>
-          SAVE
+        <div className="mono" style={{ fontSize:12, color:"var(--muted)", lineHeight:1.6 }}>
+          AI nameplate scanning runs via a Supabase Edge Function (claude-proxy).<br/>
+          API key is stored as a server-side secret — not on this device.
+        </div>
+        <button onClick={onClose} className="head"
+          style={{ width:"100%", marginTop:20, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+            background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+          CLOSE
         </button>
       </div>
     </div>
