@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 33;
+const APP_REV = 34;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -246,10 +246,11 @@ async function fetchEquipment(customerId) {
   return data || [];
 }
 
-async function saveEquipment(customerId, label, fields, installDate) {
+async function saveEquipment(customerId, label, fields, installDate, jobId) {
   const row = { customer_id: customerId, label, created_at: new Date().toISOString() };
   EQUIP_KEYS.forEach(k => { if (fields[k] != null) row[k] = String(fields[k]); });
   if (installDate) row.install_date = installDate;
+  if (jobId) row.job_id = jobId;
   const { data, error } = await sb.from('equipment').insert(row).select().single();
   return { data, error };
 }
@@ -1296,10 +1297,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [expandedEquipId, setExpandedEquipId] = useState(null);
   const [showWarrantySheet, setShowWarrantySheet] = useState(null);
   const [scanning, setScanning] = useState(false);
+  const [pendingOtherScan, setPendingOtherScan] = useState(null);
+  const [scanningOther, setScanningOther] = useState(false);
   const fileRef = useRef();
   const cameraRef = useRef();
   const scanRef = useRef();
   const scanGalleryRef = useRef();
+  const otherScanRef = useRef();
+  const otherScanGalleryRef = useRef();
   const photoRef = useRef();
 
   useEffect(() => {
@@ -1355,13 +1360,105 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     }
   }
 
+  async function runOtherScan(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanningOther(true);
+    e.target.value = '';
+    try {
+      const result = await scanNameplate(file);
+      const hasData = Object.values(result).some(v => v != null);
+      if (!hasData) { alert('No equipment data found in this photo.'); return; }
+      setPendingOtherScan(result);
+    } catch(err) {
+      alert(`Scan failed: ${err.message}`);
+    } finally {
+      setScanningOther(false);
+    }
+  }
+
   async function saveNewEquipment(label) {
     if (!job._customer_id) { alert('No customer linked to this job.'); return; }
     const installDate = job.scheduled_date || todayISO();
-    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {}, installDate);
+    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {}, installDate, job.id);
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setEquipmentList(prev => [...prev, data]);
     setPendingScan(null);
+  }
+
+  async function saveOtherEquipment(label) {
+    if (!job._customer_id) { alert('No customer linked to this job.'); return; }
+    const { data, error } = await saveEquipment(job._customer_id, label, pendingOtherScan || {}, null, null);
+    if (error) { alert(`Save failed: ${error.message}`); return; }
+    setEquipmentList(prev => [...prev, data]);
+    setPendingOtherScan(null);
+  }
+
+  function renderEquipCard(eq) {
+    const ws = warrantyStatus(eq);
+    const wBorder = ws.type === 'urgent' ? 'var(--brass)' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? '#5d8a3a' : 'var(--line)';
+    return (
+      <div key={eq.id} style={{ border:`1px solid ${wBorder}`, borderRadius:9, padding:12, marginBottom:8 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+          <div style={{ flex:1 }}>
+            <div className="head" style={{ fontSize:17, fontWeight:700 }}>{eq.label}</div>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginTop:2 }}>
+              {[eq.brand, eq.model_number].filter(Boolean).join(' · ') || eq.equipment_type || '—'}
+            </div>
+            {eq.serial_number && (
+              <div className="mono" style={{ fontSize:13, color:"var(--brass)", marginTop:1 }}>S/N {eq.serial_number}</div>
+            )}
+            {ws.type === 'registered' && (
+              <div className="mono" style={{ fontSize:11, color:'#5d8a3a', marginTop:4 }}>
+                ✓ WARRANTY REGISTERED{ws.expires ? ` · exp ${fmtDate(ws.expires)}` : ''}
+              </div>
+            )}
+            {ws.type === 'pending' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                📋 register warranty ({ws.daysLeft}d left)
+              </button>
+            )}
+            {ws.type === 'urgent' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--brass-bright)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                ⚠ REGISTER NOW — {ws.daysLeft}d LEFT
+              </button>
+            )}
+            {ws.type === 'lapsed' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--danger)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                ⚠ 60-DAY WINDOW EXPIRED
+              </button>
+            )}
+            {ws.type === 'untracked' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                📋 register warranty
+              </button>
+            )}
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={() => setExpandedEquipId(expandedEquipId === eq.id ? null : eq.id)}
+              className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>
+              {expandedEquipId === eq.id ? '▲' : '▼'}
+            </button>
+            <button onClick={async () => { if (confirm(`Remove "${eq.label}"?`)) { await deleteEquipmentItem(eq.id); setEquipmentList(p => p.filter(e => e.id !== eq.id)); } }}
+              className="mono" style={{ fontSize:14, color:"var(--line)", padding:"2px 6px" }}>✕</button>
+          </div>
+        </div>
+        {expandedEquipId === eq.id && (
+          <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+            {EQUIP_FIELDS.filter(f => eq[f.key]).map(f => (
+              <div key={f.key}>
+                <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>{f.label}</div>
+                <div style={{ fontSize:15 }}>{eq[f.key]}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -1462,10 +1559,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
         )}
 
         {/* Equipment */}
+        {(() => {
+          const jobEquip = equipmentList.filter(eq => eq.job_id === job.id);
+          const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
+          return (
         <div style={{ marginTop:20 }}>
+          {/* THIS JOB section */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
             <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
-              EQUIPMENT{equipmentList.length > 0 ? ` (${equipmentList.length})` : ''}
+              THIS JOB{jobEquip.length > 0 ? ` (${jobEquip.length})` : ''}
             </div>
             {scanning ? (
               <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
@@ -1486,77 +1588,42 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           </div>
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
           <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
-
-          {equipmentList.length === 0 && !scanning && (
-            <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"10px 0" }}>No equipment logged yet</div>
+          {jobEquip.length === 0 && !scanning && (
+            <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No equipment scanned for this job</div>
           )}
-          {equipmentList.map(eq => {
-            const ws = warrantyStatus(eq);
-            const wBorder = ws.type === 'urgent' ? 'var(--brass)' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? '#5d8a3a' : 'var(--line)';
-            return (
-            <div key={eq.id} style={{ border:`1px solid ${wBorder}`, borderRadius:9, padding:12, marginBottom:8 }}>
-              <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
-                <div style={{ flex:1 }}>
-                  <div className="head" style={{ fontSize:17, fontWeight:700 }}>{eq.label}</div>
-                  <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginTop:2 }}>
-                    {[eq.brand, eq.model_number].filter(Boolean).join(' · ') || eq.equipment_type || '—'}
-                  </div>
-                  {eq.serial_number && (
-                    <div className="mono" style={{ fontSize:13, color:"var(--brass)", marginTop:1 }}>S/N {eq.serial_number}</div>
-                  )}
-                  {/* Warranty badge */}
-                  {ws.type === 'registered' && (
-                    <div className="mono" style={{ fontSize:11, color:'#5d8a3a', marginTop:4 }}>
-                      ✓ WARRANTY REGISTERED{ws.expires ? ` · exp ${fmtDate(ws.expires)}` : ''}
-                    </div>
-                  )}
-                  {ws.type === 'pending' && (
-                    <button onClick={() => setShowWarrantySheet(eq)}
-                      className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
-                      📋 register warranty ({ws.daysLeft}d left)
-                    </button>
-                  )}
-                  {ws.type === 'urgent' && (
-                    <button onClick={() => setShowWarrantySheet(eq)}
-                      className="mono" style={{ fontSize:11, color:'var(--brass-bright)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
-                      ⚠ REGISTER NOW — {ws.daysLeft}d LEFT
-                    </button>
-                  )}
-                  {ws.type === 'lapsed' && (
-                    <button onClick={() => setShowWarrantySheet(eq)}
-                      className="mono" style={{ fontSize:11, color:'var(--danger)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
-                      ⚠ 60-DAY WINDOW EXPIRED
-                    </button>
-                  )}
-                  {ws.type === 'untracked' && (
-                    <button onClick={() => setShowWarrantySheet(eq)}
-                      className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
-                      📋 register warranty
-                    </button>
-                  )}
-                </div>
-                <div style={{ display:"flex", gap:6 }}>
-                  <button onClick={() => setExpandedEquipId(expandedEquipId === eq.id ? null : eq.id)}
-                    className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>
-                    {expandedEquipId === eq.id ? '▲' : '▼'}
-                  </button>
-                  <button onClick={async () => { if (confirm(`Remove "${eq.label}"?`)) { await deleteEquipmentItem(eq.id); setEquipmentList(p => p.filter(e => e.id !== eq.id)); } }}
-                    className="mono" style={{ fontSize:14, color:"var(--line)", padding:"2px 6px" }}>✕</button>
-                </div>
-              </div>
-              {expandedEquipId === eq.id && (
-                <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, borderTop:"1px solid var(--line)", paddingTop:10 }}>
-                  {EQUIP_FIELDS.filter(f => eq[f.key]).map(f => (
-                    <div key={f.key}>
-                      <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>{f.label}</div>
-                      <div style={{ fontSize:15 }}>{eq[f.key]}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
+          {jobEquip.map(renderEquipCard)}
+
+          {/* OTHER AT THIS ADDRESS section */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, marginBottom:10, borderTop:"1px solid var(--line)", paddingTop:14 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
+              OTHER AT THIS ADDRESS{otherEquip.length > 0 ? ` (${otherEquip.length})` : ''}
             </div>
-            );
-          })}
+            {scanningOther ? (
+              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
+            ) : (
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => otherScanRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  📷 SCAN
+                </button>
+                <button onClick={() => otherScanGalleryRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  🖼 UPLOAD
+                </button>
+              </div>
+            )}
+          </div>
+          <input ref={otherScanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runOtherScan} />
+          <input ref={otherScanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runOtherScan} />
+          {otherEquip.length === 0 && !scanningOther && (
+            <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No other equipment logged</div>
+          )}
+          {otherEquip.map(renderEquipCard)}
+        </div>
+          );
+        })()}
         </div>
 
         {pendingScan && (
@@ -1564,6 +1631,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
             scan={pendingScan}
             onSave={saveNewEquipment}
             onCancel={() => setPendingScan(null)}
+          />
+        )}
+
+        {pendingOtherScan && (
+          <LabelPromptSheet
+            scan={pendingOtherScan}
+            onSave={saveOtherEquipment}
+            onCancel={() => setPendingOtherScan(null)}
           />
         )}
 
