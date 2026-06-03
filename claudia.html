@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 30;
+const APP_REV = 31;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -158,17 +158,6 @@ function fromRow(row, notes=[]) {
       date: (n.created_at||'').slice(0,10),
       note: n.content,
     })),
-    equipment_type: row.equipment_type || '',
-    brand: row.brand || '',
-    model_number: row.model_number || '',
-    serial_number: row.serial_number || '',
-    tonnage: row.tonnage || '',
-    refrigerant: row.refrigerant || '',
-    voltage: row.voltage || '',
-    seer: row.seer || '',
-    mca: row.mca || '',
-    mop: row.mop || '',
-    year_manufactured: row.year_manufactured || '',
     _customer_id: row.customer_id,
     _assigned_to: row.assigned_to,
   };
@@ -191,17 +180,6 @@ function toRow(job, customerId, userId) {
     value: Number(job.value) || null,
     scheduled_at,
     notes: job.notes || null,
-    equipment_type: job.equipment_type || null,
-    brand: job.brand || null,
-    model_number: job.model_number || null,
-    serial_number: job.serial_number || null,
-    tonnage: job.tonnage || null,
-    refrigerant: job.refrigerant || null,
-    voltage: job.voltage || null,
-    seer: job.seer || null,
-    mca: job.mca || null,
-    mop: job.mop || null,
-    year_manufactured: job.year_manufactured || null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -259,6 +237,47 @@ async function uploadPhoto(jobId, file) {
 async function deletePhoto(photoId, storagePath) {
   if (storagePath) await sb.storage.from('job-photos').remove([storagePath]);
   await sb.from('job_photos').delete().eq('id', photoId);
+}
+
+async function fetchEquipment(customerId) {
+  if (!customerId) return [];
+  const { data, error } = await sb.from('equipment').select('*').eq('customer_id', customerId).order('created_at');
+  if (error) { console.warn('fetchEquipment', error); return []; }
+  return data || [];
+}
+
+async function saveEquipment(customerId, label, fields) {
+  const row = { customer_id: customerId, label, created_at: new Date().toISOString() };
+  EQUIP_KEYS.forEach(k => { if (fields[k] != null) row[k] = String(fields[k]); });
+  const { data, error } = await sb.from('equipment').insert(row).select().single();
+  return { data, error };
+}
+
+async function updateEquipment(id, fields) {
+  const row = { updated_at: new Date().toISOString() };
+  if ('label' in fields) row.label = fields.label;
+  EQUIP_KEYS.forEach(k => { if (k in fields) row[k] = fields[k]||null; });
+  const { error } = await sb.from('equipment').update(row).eq('id', id);
+  return error;
+}
+
+async function deleteEquipmentItem(id) {
+  await sb.from('equipment').delete().eq('id', id);
+}
+
+const EQUIP_KEYS = ['equipment_type','brand','model_number','serial_number','tonnage','refrigerant','voltage','seer','mca','mop','year_manufactured'];
+
+function getLabelSuggestions(equipType) {
+  const t = (equipType||'').toLowerCase();
+  if (t.includes('indoor') || t.includes('mini') || t.includes('split') || t.includes('air handler'))
+    return ['Living Room','Master Bedroom','Bedroom 2','Bedroom 3','Kitchen','Office','Basement','Dining Room','Hallway'];
+  if (t.includes('outdoor') || t.includes('condenser') || t.includes('heat pump'))
+    return ['Outdoor Unit','Condenser'];
+  if (t.includes('furnace') || t.includes('boiler'))
+    return ['Furnace','Boiler','Basement Unit'];
+  if (t.includes('water'))
+    return ['Water Heater','Hot Water Tank'];
+  return ['Living Room','Master Bedroom','Outdoor Unit','Furnace','Water Heater','Air Handler','Basement Unit','Office'];
 }
 
 async function scanNameplate(file) {
@@ -505,8 +524,6 @@ function App() {
       const t = ('scheduled_time' in patch ? patch.scheduled_time : job.scheduled_time);
       if (d && t) { const dt = new Date(`${d}T${t}:00`); updateData.scheduled_at = isNaN(dt) ? null : dt.toISOString(); }
     }
-    ['equipment_type','brand','model_number','serial_number','tonnage','refrigerant','voltage','seer','mca','mop','year_manufactured']
-      .forEach(k => { if (k in patch) updateData[k] = patch[k]||null; });
     const { error } = await sb.from('jobs').update(updateData).eq('id', id);
     if (error) { showToast("Error updating job", true); console.error(error); return; }
     if (patch.status && patch.status !== job.status) {
@@ -1044,21 +1061,21 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onOpenJob, onAdd, 
 }
 
 const EQUIP_FIELDS = [
-  { key:'equipment_type',   label:'TYPE',        span:2 },
-  { key:'brand',            label:'BRAND',       span:1 },
-  { key:'year_manufactured',label:'YEAR MFG',    span:1 },
-  { key:'model_number',     label:'MODEL #',     span:2 },
-  { key:'serial_number',    label:'SERIAL #',    span:2 },
-  { key:'tonnage',          label:'TONNAGE',     span:1 },
-  { key:'refrigerant',      label:'REFRIGERANT', span:1 },
-  { key:'voltage',          label:'VOLTAGE',     span:1 },
-  { key:'seer',             label:'SEER',        span:1 },
-  { key:'mca',              label:'MCA',         span:1 },
-  { key:'mop',              label:'MOP',         span:1 },
+  { key:'equipment_type',   label:'TYPE'        },
+  { key:'brand',            label:'BRAND'       },
+  { key:'year_manufactured',label:'YEAR MFG'    },
+  { key:'model_number',     label:'MODEL #'     },
+  { key:'serial_number',    label:'SERIAL #'    },
+  { key:'tonnage',          label:'TONNAGE'     },
+  { key:'refrigerant',      label:'REFRIGERANT' },
+  { key:'voltage',          label:'VOLTAGE'     },
+  { key:'seer',             label:'SEER'        },
+  { key:'mca',              label:'MCA'         },
+  { key:'mop',              label:'MOP'         },
 ];
 
 /* ── Lightbox ──────────────────────────────────────────────────────────────── */
-function Lightbox({ url, onClose, onImportEquipment }) {
+function Lightbox({ url, onClose, onScanResult }) {
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x:0, y:0 });
   const lastDist = useRef(null);
@@ -1171,7 +1188,7 @@ function Lightbox({ url, onClose, onImportEquipment }) {
               </div>
             ))}
             <div style={{ display:"flex", gap:8, marginTop:12 }}>
-              <button onClick={() => { onImportEquipment(scanResult); onClose(); }} className="head"
+              <button onClick={() => { onScanResult(scanResult); onClose(); }} className="head"
                 style={{ flex:1, padding:"10px", borderRadius:8, fontSize:13, fontWeight:700,
                   background:"rgba(180,150,60,0.9)", color:"#000" }}>
                 IMPORT TO JOB
@@ -1194,6 +1211,53 @@ function Lightbox({ url, onClose, onImportEquipment }) {
   );
 }
 
+/* ── LabelPromptSheet ──────────────────────────────────────────────────────── */
+function LabelPromptSheet({ scan, onSave, onCancel }) {
+  const [label, setLabel] = useState('');
+  const suggestions = getLabelSuggestions(scan.equipment_type);
+  const found = Object.entries(scan).filter(([,v]) => v != null);
+  return (
+    <div onClick={onCancel} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="fade-in"
+        style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+          borderRadius:"16px 16px 0 0", padding:"20px 16px 36px", maxHeight:"80vh", overflowY:"auto" }}>
+        <div className="head" style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>WHAT IS THIS UNIT?</div>
+        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:12 }}>
+          {found.map(([k,v]) => `${k.replace(/_/g,' ')}: ${v}`).join(' · ')}
+        </div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:12 }}>
+          {suggestions.map(s => (
+            <button key={s} onClick={() => setLabel(s)} className="head"
+              style={{ padding:"7px 14px", borderRadius:20, fontSize:13, fontWeight:600,
+                background: label === s ? "var(--brass-bright)" : "var(--panel)",
+                color: label === s ? "var(--bg)" : "var(--text)",
+                border: label === s ? "none" : "1px solid var(--line)" }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <input value={label} onChange={e => setLabel(e.target.value)}
+          placeholder="Or type a custom name…"
+          style={{ marginBottom:14 }} autoFocus />
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={() => { if (label.trim()) onSave(label.trim()); }} className="head"
+            disabled={!label.trim()}
+            style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+              background: label.trim() ? "var(--brass-bright)" : "var(--line)",
+              color: label.trim() ? "var(--bg)" : "var(--muted)" }}>
+            SAVE EQUIPMENT
+          </button>
+          <button onClick={onCancel} className="head"
+            style={{ padding:"14px 18px", borderRadius:9, fontSize:14,
+              background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+            CANCEL
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
 function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [showStatus, setShowStatus] = useState(false);
@@ -1204,13 +1268,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
-  const [equip, setEquip] = useState({
-    equipment_type: job.equipment_type||'', brand: job.brand||'',
-    model_number: job.model_number||'', serial_number: job.serial_number||'',
-    tonnage: job.tonnage||'', refrigerant: job.refrigerant||'',
-    voltage: job.voltage||'', seer: job.seer||'',
-    mca: job.mca||'', mop: job.mop||'', year_manufactured: job.year_manufactured||'',
-  });
+  const [equipmentList, setEquipmentList] = useState([]);
+  const [pendingScan, setPendingScan] = useState(null);
+  const [expandedEquipId, setExpandedEquipId] = useState(null);
   const [scanning, setScanning] = useState(false);
   const fileRef = useRef();
   const cameraRef = useRef();
@@ -1221,6 +1281,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   useEffect(() => {
     fetchPhotos(job.id).then(setPhotos);
   }, [job.id]);
+
+  useEffect(() => {
+    fetchEquipment(job._customer_id).then(setEquipmentList);
+  }, [job._customer_id]);
 
   useEffect(() => {
     if (focusPhotos && photoRef.current) {
@@ -1257,16 +1321,22 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     e.target.value = '';
     try {
       const result = await scanNameplate(file);
-      const updated = { ...equip };
-      const patch = {};
-      Object.keys(result).forEach(k => { if (result[k] != null) { updated[k] = String(result[k]); patch[k] = String(result[k]); } });
-      setEquip(updated);
-      if (Object.keys(patch).length) onUpdate(patch);
+      const hasData = Object.values(result).some(v => v != null);
+      if (!hasData) { alert('No equipment data found in this photo.'); return; }
+      setPendingScan(result);
     } catch(err) {
       alert(`Scan failed: ${err.message}`);
     } finally {
       setScanning(false);
     }
+  }
+
+  async function saveNewEquipment(label) {
+    if (!job._customer_id) { alert('No customer linked to this job.'); return; }
+    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {});
+    if (error) { alert(`Save failed: ${error.message}`); return; }
+    setEquipmentList(prev => [...prev, data]);
+    setPendingScan(null);
   }
 
   return (
@@ -1363,19 +1433,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
 
         {lightbox && (
           <Lightbox url={lightbox} onClose={() => setLightbox(null)}
-            onImportEquipment={(result) => {
-              const updated = { ...equip };
-              const patch = {};
-              Object.keys(result).forEach(k => { if (result[k] != null) { updated[k] = String(result[k]); patch[k] = String(result[k]); } });
-              setEquip(updated);
-              if (Object.keys(patch).length) onUpdate(patch);
-            }} />
+            onScanResult={(result) => { setPendingScan(result); }} />
         )}
 
         {/* Equipment */}
         <div style={{ marginTop:20 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-            <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>EQUIPMENT</div>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>
+              EQUIPMENT{equipmentList.length > 0 ? ` (${equipmentList.length})` : ''}
+            </div>
             {scanning ? (
               <span className="mono" style={{ fontSize:12, color:"var(--muted)" }}>🔍 SCANNING…</span>
             ) : (
@@ -1383,7 +1449,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
                 <button onClick={() => scanRef.current.click()} className="head"
                   style={{ fontSize:12, fontWeight:600, padding:"5px 10px", borderRadius:6,
                     background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
-                  📷 CAMERA
+                  📷 SCAN
                 </button>
                 <button onClick={() => scanGalleryRef.current.click()} className="head"
                   style={{ fontSize:12, fontWeight:600, padding:"5px 10px", borderRadius:6,
@@ -1393,23 +1459,54 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
               </div>
             )}
           </div>
-          <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }}
-            onChange={async (e) => { await runScan(e); }} />
-          <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }}
-            onChange={async (e) => { await runScan(e); }} />
-          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:8 }}>
-            {EQUIP_FIELDS.map(({ key, label, span }) => (
-              <div key={key} style={{ gridColumn:`span ${span}` }}>
-                <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginBottom:3 }}>{label}</div>
-                <input value={equip[key]}
-                  onChange={e => setEquip(prev => ({ ...prev, [key]: e.target.value }))}
-                  onBlur={() => { if (equip[key] !== (job[key]||'')) onUpdate({ [key]: equip[key]||null }); }}
-                  placeholder="—"
-                  style={{ padding:"6px 8px", fontSize:13 }} />
+          <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
+          <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
+
+          {equipmentList.length === 0 && !scanning && (
+            <div className="mono" style={{ fontSize:12, color:"var(--line)", padding:"10px 0" }}>No equipment logged yet</div>
+          )}
+          {equipmentList.map(eq => (
+            <div key={eq.id} style={{ border:"1px solid var(--line)", borderRadius:9, padding:12, marginBottom:8 }}>
+              <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+                <div style={{ flex:1 }}>
+                  <div className="head" style={{ fontSize:15, fontWeight:700 }}>{eq.label}</div>
+                  <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>
+                    {[eq.brand, eq.model_number].filter(Boolean).join(' · ') || eq.equipment_type || '—'}
+                  </div>
+                  {eq.serial_number && (
+                    <div className="mono" style={{ fontSize:11, color:"var(--brass)", marginTop:1 }}>S/N {eq.serial_number}</div>
+                  )}
+                </div>
+                <div style={{ display:"flex", gap:6 }}>
+                  <button onClick={() => setExpandedEquipId(expandedEquipId === eq.id ? null : eq.id)}
+                    className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>
+                    {expandedEquipId === eq.id ? '▲' : '▼'}
+                  </button>
+                  <button onClick={async () => { if (confirm(`Remove "${eq.label}"?`)) { await deleteEquipmentItem(eq.id); setEquipmentList(p => p.filter(e => e.id !== eq.id)); } }}
+                    className="mono" style={{ fontSize:14, color:"var(--line)", padding:"2px 6px" }}>✕</button>
+                </div>
               </div>
-            ))}
-          </div>
+              {expandedEquipId === eq.id && (
+                <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+                  {EQUIP_FIELDS.filter(f => eq[f.key]).map(f => (
+                    <div key={f.key}>
+                      <div className="mono" style={{ fontSize:10, color:"var(--muted)" }}>{f.label}</div>
+                      <div style={{ fontSize:13 }}>{eq[f.key]}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
         </div>
+
+        {pendingScan && (
+          <LabelPromptSheet
+            scan={pendingScan}
+            onSave={saveNewEquipment}
+            onCancel={() => setPendingScan(null)}
+          />
+        )}
 
         {job.history && job.history.length > 0 && (
           <div style={{ marginTop:16 }}>
