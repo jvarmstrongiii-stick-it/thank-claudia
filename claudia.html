@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 36;
+const APP_REV = 37;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1349,7 +1349,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     setScanning(true);
     e.target.value = '';
     try {
-      const result = await scanNameplate(file);
+      const [result, photo] = await Promise.all([scanNameplate(file), uploadPhoto(job.id, file)]);
+      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
       const hasData = Object.values(result).some(v => v != null);
       if (!hasData) { alert('No equipment data found in this photo.'); return; }
       setPendingScan(result);
@@ -1366,7 +1367,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     setScanningOther(true);
     e.target.value = '';
     try {
-      const result = await scanNameplate(file);
+      const [result, photo] = await Promise.all([scanNameplate(file), uploadPhoto(job.id, file)]);
+      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
       const hasData = Object.values(result).some(v => v != null);
       if (!hasData) { alert('No equipment data found in this photo.'); return; }
       setPendingOtherScan(result);
