@@ -54,6 +54,8 @@
   ::-webkit-scrollbar { width: 0; }
   .fade-in { animation: fade 0.25s ease; }
   @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @keyframes micPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(181,67,47,0.7); } 70% { box-shadow: 0 0 0 14px rgba(181,67,47,0); } }
+  @keyframes micSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -61,7 +63,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 38;
+const APP_REV = 39;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -467,6 +469,7 @@ function App() {
     setSelectedIdRaw(id);
   }
   const [adding, setAdding] = useState(false);
+  const [voicePreFill, setVoicePreFill] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [filter, setFilter] = useState("All");
   const [search, setSearch] = useState("");
@@ -481,6 +484,86 @@ function App() {
     if (toastTimer.current) clearTimeout(toastTimer.current);
     setToast({ msg, isError });
     toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }
+
+  async function processVoiceCommand(transcript) {
+    showToast(`"${transcript}"`);
+    try {
+      const jobSummary = jobs.slice(0,30).map(j =>
+        `id:${j.id} customer:"${j.customer}" type:"${j.type}" status:"${j.status}" date:${j.scheduled_date||'?'}`
+      ).join('\n');
+      const res = await fetch(CLAUDE_PROXY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 300,
+          messages: [{ role: 'user', content:
+            `You are a voice assistant for an HVAC field service app. Today: ${todayISO()}. User: ${currentUser?.name||'tech'}.
+Jobs:\n${jobSummary}
+
+Parse this voice command and reply ONLY with JSON (no markdown):
+{"intent":"add_job"|"navigate"|"update_status"|"add_note"|"search"|"unknown",
+"customer":null,"job_type":null,"status":null,"note":null,"query":null,
+"date":null,"job_id":null,"reply":"brief friendly confirmation under 12 words"}
+
+Command: "${transcript}"`
+          }],
+        }),
+      });
+      const data = await res.json();
+      const text = (data.content?.[0]?.text || '').trim();
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no json');
+      const intent = JSON.parse(m[0]);
+
+      showToast(intent.reply || 'Done');
+
+      if (intent.intent === 'add_job') {
+        const pre = {};
+        if (intent.customer) pre.customer = intent.customer;
+        if (intent.job_type) pre.type = intent.job_type;
+        if (intent.date) pre.scheduled_date = intent.date === 'today' ? todayISO() : intent.date;
+        if (intent.note) pre.notes = intent.note;
+        setVoicePreFill(pre);
+        setAdding(true);
+      } else if (intent.intent === 'navigate') {
+        const match = jobs.find(j =>
+          intent.job_id ? j.id === intent.job_id :
+          intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
+        );
+        if (match) setSelectedId(match.id);
+        else showToast(`No job found for "${intent.customer}"`, true);
+      } else if (intent.intent === 'search') {
+        setSearch(intent.query || intent.customer || '');
+        setSelectedId(null);
+      } else if (intent.intent === 'update_status' && intent.status) {
+        const match = jobs.find(j =>
+          intent.job_id ? j.id === intent.job_id :
+          intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
+        );
+        if (match) await updateJob(match.id, { status: intent.status });
+        else showToast(`No job found for "${intent.customer}"`, true);
+      } else if (intent.intent === 'add_note' && intent.note) {
+        const match = jobs.find(j =>
+          intent.job_id ? j.id === intent.job_id :
+          intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
+        );
+        if (match) {
+          await sb.from('job_notes').insert({
+            job_id: match.id, content: intent.note,
+            source: 'voice', created_at: new Date().toISOString(),
+          });
+          showToast('Note added');
+          if (selectedId === match.id) refresh();
+        } else {
+          showToast(`No job found for "${intent.customer}"`, true);
+        }
+      }
+    } catch(err) {
+      showToast('Voice command failed', true);
+      console.error('voice error', err);
+    }
   }
 
   function selectUser(user) {
@@ -716,16 +799,18 @@ function App() {
   const selected = jobs.find(j => j.id === selectedId);
   if (adding) return (
     <React.Fragment>
-      <JobForm onSave={addJob} onCancel={() => setAdding(false)} allJobs={jobs} />
+      <JobForm onSave={addJob} onCancel={() => { setAdding(false); setVoicePreFill(null); }} prefill={voicePreFill} allJobs={jobs} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
   );
   if (editingId) {
     const editJob = jobs.find(j => j.id === editingId);
     if (editJob) return (
       <React.Fragment>
-        <JobForm initial={editJob} onSave={saveEdit} onCancel={() => setEditingId(null)} />
+        <JobForm initial={editJob} onSave={saveEdit} onCancel={() => setEditingId(null)} allJobs={jobs} />
         {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+        <VoiceButton onCommand={processVoiceCommand} />
       </React.Fragment>
     );
   }
@@ -738,6 +823,7 @@ function App() {
         onDelete={() => deleteJob(selected.id)}
         focusPhotos={focusPhotos} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
   );
 
@@ -962,6 +1048,7 @@ function App() {
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      <VoiceButton onCommand={processVoiceCommand} />
     </div>
   );
 }
@@ -1700,8 +1787,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
 }
 
 /* ── JobForm ───────────────────────────────────────────────────────────────── */
-function JobForm({ onSave, onCancel, initial, allJobs }) {
-  const editing = !!initial;
+function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
+  const editing = !!(initial && initial.id);
   const customers = React.useMemo(() => deriveCustomers(allJobs||[]), [allJobs]);
   const [f, setF] = useState(initial ? {
     ...initial,
@@ -1717,6 +1804,7 @@ function JobForm({ onSave, onCancel, initial, allJobs }) {
     phone:"", type:"Service Call",
     status:"New", scheduled_date: todayISO(), scheduled_time:"09:00",
     value:"", notes:"", history:[],
+    ...(prefill || {}),
   });
   const set = (k,v) => setF(s => ({...s,[k]:v}));
 
@@ -1863,6 +1951,84 @@ function JobForm({ onSave, onCancel, initial, allJobs }) {
           {editing?"SAVE CHANGES":"SAVE JOB"}
         </button>
       </div>
+    </div>
+  );
+}
+
+/* ── VoiceButton ───────────────────────────────────────────────────────────── */
+function VoiceButton({ onCommand }) {
+  const [state, setState] = useState('idle'); // idle | listening | processing
+  const [pos, setPos] = useState(() => {
+    try { const s = localStorage.getItem('tmc_mic_pos'); if (s) return JSON.parse(s); } catch(e){}
+    return { x: window.innerWidth - 76, y: window.innerHeight - 180 };
+  });
+  const drag = useRef(null);
+  const recognitionRef = useRef(null);
+
+  function startListening() {
+    if (state !== 'idle') return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert('Speech recognition not supported in this browser. Try Chrome.'); return; }
+    const rec = new SR();
+    rec.lang = 'en-US';
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    recognitionRef.current = rec;
+    rec.onresult = async (e) => {
+      const transcript = e.results[0][0].transcript;
+      setState('processing');
+      await onCommand(transcript);
+      setState('idle');
+    };
+    rec.onerror = () => setState('idle');
+    rec.onend = () => { if (state === 'listening') setState('idle'); };
+    rec.start();
+    setState('listening');
+  }
+
+  function onTouchStart(e) {
+    drag.current = {
+      sx: e.touches[0].clientX, sy: e.touches[0].clientY,
+      px: pos.x, py: pos.y, moved: false,
+    };
+  }
+  function onTouchMove(e) {
+    if (!drag.current) return;
+    const dx = e.touches[0].clientX - drag.current.sx;
+    const dy = e.touches[0].clientY - drag.current.sy;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) drag.current.moved = true;
+    if (!drag.current.moved) return;
+    e.preventDefault();
+    const nx = Math.max(20, Math.min(window.innerWidth - 64, drag.current.px + dx));
+    const ny = Math.max(60, Math.min(window.innerHeight - 64, drag.current.py + dy));
+    setPos({ x: nx, y: ny });
+  }
+  function onTouchEnd() {
+    if (!drag.current) return;
+    if (!drag.current.moved) startListening();
+    else { try { localStorage.setItem('tmc_mic_pos', JSON.stringify(pos)); } catch(e){} }
+    drag.current = null;
+  }
+
+  const bg = state === 'listening' ? '#b5432f' : state === 'processing' ? '#b8923f' : 'var(--olive-bright)';
+  const icon = state === 'processing' ? '⏳' : state === 'listening' ? '⏹' : '🎙';
+
+  return (
+    <div
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onClick={() => { if (!('ontouchstart' in window)) startListening(); }}
+      style={{
+        position:'fixed', left:pos.x, top:pos.y, width:56, height:56,
+        borderRadius:'50%', background:bg, display:'flex', alignItems:'center',
+        justifyContent:'center', fontSize:22, cursor:'pointer', zIndex:999,
+        boxShadow:'0 3px 14px rgba(0,0,0,0.5)', userSelect:'none', touchAction:'none',
+        animation: state === 'listening' ? 'micPulse 1.2s ease-out infinite' : 'none',
+        transition: state === 'idle' ? 'background 0.2s' : 'none',
+      }}
+    >
+      {icon}
     </div>
   );
 }
