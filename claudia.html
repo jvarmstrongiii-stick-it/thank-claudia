@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 32;
+const APP_REV = 33;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -246,9 +246,10 @@ async function fetchEquipment(customerId) {
   return data || [];
 }
 
-async function saveEquipment(customerId, label, fields) {
+async function saveEquipment(customerId, label, fields, installDate) {
   const row = { customer_id: customerId, label, created_at: new Date().toISOString() };
   EQUIP_KEYS.forEach(k => { if (fields[k] != null) row[k] = String(fields[k]); });
+  if (installDate) row.install_date = installDate;
   const { data, error } = await sb.from('equipment').insert(row).select().single();
   return { data, error };
 }
@@ -256,6 +257,9 @@ async function saveEquipment(customerId, label, fields) {
 async function updateEquipment(id, fields) {
   const row = { updated_at: new Date().toISOString() };
   if ('label' in fields) row.label = fields.label;
+  if ('install_date' in fields) row.install_date = fields.install_date || null;
+  if ('warranty_registered' in fields) row.warranty_registered = fields.warranty_registered;
+  if ('warranty_registered_date' in fields) row.warranty_registered_date = fields.warranty_registered_date || null;
   EQUIP_KEYS.forEach(k => { if (k in fields) row[k] = fields[k]||null; });
   const { error } = await sb.from('equipment').update(row).eq('id', id);
   return error;
@@ -278,6 +282,25 @@ function getLabelSuggestions(equipType) {
   if (t.includes('water'))
     return ['Water Heater','Hot Water Tank'];
   return ['Living Room','Master Bedroom','Outdoor Unit','Furnace','Water Heater','Air Handler','Basement Unit','Office'];
+}
+
+function warrantyStatus(eq) {
+  if (eq.warranty_registered) {
+    if (eq.install_date) {
+      const exp = new Date(eq.install_date + 'T12:00:00');
+      exp.setFullYear(exp.getFullYear() + 12);
+      return { type:'registered', expires: exp.toISOString().split('T')[0] };
+    }
+    return { type:'registered', expires:null };
+  }
+  if (!eq.install_date) return { type:'untracked' };
+  const deadline = new Date(eq.install_date + 'T12:00:00');
+  deadline.setDate(deadline.getDate() + 60);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const daysLeft = Math.ceil((deadline - today) / 86400000);
+  if (daysLeft < 0) return { type:'lapsed', deadline: deadline.toISOString().split('T')[0] };
+  if (daysLeft <= 14) return { type:'urgent', daysLeft, deadline: deadline.toISOString().split('T')[0] };
+  return { type:'pending', daysLeft, deadline: deadline.toISOString().split('T')[0] };
 }
 
 async function scanNameplate(file) {
@@ -1271,6 +1294,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [equipmentList, setEquipmentList] = useState([]);
   const [pendingScan, setPendingScan] = useState(null);
   const [expandedEquipId, setExpandedEquipId] = useState(null);
+  const [showWarrantySheet, setShowWarrantySheet] = useState(null);
   const [scanning, setScanning] = useState(false);
   const fileRef = useRef();
   const cameraRef = useRef();
@@ -1333,7 +1357,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
 
   async function saveNewEquipment(label) {
     if (!job._customer_id) { alert('No customer linked to this job.'); return; }
-    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {});
+    const installDate = job.scheduled_date || todayISO();
+    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {}, installDate);
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setEquipmentList(prev => [...prev, data]);
     setPendingScan(null);
@@ -1465,8 +1490,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           {equipmentList.length === 0 && !scanning && (
             <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"10px 0" }}>No equipment logged yet</div>
           )}
-          {equipmentList.map(eq => (
-            <div key={eq.id} style={{ border:"1px solid var(--line)", borderRadius:9, padding:12, marginBottom:8 }}>
+          {equipmentList.map(eq => {
+            const ws = warrantyStatus(eq);
+            const wBorder = ws.type === 'urgent' ? 'var(--brass)' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? '#5d8a3a' : 'var(--line)';
+            return (
+            <div key={eq.id} style={{ border:`1px solid ${wBorder}`, borderRadius:9, padding:12, marginBottom:8 }}>
               <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
                 <div style={{ flex:1 }}>
                   <div className="head" style={{ fontSize:17, fontWeight:700 }}>{eq.label}</div>
@@ -1475,6 +1503,36 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
                   </div>
                   {eq.serial_number && (
                     <div className="mono" style={{ fontSize:13, color:"var(--brass)", marginTop:1 }}>S/N {eq.serial_number}</div>
+                  )}
+                  {/* Warranty badge */}
+                  {ws.type === 'registered' && (
+                    <div className="mono" style={{ fontSize:11, color:'#5d8a3a', marginTop:4 }}>
+                      ✓ WARRANTY REGISTERED{ws.expires ? ` · exp ${fmtDate(ws.expires)}` : ''}
+                    </div>
+                  )}
+                  {ws.type === 'pending' && (
+                    <button onClick={() => setShowWarrantySheet(eq)}
+                      className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                      📋 register warranty ({ws.daysLeft}d left)
+                    </button>
+                  )}
+                  {ws.type === 'urgent' && (
+                    <button onClick={() => setShowWarrantySheet(eq)}
+                      className="mono" style={{ fontSize:11, color:'var(--brass-bright)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                      ⚠ REGISTER NOW — {ws.daysLeft}d LEFT
+                    </button>
+                  )}
+                  {ws.type === 'lapsed' && (
+                    <button onClick={() => setShowWarrantySheet(eq)}
+                      className="mono" style={{ fontSize:11, color:'var(--danger)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                      ⚠ 60-DAY WINDOW EXPIRED
+                    </button>
+                  )}
+                  {ws.type === 'untracked' && (
+                    <button onClick={() => setShowWarrantySheet(eq)}
+                      className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                      📋 register warranty
+                    </button>
                   )}
                 </div>
                 <div style={{ display:"flex", gap:6 }}>
@@ -1497,7 +1555,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
                 </div>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
 
         {pendingScan && (
@@ -1505,6 +1564,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
             scan={pendingScan}
             onSave={saveNewEquipment}
             onCancel={() => setPendingScan(null)}
+          />
+        )}
+
+        {showWarrantySheet && (
+          <WarrantySheet
+            eq={showWarrantySheet}
+            job={job}
+            onRegistered={(updated) => setEquipmentList(prev => prev.map(e => e.id === updated.id ? updated : e))}
+            onClose={() => setShowWarrantySheet(null)}
           />
         )}
 
@@ -1727,6 +1795,98 @@ function JobForm({ onSave, onCancel, initial, allJobs }) {
 }
 
 /* ── Sheet ─────────────────────────────────────────────────────────────────── */
+function WarrantySheet({ eq, job, onRegistered, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const ws = warrantyStatus(eq);
+
+  const installDisplay = eq.install_date ? fmtDate(eq.install_date) : '—';
+  const lines = [
+    `CUSTOMER: ${job.customer}`,
+    `ADDRESS: ${siteAddr(job) || custAddr(job) || ''}`,
+    `PHONE: ${job.phone || ''}`,
+    ``,
+    `EQUIPMENT: ${eq.label}`,
+    `BRAND: ${eq.brand || ''}`,
+    `MODEL #: ${eq.model_number || ''}`,
+    `SERIAL #: ${eq.serial_number || ''}`,
+    `INSTALL DATE: ${installDisplay}`,
+  ].join('\n');
+
+  function copyAll() {
+    navigator.clipboard.writeText(lines).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  async function markRegistered() {
+    setMarking(true);
+    const today = todayISO();
+    const err = await updateEquipment(eq.id, { warranty_registered: true, warranty_registered_date: today });
+    setMarking(false);
+    if (err) { alert(`Failed: ${err.message}`); return; }
+    onRegistered({ ...eq, warranty_registered: true, warranty_registered_date: today });
+    onClose();
+  }
+
+  const bannerColor = ws.type === 'urgent' ? '#b8923f' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? '#5d8a3a' : 'var(--muted)';
+  const bannerText = ws.type === 'registered'
+    ? `✓ Registered${ws.expires ? ' · expires ' + fmtDate(ws.expires) : ''}`
+    : ws.type === 'urgent' ? `⚠ ${ws.daysLeft} days left — register by ${fmtDate(ws.deadline)}`
+    : ws.type === 'lapsed' ? `⚠ 60-day window closed — standard 10yr warranty applies`
+    : ws.type === 'pending' ? `📋 ${ws.daysLeft} days left to register for 12yr warranty`
+    : `📋 Register to lock in 12yr warranty`;
+
+  return (
+    <Sheet onClose={onClose} title="REGISTER WARRANTY">
+      {/* countdown banner */}
+      <div className="mono" style={{ fontSize:12, color: bannerColor, padding:"8px 10px", borderRadius:6, background:"rgba(255,255,255,0.04)", marginBottom:14 }}>
+        {bannerText}
+      </div>
+
+      {/* data block */}
+      <div style={{ background:"var(--bg)", borderRadius:8, padding:12, marginBottom:12, border:"1px solid var(--line)" }}>
+        {[
+          ['CUSTOMER', job.customer],
+          ['ADDRESS', siteAddr(job) || custAddr(job)],
+          ['PHONE', job.phone],
+          ['EQUIPMENT', eq.label],
+          ['BRAND', eq.brand],
+          ['MODEL #', eq.model_number],
+          ['SERIAL #', eq.serial_number],
+          ['INSTALL DATE', installDisplay],
+        ].filter(([,v]) => v).map(([k,v]) => (
+          <div key={k} style={{ display:"flex", gap:8, marginBottom:5 }}>
+            <span className="mono" style={{ fontSize:11, color:"var(--muted)", minWidth:90, flexShrink:0 }}>{k}</span>
+            <span style={{ fontSize:13, wordBreak:"break-all" }}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={copyAll} className="head"
+        style={{ width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10,
+          background: copied ? '#5d8a3a' : 'var(--panel)', border:`1px solid ${copied ? '#5d8a3a' : 'var(--line)'}`, color: copied ? '#fff' : 'var(--text)' }}>
+        {copied ? '✓ COPIED TO CLIPBOARD' : '📋 COPY ALL'}
+      </button>
+
+      <a href="https://my.daikincomfort.com/product-registration" target="_blank" rel="noreferrer"
+        style={{ display:"block", width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10,
+          background:"var(--olive-bright)", color:"var(--bg)", textAlign:"center", textDecoration:"none", boxSizing:"border-box" }}
+        className="head">
+        🌐 OPEN DAIKIN REGISTRATION →
+      </a>
+
+      {!eq.warranty_registered && (
+        <button onClick={markRegistered} disabled={marking} className="head"
+          style={{ width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:600,
+            background:"transparent", border:"1px solid #5d8a3a", color:"#5d8a3a", opacity: marking ? 0.6 : 1 }}>
+          {marking ? 'SAVING…' : '✓ MARK AS REGISTERED'}
+        </button>
+      )}
+    </Sheet>
+  );
+}
+
 function Sheet({ title, onClose, children }) {
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:50, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
