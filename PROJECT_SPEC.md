@@ -1,223 +1,180 @@
 # PROJECT_SPEC.md
 ## TMC Mechanical — Claudia (Field Job Tracker)
-**Last Updated:** 2026-06-02  
-**Stack:** Single-file HTML/React (CDN + Babel) · Supabase · Claude API (planned)  
+**Last Updated:** 2026-06-03  
+**Stack:** Single-file HTML/React (CDN + Babel) · Supabase · Claude API (live)  
 **Platform:** Mobile browser (Chrome/Safari) — installable as PWA via Add to Home Screen  
 **Repo:** jvarmstrongiii-stick-it/thank-claudia · branch: claude/hvac-supabase-integration-Di5df  
-**Working file:** tmctracker.html
+**Working file:** claudia.html  
+**Live URL:** https://jvarmstrongiii-stick-it.github.io/thank-claudia/
 
 ---
 
 ## 1. Overview
 
-Voice-first HVAC field service management app for TMC Mechanical (Tyler's company, Philly/Montco/Delco). Designed for field technicians to manage their day hands-free, and for all users to see the full team's workload in real time.
+Voice-first HVAC field service management app for TMC Mechanical (Tyler's company, Philly/Montco/Delco). Field technicians manage their full day from their phone — jobs, equipment, photos, notes, warranty — hands-free when needed. All data is live and shared across all devices in real time.
 
 ---
 
 ## 2. Users & Access
 
 - No role restrictions at this time — all users see all jobs, all technicians
-- Users displayed as pills across the top of the dashboard (everyone sees everyone's work)
+- Splash screen: tap your name to log in (reads from `users` table, falls back to Tyler/Jack)
 - Jobs can be assigned to any user by any user
 - Future: role-based permissions (admin vs tech)
 
 ---
 
-## 3. Job Types & Flows
+## 3. Job Types & Status Flows
 
-Job type determines which status flow the job follows.
+| Job Type | Status Flow |
+|---|---|
+| Service Call | New → Scheduled → En Route → On Site → In Progress → On Hold → Completed/Needs Billing → Completed/Paid → Closed |
+| New Install | New → Evaluation Needed → Write Estimate → Waiting on Approval → Scheduled → En Route → On Site → In Progress → Completed/Needs Billing → Completed/Paid → Closed |
+| Maintenance | New → Scheduled → En Route → On Site → In Progress → Completed/Needs Billing → Completed/Paid → Closed |
+| Replacement | Same as New Install |
+| Warranty | Same as Service Call |
+| Estimate | New → Write Estimate → Waiting on Approval → Closed |
 
-### Flow 1 — Install / Replacement
-**Job Types:** Install, Replacement  
-**Statuses:**  
-`New RFP → Estimate Given → Deposit Received → Equipment Ordered → Scheduled → In Progress → Complete → Invoiced → Paid in Full → Closed`
-
-**PIF → Closed Checklist (non-blocking):**
-- Permit pulled
-- Equipment photos taken
-- Serial numbers logged
-- Warranty registered
-- Receipts scanned
-- Deposit reconciled
-
----
-
-### Flow 2 — Service
-**Job Types:** Service  
-**Statuses:**  
-`New → Scheduled → In Route → On Site → Complete → Invoiced → Paid in Full → Closed`
-
-**PIF → Closed Checklist (non-blocking):**
-- Work photos taken
-- Parts receipts scanned
-- Invoice attached
-
----
-
-### Flow 2b — Maintenance
-**Job Types:** Maintenance  
-**Statuses:** Same as Service flow  
-
-**PIF → Closed Checklist (non-blocking):**
-- Filter replaced
-- Maintenance report completed
-- Next service date set
-- Receipts scanned
-
----
-
-**Checklist behavior:**
-- Checklist appears when tapping Closed, but does NOT block closing
-- Checklists are editable data (not hardcoded) — items can be added/removed in settings
+- Billing chore auto-created when job reaches "Completed/Needs Billing"
 
 ---
 
 ## 4. Dashboard
 
-- User pills across top — tap to filter by tech, or view all
-- Job cards show: customer, address, job type, status, assigned tech, scheduled time, job value
-- Drag-and-drop reordering for prioritization (admin view)
-- Filter by job type / status
-- Real-time updates across all users
-- Revenue tracking — estimated job cost visible on each card
+- Filter bar: All / by status
+- Search: customer name, address, phone, notes
+- Job cards show: customer, address, job type, status pill, scheduled date/time, job value
+- ↺ manual refresh button + 60s auto-refresh + focus refresh
+- Revenue outstanding shown in header
+- ⚑ CHORES button → full chores management view
 
 ---
 
-## 5. Voice System
+## 5. Voice System ✅ LIVE
 
-- Floating microphone button — repositionable by user (drag to preferred corner)
-- Always accessible, overlays all screens
-- Voice commands include:
-  - "What's on my plate today?" → lists assigned jobs
-  - "Add new job" → triggers conversational job intake flow
-  - "I'm heading to [customer]" → conflict check + geofence arm
-  - "Mark [job] complete" → status update
-  - "Call [customer]" → opens dialer
-- Voice intake flow: asks for customer (new or existing), job type, scheduled time, notes
-- Speech processing lag known issue — to be optimized (expo-speech-recognition threading)
+- **🎙 floating mic button** — fixed position overlay on every screen
+- Draggable — user repositions it, position persists to localStorage
+- Tap → Web Speech API activates (built into Chrome/Safari, no external service)
+- Button pulses red while listening, turns amber while Claude parses intent
+- Transcript sent to Claude Haiku via `claude-proxy` edge function
+- **Supported intents:**
+  - `add_job` — "add a service call for Smith" → opens form pre-filled
+  - `navigate` — "go to Robert" → opens that job
+  - `search` — "show me scheduled jobs" → filters dashboard
+  - `update_status` — "mark Smith as on site" → updates immediately
+  - `add_note` — "add note to Smith: no dogs" → writes to job_notes
 
 ---
 
 ## 6. Job Detail View
 
-Full-page view (not bottom sheet) containing:
-- Customer name, address (tappable → maps), phone (tappable → dialer)
-- Assigned technician
-- Scheduled date/time — tappable to reschedule (same-day time change or full date)
-- Job type + status flow indicator
-- Update Status button → shows correct flow statuses for job type
-- Service history (all past jobs for this customer)
-- Equipment info (photos, serial numbers, model numbers)
-- Notes
-- Photos strip
-- PIF → Closed checklist (when applicable)
+Full-page view containing:
+- Customer name, job type, status pill
+- Job value · Scheduled date/time (tappable → reschedule modal)
+- Phone number (tappable → dialer)
+- Site address (tappable → Google Maps)
+- Customer address (if different from site)
+- Notes textarea — saves to Supabase on blur
+- **Photos strip** — CAMERA (live capture) + GALLERY (from library)
+  - Pinch-to-zoom lightbox with pan; ✕ always visible
+  - 🔍 SCAN FOR EQUIPMENT button in lightbox → runs OCR on any photo
+- **Equipment — THIS JOB** — gear installed/serviced on this job
+  - 📷 SCAN (camera) + 🖼 UPLOAD (gallery) → OCR + photo saved to gallery simultaneously
+- **Equipment — OTHER AT THIS ADDRESS** — pre-existing gear captured for reference
+  - Same scan flow, saves to customer record only (no job association)
+- Service history (status change log)
+- UPDATE STATUS → sheet showing valid next statuses
+- DELETE JOB
 
 ---
 
-## 7. Customer Records
+## 7. Equipment System ✅ LIVE
 
-- Auto-created on first job entry
-- Fields: name, address, phone, email (optional)
-- Full service history across all visits
-- Equipment log (tied to address)
+Equipment is linked to **customers** (not jobs) — appears on every job for that address.
 
----
+### Per-equipment card shows:
+- User-defined label (e.g. "Living Room", "Outdoor Unit", "Furnace")
+- Brand · Model # · Serial #
+- Warranty status badge (see below)
+- Expandable: Type, Year, Tonnage, Refrigerant, Voltage, SEER, MCA, MOP
 
-## 8. Equipment & Photo Capture
+### OCR scanning:
+- Photo of nameplate or box/shipping label → Claude vision extracts all fields
+- Claude infers `equipment_type` and `brand` from model number prefix when not printed
+  (DR96TC → 96% two-stage gas furnace, GSX → AC condenser, FTX → Mitsubishi mini-split, etc.)
+- Scan photo also saved to job photo gallery automatically
+- Label prompt with suggestion chips → user assigns a room/location label
+- Saves to `equipment` table
 
-- Camera integration via expo-camera
-- OCR via Claude API — scan invoices, receipts, equipment tags
-- Auto-extracts: serial number, model number, equipment type
-- Photos tagged and stored per job and per customer
-- Photo strip visible on job detail
-
----
-
-## 9. Geofencing
-
-- Arms when technician indicates they are heading to a job
-- On arrival: triggers alert with customer history, service details, upcoming maintenance notes
-- Status auto-suggestion on arrival (prompt to mark "On Site")
-
----
-
-## 10. Notifications
-
-- In-app notification bell (top right) — dot indicator when unread
-- Notification types: job assigned, job status changed, scheduling conflict, chore auto-created
-- Future: SMS via Twilio
+### Warranty tracking:
+- `install_date` auto-set from job's scheduled date on scan
+- 60-day countdown to Daikin enhanced warranty registration deadline
+- Badge states: pending (N days left) · urgent (≤14 days, amber) · lapsed · registered ✓
+- Tap badge → **WarrantySheet**: pre-filled data block, 📋 COPY ALL to clipboard,
+  🌐 opens my.daikincomfort.com/product-registration, ✓ MARK AS REGISTERED
 
 ---
 
-## 11. Scheduling
+## 8. Chores
 
-- Conflict detection — warns when new job overlaps existing
-- Reschedule modal: same-day time adjustment or full date change
-- Scheduled date visible on all job cards
-
----
-
-## 12. Chores / Admin Tasks
-
-- Separate from jobs — internal tasks (pick up parts, call supplier, etc.)
-- Auto-created chores triggered by certain job events (e.g. equipment ordered → "confirm delivery")
-- Visible on dashboard alongside jobs or in separate chores tab
+- Internal tasks separate from jobs (pick up parts, call supplier, etc.)
+- Assignable to users, linkable to jobs
+- Billing chore auto-created when job hits "Completed/Needs Billing"
+- Full chores view via ⚑ CHORES button on dashboard
 
 ---
 
-## 13. Tech Stack
+## 9. Tech Stack
 
 | Layer | Technology |
 |---|---|
 | Frontend | Single-file HTML · React 18 CDN · Babel standalone (no build step) |
 | Backend | Supabase (PostgreSQL + REST API + Storage) |
 | Auth | Splash-page user picker → localStorage (anon key, no Supabase Auth) |
-| AI/OCR | Claude API — planned for nameplate scanning, voice intake |
-| Fonts | Russo One (headers) · Share Tech Mono (data) |
-| Maps | Browser tappable address links → Google Maps |
-| Future | PWA manifest (installable) · Twilio SMS · Real-time subscriptions |
+| AI / OCR | Claude Haiku via Supabase Edge Function `claude-proxy` (CORS proxy) |
+| Voice | Web Speech API (browser-native STT) + Claude Haiku intent parsing |
+| Fonts | Oswald (headers) · Barlow Semi Condensed (body) · Share Tech Mono (data) |
+| Maps | Tappable address links → Google Maps |
+| Deploy | GitHub Actions → GitHub Pages on push to feature branch |
+| PWA | Manifest + Apple meta tags — Add to Home Screen installable |
 
-**Why single-file HTML instead of React Native:**  
-Zero build step — works offline, deployed by downloading one file. Tyler and Jack open it in Chrome, add to home screen, done. Native app remains the long-term target once the workflow is validated in the field.
+**Why single-file HTML:** Zero build step. Tyler and Jack open it in Chrome, add to home screen, done. Native app is the long-term target once workflow is validated in the field.
 
 ---
 
-## 14. Current Build State — 2026-06-03
+## 10. Current Build State — r39 (2026-06-03)
 
 ### ✅ Done
-- Single-file React app (`claudia.html`) wired to Supabase, deployed via GitHub Actions → GitHub Pages
-- **Live URL:** https://jvarmstrongiii-stick-it.github.io/thank-claudia/
-- **Current revision:** r31 (APP_REV constant displayed in header)
-- Splash screen: tap your name (reads from `users` table, falls back to Tyler/Jack)
-- Full job CRUD — all writes go to Supabase, read by any device on reload
-- Field mapping layer: flat local job shape ↔ normalized `jobs` + `customers` tables
-- `resolveCustomer`: case-insensitive lookup → insert new customer if not found
-- `job_notes` table used for work history (filters out `source='system'` entries from display)
-- Status changes write a system note to `job_notes`
-- Chores sync to `chores` table; full chores management view (⚑ CHORES button)
-- Chores can be assigned to users and linked to jobs
-- Billing chore auto-created when job reaches "Completed/Needs Billing"
-- 60-second auto-refresh + window focus refresh for near-live sync
-- localStorage write-through cache for instant render before fetch resolves
-- Selected job persists across page reloads via sessionStorage
-- Toast notifications for all errors and confirmations
-- PWA manifest + Apple meta tags — installable via Add to Home Screen
-- 15 real jobs imported and live on both phones ✅
-- **Photo upload:** camera + gallery buttons → uploads to Supabase Storage `job-photos` bucket → persists to `job_photos` table
-- **Pinch-to-zoom lightbox:** pinch to zoom 6×, pan, tap to close; ✕ button always visible
-- **OCR nameplate scanning:** 📷 SCAN (camera) + 🖼 UPLOAD (gallery) in equipment section, plus 🔍 SCAN FOR EQUIPMENT from any photo lightbox → Claude vision API via Supabase Edge Function proxy (`claude-proxy`) → label prompt with suggestion chips → saves to `equipment` table
-- **Equipment table:** linked to customers (not jobs), each unit has a user-defined label (e.g. "Living Room", "Outdoor Unit"), expandable cards showing all specs; all equipment for a customer shows on every job for that address
-- Notes textarea: local state while typing, saves to Supabase on blur (no per-keystroke writes)
-- Users state loaded in App — available for chore assignment dropdowns
+- Supabase-wired React app, live on GitHub Pages, auto-deployed on push
+- Splash screen user picker (from DB, fallback Tyler/Jack)
+- Full job CRUD with Supabase field mapping layer
+- `resolveCustomer` — case-insensitive lookup, auto-insert on new
+- Status changes log to `job_notes` as system entries
+- Chores: full sync, assignment, auto-billing chore
+- 60s auto-refresh + focus refresh + manual ↺
+- localStorage write-through cache (instant render before fetch)
+- sessionStorage selected job persistence (page reload returns to same job)
+- Toast notifications throughout
+- Photo upload: camera + gallery → Supabase Storage → `job_photos` table
+- Pinch-to-zoom lightbox (6× max, pan, ✕ button)
+- OCR nameplate scanning (Claude vision via claude-proxy)
+  - Infers equipment type from model number when not printed
+  - Scan photos auto-saved to job gallery
+  - Scan-from-lightbox (URL-based image source)
+- Equipment table: per-customer, labeled, expandable cards
+  - Split in job detail: THIS JOB vs OTHER AT THIS ADDRESS
+- Warranty registration flow: countdown, clipboard copy, Daikin link, mark-registered
+- Voice button: floating, draggable, Web Speech API + Claude intent parsing
+- Font sizes bumped for field readability (gloves-friendly)
 
 ### Supabase Project
 - **URL:** https://asiviwwstglniuhsryze.supabase.co
 - **Project ID:** asiviwwstglniuhsryze
 - **Compute:** NANO
-- **Edge Function:** `claude-proxy` — proxies Claude API calls to avoid browser CORS; `ANTHROPIC_KEY` stored as Edge Function secret
+- **Edge Function:** `claude-proxy` — proxies Anthropic API; `ANTHROPIC_KEY` as secret
 
 ### Storage
-- **Bucket:** `job-photos` (public) — stores job site photos
+- **Bucket:** `job-photos` (public)
 - **Table:** `job_photos` (id, job_id, url, storage_path, created_at)
 
 ### Equipment Table
@@ -225,48 +182,57 @@ Zero build step — works offline, deployed by downloading one file. Tyler and J
 equipment (
   id uuid PK,
   customer_id uuid → customers.id CASCADE,
+  job_id uuid → jobs.id ON DELETE SET NULL,   -- null = customer-only, not job-specific
   label text NOT NULL,
   equipment_type, brand, model_number, serial_number,
-  tonnage, refrigerant, voltage, seer, mca, mop,
-  year_manufactured, notes text,
+  tonnage, refrigerant, voltage, seer, mca, mop, year_manufactured,
+  install_date date,
+  warranty_registered boolean DEFAULT false,
+  warranty_registered_date date,
+  notes text,
   created_at, updated_at timestamptz
 )
 ```
 RLS: `anon_all` policy (FOR ALL TO anon USING (true) WITH CHECK (true))
 
 ### RLS Policies in place (anon key)
-Tables with SELECT: `jobs`, `customers`, `job_notes`, `chores`, `users`, `job_status_history`, `job_photos`, `equipment`
-Tables with INSERT: `jobs`, `customers`, `job_notes`, `chores`, `job_status_history`, `job_photos`, `equipment`
-Tables with UPDATE: `jobs`, `customers`, `chores`, `equipment`
-Tables with DELETE: `jobs`, `job_photos`, `equipment`
+- SELECT: `jobs`, `customers`, `job_notes`, `chores`, `users`, `job_status_history`, `job_photos`, `equipment`
+- INSERT: `jobs`, `customers`, `job_notes`, `chores`, `job_status_history`, `job_photos`, `equipment`
+- UPDATE: `jobs`, `customers`, `chores`, `equipment`
+- DELETE: `jobs`, `job_photos`, `equipment`
 
-### DB fixes applied
-- Dropped `jobs_flow_type_check` constraint (was blocking job type text values)
-- Dropped `chores_status_check` and `chores_priority_check` constraints
-- Added anon INSERT policy on `job_status_history` (DB trigger fires on every job insert)
-- Added `url` column to `job_photos` table
+### Pending DB migrations (run in Supabase SQL editor if not yet applied)
+```sql
+ALTER TABLE equipment ADD COLUMN IF NOT EXISTS install_date date;
+ALTER TABLE equipment ADD COLUMN IF NOT EXISTS warranty_registered boolean DEFAULT false;
+ALTER TABLE equipment ADD COLUMN IF NOT EXISTS warranty_registered_date date;
+ALTER TABLE equipment ADD COLUMN IF NOT EXISTS job_id uuid REFERENCES jobs(id) ON DELETE SET NULL;
+```
 
 ---
 
-## 15. Known Issues / TODO
+## 11. Known Issues / TODO
 
 | Issue | Priority | Notes |
 |---|---|---|
-| `job_notes` not populating | High | RLS INSERT policy for anon may be missing — run `CREATE POLICY "anon_insert" ON job_notes FOR INSERT TO anon WITH CHECK (true)` |
+| `job_notes` not populating | High | Run: `CREATE POLICY "anon_insert" ON job_notes FOR INSERT TO anon WITH CHECK (true); CREATE POLICY "anon_select" ON job_notes FOR SELECT TO anon USING (true);` |
 | Real-time subscriptions | Medium | Currently refetch-on-focus + 60s timer; Supabase Realtime would push instantly |
-| `location` / `site_address` not persisted | Medium | No separate DB column yet — mirrors customer_address on load |
-| Customer deduplication | Low | ilike lookup is best-effort; DB unique constraint + upsert would be cleaner |
 | Job assignment UI | Medium | `assigned_to` column exists on jobs, no picker in UI yet |
+| Equipment manual add | Low | Scan-only right now; need a manual entry form for unreadable tags |
+| Customer deduplication | Low | ilike lookup is best-effort; unique constraint + upsert would be cleaner |
 | Pull-to-refresh gesture | Low | Currently ↺ button only |
-| Camera photos don't save to device roll | Low | Browser limitation — use native camera app then 🖼 GALLERY to import |
-| Equipment manual add | Low | Currently scan-only; add a manual entry form for equipment without a legible tag |
+| Camera photos don't save to device roll | Low | Browser limitation — use native camera app then 🖼 GALLERY |
+| Scheduled maintenance | Future | Recurring jobs, auto-scheduling — deferred until staffing allows |
+| Daikin WCS dealer integration | Future | warranty.daikincomfort.com/WCS — requires distributor credentials |
+| Real-time push (Supabase Realtime) | Future | Replace 60s poll with live subscriptions |
 
 ---
 
-## 16. Design Language
+## 12. Design Language
 
 - Tactical, utilitarian, Philly grit
 - Dark theme primary
-- Fonts: Russo One (headers), Barlow (body), Share Tech Mono (data/codes)
+- Fonts: Oswald (headers), Barlow Semi Condensed (body), Share Tech Mono (data/codes)
 - Colors: olive, brass, dark slate — not generic blue SaaS
 - Every interaction designed for one hand, gloves, field conditions
+- Font sizes bumped above typical mobile defaults for outdoor legibility
