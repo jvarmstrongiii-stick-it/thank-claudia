@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 35;
+const APP_REV = 36;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1620,7 +1620,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
             <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No other equipment logged</div>
           )}
           {otherEquip.map(renderEquipCard)}
-        </div>
         </div>
 
         {pendingScan && (
