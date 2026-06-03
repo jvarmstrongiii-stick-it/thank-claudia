@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 37;
+const APP_REV = 38;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -326,7 +326,7 @@ async function scanNameplate(file) {
               role: 'user',
               content: [
                 { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-                { type: 'text', text: 'This is a photo of HVAC equipment or its nameplate/data tag. Extract every field you can find. Reply with ONLY a JSON object using these exact keys (set to null if not visible): {"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
+                { type: 'text', text: 'You are an HVAC expert. This is a photo of HVAC equipment, a nameplate, a data tag, or a shipping/box label. Extract every field visible AND use your HVAC knowledge to infer equipment_type and brand from the model number if not explicitly printed (e.g. DR96TC=96% two-stage gas furnace, GSX/SSX=AC condenser, CAPEA/CHPF=evaporator coil, ARUF/AH=air handler, GMSS/GCSS=furnace, MXZ/FTX=Mitsubishi mini-split, etc). Reply with ONLY a JSON object using these exact keys (null if unknown): {"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
               ],
             }],
           }),
@@ -354,7 +354,7 @@ async function scanNameplateFromUrl(url) {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'url', url } },
-          { type: 'text', text: 'This is a photo of HVAC equipment or its nameplate/data tag. Extract every field you can find. Reply with ONLY a JSON object using these exact keys (set to null if not visible): {"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
+          { type: 'text', text: 'You are an HVAC expert. This is a photo of HVAC equipment, a nameplate, a data tag, or a shipping/box label. Extract every field visible AND use your HVAC knowledge to infer equipment_type and brand from the model number if not explicitly printed (e.g. DR96TC=96% two-stage gas furnace, GSX/SSX=AC condenser, CAPEA/CHPF=evaporator coil, ARUF/AH=air handler, GMSS/GCSS=furnace, MXZ/FTX=Mitsubishi mini-split, etc). Reply with ONLY a JSON object using these exact keys (null if unknown): {"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
         ],
       }],
     }),
