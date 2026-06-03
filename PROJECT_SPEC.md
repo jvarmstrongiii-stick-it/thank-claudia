@@ -17,9 +17,11 @@ Voice-first HVAC field service management app for TMC Mechanical (Tyler's compan
 
 ## 2. Users & Access
 
-- No role restrictions at this time — all users see all jobs, all technicians
-- Splash screen: tap your name to log in (reads from `users` table, falls back to Tyler/Jack)
-- Jobs can be assigned to any user by any user
+- Splash screen: tap your name to log in — reads from `users` table (falls back to Tyler/Jack)
+- All users see all jobs and all technicians — no role restrictions at this time
+- User pills displayed across top of dashboard — tap to filter the job board by that tech
+- Jobs assignable to any user by any user
+- Chores assignable to specific users
 - Future: role-based permissions (admin vs tech)
 
 ---
@@ -41,12 +43,23 @@ Voice-first HVAC field service management app for TMC Mechanical (Tyler's compan
 
 ## 4. Dashboard
 
-- Filter bar: All / by status
-- Search: customer name, address, phone, notes
-- Job cards show: customer, address, job type, status pill, scheduled date/time, job value
-- ↺ manual refresh button + 60s auto-refresh + focus refresh
+- **User pills** across the top — tap any tech to filter the board to their jobs; tap again for All
+- **Filter bar** — All / by status (only shows statuses that have jobs)
+- **Search** — real-time search across customer name, phone, address, site address, notes; "Include closed jobs" toggle
+- **Job cards** show: customer name, site address, job type, status pill, scheduled date/time, job value
 - Revenue outstanding shown in header
+- ↺ manual refresh + 60s auto-refresh + window focus refresh
 - ⚑ CHORES button → full chores management view
+
+## 4a. Chores
+
+- Internal tasks separate from jobs (pick up parts, call supplier, confirm delivery, etc.)
+- Assignable to a specific technician
+- Linkable to a specific job
+- Billing chore auto-created when any job hits "Completed/Needs Billing"
+- Collapsed chore count visible on dashboard; expand inline or open full chores view
+- Full chores view: add, complete, delete; shows open chores only
+- Synced to `chores` table in Supabase
 
 ---
 
@@ -63,6 +76,18 @@ Voice-first HVAC field service management app for TMC Mechanical (Tyler's compan
   - `search` — "show me scheduled jobs" → filters dashboard
   - `update_status` — "mark Smith as on site" → updates immediately
   - `add_note` — "add note to Smith: no dogs" → writes to job_notes
+
+---
+
+## 5a. Customer Site Locations
+
+Customers can have multiple service addresses (e.g. a property manager with 6 buildings, or a homeowner with a rental unit).
+
+- When adding a job for an existing customer, the form checks their history for past site addresses
+- If multiple sites found: picker shows saved addresses — tap to select or tap "+ NEW SITE" to add one
+- If same as customer address: "Same as customer address" checkbox (remembered per device)
+- Site address and customer address stored independently on `jobs` table via `resolveCustomer`
+- All jobs for a customer share their equipment log regardless of which site the job was at
 
 ---
 
@@ -115,12 +140,13 @@ Equipment is linked to **customers** (not jobs) — appears on every job for tha
 
 ---
 
-## 8. Chores
+## 8. Adding / Editing Jobs
 
-- Internal tasks separate from jobs (pick up parts, call supplier, etc.)
-- Assignable to users, linkable to jobs
-- Billing chore auto-created when job hits "Completed/Needs Billing"
-- Full chores view via ⚑ CHORES button on dashboard
+Job form fields:
+- Customer name (autocomplete from existing customers)
+- Site address (picker if customer has multiple known sites, or free-text)
+- Customer address (if different from site)
+- Phone, Job type, Status, Scheduled date + time, Job value, Notes
 
 ---
 
