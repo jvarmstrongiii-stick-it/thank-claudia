@@ -61,7 +61,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 34;
+const APP_REV = 35;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1461,6 +1461,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     );
   }
 
+  const jobEquip = equipmentList.filter(eq => eq.job_id === job.id);
+  const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
+
   return (
     <div className="fade-in" style={{ paddingBottom:40 }}>
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12 }}>
@@ -1559,10 +1562,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
         )}
 
         {/* Equipment */}
-        {(() => {
-          const jobEquip = equipmentList.filter(eq => eq.job_id === job.id);
-          const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
-          return (
         <div style={{ marginTop:20 }}>
           {/* THIS JOB section */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
@@ -1622,8 +1621,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           )}
           {otherEquip.map(renderEquipCard)}
         </div>
-          );
-        })()}
         </div>
 
         {pendingScan && (
