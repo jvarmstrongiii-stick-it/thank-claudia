@@ -147,7 +147,7 @@ export async function fetchEquipmentForJob(jobId: string): Promise<Equipment[]> 
 export async function fetchChores(jobId: string): Promise<Chore[]> {
   const { data, error } = await supabase
     .from('chores')
-    .select('*')
+    .select('*, assignee:users(name)')
     .eq('job_id', jobId)
     .order('created_at');
   if (error) throw error;

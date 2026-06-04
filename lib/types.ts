@@ -38,6 +38,12 @@ export interface JobPhoto {
   created_at: string;
 }
 
+export interface User {
+  id: string;
+  name: string;
+  role: string;
+}
+
 export interface Chore {
   id: string;
   description: string;
@@ -49,6 +55,7 @@ export interface Chore {
   status: 'open' | 'done';
   created_at: string;
   updated_at: string;
+  assignee?: { name: string } | null;
 }
 
 export interface Job {

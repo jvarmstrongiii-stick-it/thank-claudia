@@ -80,6 +80,27 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, and `PROJECT_SPEC.md`.
 | notes | text | nullable |
 | updated_at | timestamptz | |
 
+### `users`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| name | text | e.g. Tyler, Jack, Brett, Admin |
+| role | text | enum: `office`, `hnic`, `technician`, `laborer` |
+
+### `chores`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| description | text | |
+| assigned_to | uuid FK → users | nullable |
+| job_id | uuid FK → jobs | nullable — chores can be free-floating or job-linked |
+| customer_id | uuid FK → customers | nullable |
+| due_date | date | nullable |
+| priority | text | e.g. `normal`, `billing` |
+| status | text | `open` or `done` |
+| created_at | timestamptz | |
+| updated_at | timestamptz | |
+
 ### `job_equipment` (junction)
 | Column | Type | Notes |
 |--------|------|-------|

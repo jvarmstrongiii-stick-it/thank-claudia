@@ -209,9 +209,14 @@ export default function JobDetail() {
             <View style={[styles.choreCheck, chore.status === 'done' && styles.choreCheckDone]}>
               {chore.status === 'done' && <Text style={styles.choreCheckMark}>✓</Text>}
             </View>
-            <Text style={[styles.choreText, chore.status === 'done' && styles.choreTextDone]}>
-              {chore.description}
-            </Text>
+            <View style={styles.choreTextWrap}>
+              <Text style={[styles.choreText, chore.status === 'done' && styles.choreTextDone]}>
+                {chore.description}
+              </Text>
+              {chore.assignee?.name && (
+                <Text style={styles.choreAssignee}>{chore.assignee.name}</Text>
+              )}
+            </View>
           </TouchableOpacity>
         ))}
         <View style={styles.choreInputRow}>
@@ -451,8 +456,10 @@ const styles = StyleSheet.create({
   },
   choreCheckDone: { backgroundColor: colors.accent, borderColor: colors.accent },
   choreCheckMark: { fontSize: fs(12), color: colors.bg, fontFamily: 'ShareTechMono_400Regular' },
-  choreText: { flex: 1, fontFamily: 'Barlow_400Regular', fontSize: fs(15), color: colors.text },
+  choreTextWrap: { flex: 1 },
+  choreText: { fontFamily: 'Barlow_400Regular', fontSize: fs(15), color: colors.text },
   choreTextDone: { color: colors.muted, textDecorationLine: 'line-through' },
+  choreAssignee: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(11), color: colors.muted, marginTop: 2 },
   choreInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
   choreInput: {
     flex: 1,
