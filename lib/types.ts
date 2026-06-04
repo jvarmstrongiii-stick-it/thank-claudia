@@ -1,6 +1,6 @@
 export type JobStatus =
   | 'Estimate Scheduled' | 'Estimate Given' | 'Approved' | 'Parts Ordered'
-  | 'Scheduled' | 'In Progress' | 'Complete' | 'Needs Billing'
+  | 'Scheduled' | 'In Route' | 'In Progress' | 'Complete' | 'Needs Billing'
   | 'Invoiced' | 'Paid' | 'On Hold' | 'Cancelled';
 
 export type JobType =

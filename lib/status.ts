@@ -6,6 +6,7 @@ export const STATUS_LABELS: Record<JobStatus, string> = {
   'Approved':           'NEXT UP',
   'Parts Ordered':      'STANDING BY',
   'Scheduled':          'NEXT UP',
+  'In Route':           'IN FIELD',
   'In Progress':        'IN FIELD',
   'Complete':           'COMPLETE',
   'Needs Billing':      'STANDING BY',
@@ -21,6 +22,7 @@ export const STATUS_COLORS: Record<JobStatus, string> = {
   'Approved':           '#8fba3c',
   'Parts Ordered':      '#2a2b22',
   'Scheduled':          '#8fba3c',
+  'In Route':           '#e8a020',
   'In Progress':        '#c8b97a',
   'Complete':           '#2a2b22',
   'Needs Billing':      '#2a2b22',
@@ -31,9 +33,10 @@ export const STATUS_COLORS: Record<JobStatus, string> = {
 };
 
 export const ALL_STATUSES: JobStatus[] = [
+  'In Progress', 'In Route', 'Scheduled',
   'Estimate Scheduled', 'Estimate Given', 'Approved', 'Parts Ordered',
-  'Scheduled', 'In Progress', 'Complete', 'Needs Billing',
-  'Invoiced', 'Paid', 'On Hold', 'Cancelled',
+  'Needs Billing', 'Invoiced', 'On Hold', 'Cancelled',
+  'Complete', 'Paid',
 ];
 
 const ESTIMATE_STATUSES: JobStatus[] = [
@@ -42,12 +45,12 @@ const ESTIMATE_STATUSES: JobStatus[] = [
 
 const INSTALL_STATUSES: JobStatus[] = [
   'Estimate Scheduled', 'Estimate Given', 'Approved', 'Parts Ordered',
-  'Scheduled', 'In Progress', 'Complete', 'Needs Billing',
+  'Scheduled', 'In Route', 'In Progress', 'Complete', 'Needs Billing',
   'Invoiced', 'Paid', 'On Hold', 'Cancelled',
 ];
 
 const FIELD_STATUSES: JobStatus[] = [
-  'Scheduled', 'In Progress', 'Complete', 'Needs Billing',
+  'Scheduled', 'In Route', 'In Progress', 'Complete', 'Needs Billing',
   'Invoiced', 'Paid', 'On Hold', 'Cancelled',
 ];
 

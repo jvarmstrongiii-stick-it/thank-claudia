@@ -1,18 +1,24 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   View, Text, FlatList, StyleSheet,
-  SafeAreaView, RefreshControl, TouchableOpacity,
+  SafeAreaView, RefreshControl, TouchableOpacity, ScrollView,
 } from 'react-native';
 import JobCard from '../components/JobCard';
 import VoiceBar from '../components/VoiceBar';
 import { fetchAllJobs } from '../lib/queries';
-import { formatDate } from '../lib/status';
+import { formatDate, ALL_STATUSES } from '../lib/status';
 import { fs, colors, isWeb } from '../lib/platform';
 import type { Job, JobStatus } from '../lib/types';
 
+// Display label overrides — status value → tab label
+const FILTER_LABELS: Partial<Record<JobStatus, string>> = {
+  'In Progress': 'ON SITE',
+};
+
 const CLOSED_STATUSES: JobStatus[] = ['Complete', 'Paid', 'Cancelled'];
-type FilterTab = 'ALL' | 'CLOSED';
+
+type FilterTab = JobStatus | 'ALL';
 
 export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -32,13 +38,14 @@ export default function Dashboard() {
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
-  const openJobs   = jobs.filter(j => !CLOSED_STATUSES.includes(j.status));
-  const closedJobs = jobs.filter(j =>  CLOSED_STATUSES.includes(j.status));
-  const visibleJobs = filter === 'CLOSED' ? closedJobs : openJobs;
+  const openJobs = jobs.filter(j => !CLOSED_STATUSES.includes(j.status));
+  const visibleJobs = filter === 'ALL'
+    ? openJobs
+    : jobs.filter(j => j.status === filter);
 
-  const active  = openJobs.filter(j => ['In Progress', 'Scheduled', 'Estimate Scheduled'].includes(j.status)).length;
-  const done    = jobs.filter(j => ['Complete', 'Paid'].includes(j.status)).length;
-  const pending = openJobs.filter(j => ['Needs Billing', 'Invoiced', 'Parts Ordered'].includes(j.status)).length;
+  const active   = openJobs.filter(j => ['In Progress', 'In Route', 'Scheduled'].includes(j.status)).length;
+  const done     = jobs.filter(j => ['Complete', 'Paid'].includes(j.status)).length;
+  const pending  = openJobs.filter(j => ['Needs Billing', 'Invoiced', 'Parts Ordered'].includes(j.status)).length;
   const pipeline = openJobs.reduce((sum, j) => sum + (j.value ?? 0), 0);
 
   return (
@@ -68,20 +75,32 @@ export default function Dashboard() {
 
         <View style={styles.sectionRow}>
           <Text style={styles.sectionLabel}>JOBS</Text>
-          <View style={styles.tabs}>
-            {(['ALL', 'CLOSED'] as FilterTab[]).map(tab => (
-              <TouchableOpacity
-                key={tab}
-                onPress={() => setFilter(tab)}
-                style={[styles.tab, filter === tab && styles.tabActive]}
-              >
-                <Text style={[styles.tabText, filter === tab && styles.tabTextActive]}>
-                  {tab}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
         </View>
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScroll}
+          contentContainerStyle={styles.filterContent}
+        >
+          <TouchableOpacity
+            onPress={() => setFilter('ALL')}
+            style={[styles.tab, filter === 'ALL' && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, filter === 'ALL' && styles.tabTextActive]}>ALL</Text>
+          </TouchableOpacity>
+          {ALL_STATUSES.map(status => (
+            <TouchableOpacity
+              key={status}
+              onPress={() => setFilter(status)}
+              style={[styles.tab, filter === status && styles.tabActive]}
+            >
+              <Text style={[styles.tabText, filter === status && styles.tabTextActive]}>
+                {FILTER_LABELS[status] ?? status.toUpperCase()}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         <FlatList
           data={visibleJobs}
@@ -204,11 +223,8 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   sectionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    marginBottom: 8,
+    marginBottom: 6,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
     paddingBottom: 6,
@@ -219,10 +235,11 @@ const styles = StyleSheet.create({
     color: colors.muted,
     letterSpacing: 2,
   },
-  tabs: { flexDirection: 'row', gap: 4 },
+  filterScroll: { marginBottom: 8 },
+  filterContent: { paddingHorizontal: 16, gap: 6 },
   tab: {
     paddingHorizontal: 10,
-    paddingVertical: 3,
+    paddingVertical: 4,
     borderRadius: 2,
     borderWidth: 1,
     borderColor: colors.border,
