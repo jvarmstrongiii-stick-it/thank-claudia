@@ -25,7 +25,9 @@
 
 ## Database Schema
 
-Schema is inferred from `lib/queries.ts`, `lib/types.ts`, and `PROJECT_SPEC.md`. No migration files are committed — Supabase was configured via the dashboard.
+Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard screenshots, and `PROJECT_SPEC.md`. No migration files are committed — Supabase was configured via the dashboard.
+
+**Full table list:** `chores`, `components`, `customers`, `equipment`, `job_components`, `job_equipment`, `job_notes`, `job_photos`, `job_status_history`, `jobs`, `line_items`, `notifications`, `photos`, `receipts`, `sync_queue`, `users`
 
 ### `customers`
 | Column | Type | Notes |
@@ -85,7 +87,7 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, and `PROJECT_SPEC.md`.
 |--------|------|-------|
 | id | uuid PK | |
 | name | text | e.g. Tyler, Jack, Brett, Admin |
-| role | text | enum: `office`, `hnic`, `technician`, `laborer` |
+| role | text | `office`, `hnic`, `technician`, `laborer` |
 
 ### `chores`
 | Column | Type | Notes |
@@ -96,16 +98,109 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, and `PROJECT_SPEC.md`.
 | job_id | uuid FK → jobs | nullable — chores can be free-floating or job-linked |
 | customer_id | uuid FK → customers | nullable |
 | due_date | date | nullable |
-| priority | text | e.g. `normal`, `billing` |
+| priority | text | `normal`, `billing` |
 | status | text | `open` or `done` |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
+
+### `components`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| name | text | part/component name |
+| description | text | nullable |
+| part_number | text | nullable |
+| cost | numeric | nullable — unit cost |
+| *(schema needs verification)* | | |
+
+### `job_components` (junction)
+| Column | Type | Notes |
+|--------|------|-------|
+| job_id | uuid FK → jobs | |
+| component_id | uuid FK → components | |
+| *(may have quantity or other fields — needs verification)* | | |
 
 ### `job_equipment` (junction)
 | Column | Type | Notes |
 |--------|------|-------|
 | job_id | uuid FK → jobs | |
 | equipment_id | uuid FK → equipment | |
+
+### `job_notes`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| job_id | uuid FK → jobs | |
+| user_id | uuid FK → users | nullable — who wrote the note |
+| content | text | |
+| created_at | timestamptz | |
+| *(schema needs verification)* | | |
+
+### `job_status_history`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| job_id | uuid FK → jobs | |
+| old_status | text | nullable |
+| new_status | text | |
+| changed_by | uuid FK → users | nullable |
+| changed_at | timestamptz | |
+| *(schema needs verification)* | | |
+
+### `line_items`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| job_id | uuid FK → jobs | |
+| description | text | |
+| quantity | numeric | nullable |
+| unit_price | numeric | nullable |
+| total | numeric | nullable |
+| created_at | timestamptz | |
+| *(schema needs verification)* | | |
+
+### `notifications`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| user_id | uuid FK → users | nullable |
+| message | text | |
+| read | boolean | |
+| created_at | timestamptz | |
+| *(schema needs verification)* | | |
+
+### `photos`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| storage_path | text | |
+| job_id | uuid FK → jobs | nullable |
+| customer_id | uuid FK → customers | nullable |
+| created_at | timestamptz | |
+| *(schema needs verification — may overlap with job_photos)* | | |
+
+### `receipts`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| job_id | uuid FK → jobs | nullable |
+| amount | numeric | |
+| vendor | text | nullable |
+| date | date | nullable |
+| storage_path | text | nullable — photo of receipt |
+| created_at | timestamptz | |
+| *(schema needs verification)* | | |
+
+### `sync_queue`
+| Column | Type | Notes |
+|--------|------|-------|
+| id | uuid PK | |
+| operation | text | `insert`, `update`, `delete` |
+| table_name | text | target table |
+| payload | jsonb | |
+| status | text | `pending`, `synced`, `failed` |
+| created_at | timestamptz | |
+| *(schema needs verification — used for offline support)* | | |
 
 ### Supabase Storage
 - Bucket: `job-photos` (public)
