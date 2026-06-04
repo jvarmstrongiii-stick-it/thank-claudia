@@ -2,19 +2,23 @@ import { useEffect, useState, useCallback } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   View, Text, FlatList, StyleSheet,
-  SafeAreaView, RefreshControl,
+  SafeAreaView, RefreshControl, TouchableOpacity,
 } from 'react-native';
 import JobCard from '../components/JobCard';
 import VoiceBar from '../components/VoiceBar';
 import { fetchAllJobs } from '../lib/queries';
 import { formatDate } from '../lib/status';
 import { fs, colors, isWeb } from '../lib/platform';
-import type { Job } from '../lib/types';
+import type { Job, JobStatus } from '../lib/types';
+
+const CLOSED_STATUSES: JobStatus[] = ['Complete', 'Paid', 'Cancelled'];
+type FilterTab = 'ALL' | 'CLOSED';
 
 export default function Dashboard() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [filter, setFilter] = useState<FilterTab>('ALL');
 
   async function load() {
     try {
@@ -28,10 +32,14 @@ export default function Dashboard() {
 
   useFocusEffect(useCallback(() => { load(); }, []));
 
-  const active  = jobs.filter(j => ['In Progress', 'Scheduled', 'Estimate Scheduled'].includes(j.status)).length;
+  const openJobs   = jobs.filter(j => !CLOSED_STATUSES.includes(j.status));
+  const closedJobs = jobs.filter(j =>  CLOSED_STATUSES.includes(j.status));
+  const visibleJobs = filter === 'CLOSED' ? closedJobs : openJobs;
+
+  const active  = openJobs.filter(j => ['In Progress', 'Scheduled', 'Estimate Scheduled'].includes(j.status)).length;
   const done    = jobs.filter(j => ['Complete', 'Paid'].includes(j.status)).length;
-  const pending = jobs.filter(j => ['Needs Billing', 'Invoiced', 'Parts Ordered'].includes(j.status)).length;
-  const pipeline = jobs.reduce((sum, j) => sum + (j.value ?? 0), 0);
+  const pending = openJobs.filter(j => ['Needs Billing', 'Invoiced', 'Parts Ordered'].includes(j.status)).length;
+  const pipeline = openJobs.reduce((sum, j) => sum + (j.value ?? 0), 0);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -60,10 +68,23 @@ export default function Dashboard() {
 
         <View style={styles.sectionRow}>
           <Text style={styles.sectionLabel}>JOBS</Text>
+          <View style={styles.tabs}>
+            {(['ALL', 'CLOSED'] as FilterTab[]).map(tab => (
+              <TouchableOpacity
+                key={tab}
+                onPress={() => setFilter(tab)}
+                style={[styles.tab, filter === tab && styles.tabActive]}
+              >
+                <Text style={[styles.tabText, filter === tab && styles.tabTextActive]}>
+                  {tab}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         </View>
 
         <FlatList
-          data={jobs}
+          data={visibleJobs}
           keyExtractor={j => j.id}
           renderItem={({ item }) => <JobCard job={item} />}
           contentContainerStyle={styles.list}
@@ -183,6 +204,9 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   sectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     marginBottom: 8,
     borderBottomWidth: 1,
@@ -195,6 +219,25 @@ const styles = StyleSheet.create({
     color: colors.muted,
     letterSpacing: 2,
   },
+  tabs: { flexDirection: 'row', gap: 4 },
+  tab: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  tabActive: {
+    borderColor: colors.accent,
+    backgroundColor: colors.surface,
+  },
+  tabText: {
+    fontFamily: 'ShareTechMono_400Regular',
+    fontSize: fs(10),
+    color: colors.muted,
+    letterSpacing: 1,
+  },
+  tabTextActive: { color: colors.accent },
   list: { paddingHorizontal: 16, paddingBottom: 8 },
   empty: {
     fontFamily: 'ShareTechMono_400Regular',
