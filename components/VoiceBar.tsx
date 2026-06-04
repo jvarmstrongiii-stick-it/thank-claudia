@@ -9,7 +9,6 @@ import { submitVoice, type VoiceResult } from '../lib/api';
 import { findCustomerByName, insertCustomer, insertJob } from '../lib/queries';
 import ConfirmJobModal from './ConfirmJobModal';
 
-// Speech recognition — only available in dev build (not Expo Go)
 let ExpoSpeechRecognitionModule: any = null;
 let useSpeechRecognitionEvent: any = null;
 try {
@@ -20,7 +19,11 @@ try {
   // not available (Expo Go or web)
 }
 
-const SPEECH_AVAILABLE = !!ExpoSpeechRecognitionModule && Platform.OS !== 'web';
+const NATIVE_SPEECH = !!ExpoSpeechRecognitionModule && Platform.OS !== 'web';
+const WEB_SPEECH = Platform.OS === 'web' &&
+  typeof window !== 'undefined' &&
+  ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+const SPEECH_AVAILABLE = NATIVE_SPEECH || WEB_SPEECH;
 
 type Mode = 'idle' | 'input' | 'listening' | 'processing' | 'confirming' | 'error';
 
@@ -30,8 +33,13 @@ export default function VoiceBar() {
   const [extracted, setExtracted] = useState<VoiceResult | null>(null);
   const [errorMsg, setErrorMsg] = useState('');
   const accumulatedRef = useRef('');
+  const webRecognitionRef = useRef<any>(null);
 
-  // Wire speech recognition events (no-ops if not available)
+  useEffect(() => {
+    return () => { webRecognitionRef.current?.abort(); };
+  }, []);
+
+  // Wire native speech recognition events (no-ops if not available)
   if (useSpeechRecognitionEvent) {
     // eslint-disable-next-line react-hooks/rules-of-hooks
     useSpeechRecognitionEvent('result', (event: any) => {
@@ -55,23 +63,62 @@ export default function VoiceBar() {
   }
 
   async function startListening() {
+    accumulatedRef.current = '';
+    setTranscript('');
+
+    if (WEB_SPEECH) {
+      const SR = (window as any).SpeechRecognition ?? (window as any).webkitSpeechRecognition;
+      const rec = new SR();
+      rec.continuous = true;
+      rec.interimResults = true;
+      rec.lang = 'en-US';
+      rec.onresult = (event: any) => {
+        const parts: string[] = [];
+        for (let i = 0; i < event.results.length; i++) {
+          parts.push(event.results[i][0].transcript.trim());
+        }
+        const text = parts.join(' ');
+        accumulatedRef.current = text;
+        setTranscript(text);
+      };
+      rec.onend = () => {
+        webRecognitionRef.current = null;
+        if (accumulatedRef.current.trim()) {
+          sendToBackend(accumulatedRef.current.trim());
+        } else {
+          setMode('idle');
+        }
+      };
+      rec.onerror = (event: any) => {
+        webRecognitionRef.current = null;
+        setErrorMsg(event.error ?? 'Speech error');
+        setMode('error');
+      };
+      webRecognitionRef.current = rec;
+      rec.start();
+      setMode('listening');
+      return;
+    }
+
     const granted = await ExpoSpeechRecognitionModule.requestPermissionsAsync();
     if (!granted.granted) {
       setErrorMsg('Microphone permission denied');
       setMode('error');
       return;
     }
-    accumulatedRef.current = '';
-    setTranscript('');
     setMode('listening');
     ExpoSpeechRecognitionModule.start({
       lang: 'en-US',
       interimResults: true,
-      continuous: false,
+      continuous: true,
     });
   }
 
   function stopListening() {
+    if (WEB_SPEECH && webRecognitionRef.current) {
+      webRecognitionRef.current.stop();
+      return;
+    }
     ExpoSpeechRecognitionModule?.stop();
   }
 
