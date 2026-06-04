@@ -490,6 +490,7 @@ function App() {
   const [focusPhotos, setFocusPhotos] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [users, setUsers] = useState(FALLBACK_USERS);
+  const [expandedCustomers, setExpandedCustomers] = useState(new Set());
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1029,30 +1030,106 @@ Command: "${transcript}"`
                 {q ? `NO MATCHES FOR "${search.trim().toUpperCase()}"` : "NO JOBS HERE"}
               </div>
             )}
-            {shown.map(j => (
-              <button key={j.id} onClick={() => setSelectedId(j.id)} className="fade-in"
-                style={{ display:"block", width:"100%", textAlign:"left", marginBottom:10,
-                  background:"var(--panel)", border:"1px solid var(--line)",
-                  borderLeft:`3px solid ${STATUS_COLOR[j.status]||"var(--line)"}`,
-                  borderRadius:10, padding:14 }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
-                  <div className="head" style={{ fontSize:18, fontWeight:600 }}>{j.customer}</div>
-                  <StatusPill status={j.status} />
-                </div>
-                {(siteAddr(j)||custAddr(j)||j.location) ? (
-                  <div className="head" style={{ fontSize:14, fontWeight:600, color:"var(--brass-bright)", marginTop:2 }}>
-                    📍 {siteAddr(j)||custAddr(j)||j.location}
+            {(() => {
+              // Group by customer name, preserving order of first appearance
+              const groups = [];
+              const groupMap = {};
+              for (const j of shown) {
+                const key = j.customer || '';
+                if (!groupMap[key]) {
+                  const g = { customer: key, jobs: [] };
+                  groupMap[key] = g;
+                  groups.push(g);
+                }
+                groupMap[key].jobs.push(j);
+              }
+
+              function JobCard({ j }) {
+                return (
+                  <button key={j.id} onClick={() => setSelectedId(j.id)} className="fade-in"
+                    style={{ display:"block", width:"100%", textAlign:"left", marginBottom:8,
+                      background:"var(--panel)", border:"1px solid var(--line)",
+                      borderLeft:`3px solid ${STATUS_COLOR[j.status]||"var(--line)"}`,
+                      borderRadius:10, padding:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div className="head" style={{ fontSize:18, fontWeight:600 }}>{j.customer}</div>
+                      <StatusPill status={j.status} />
+                    </div>
+                    {(siteAddr(j)||custAddr(j)||j.location) ? (
+                      <div className="head" style={{ fontSize:14, fontWeight:600, color:"var(--brass-bright)", marginTop:2 }}>
+                        📍 {siteAddr(j)||custAddr(j)||j.location}
+                      </div>
+                    ) : null}
+                    <div style={{ fontSize:14, color:"var(--muted)", marginTop:3 }}>{j.type}</div>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
+                      <div className="mono" style={{ fontSize:14, color:"var(--brass-bright)" }}>
+                        {fmtDate(j.scheduled_date)} · {fmtTime(j.scheduled_time)}
+                      </div>
+                      <div className="head" style={{ fontSize:16, fontWeight:700, color:"var(--olive-bright)" }}>{money(j.value)}</div>
+                    </div>
+                  </button>
+                );
+              }
+
+              return groups.map(group => {
+                if (group.jobs.length === 1) {
+                  return <JobCard key={group.jobs[0].id} j={group.jobs[0]} />;
+                }
+                // Multi-job customer: collapsible group
+                const isExpanded = q || expandedCustomers.has(group.customer);
+                const totalValue = group.jobs.reduce((s, j) => s + Number(j.value||0), 0);
+                const statusCounts = {};
+                group.jobs.forEach(j => { statusCounts[j.status] = (statusCounts[j.status]||0) + 1; });
+                return (
+                  <div key={group.customer} style={{ marginBottom:10 }}>
+                    <button onClick={() => setExpandedCustomers(prev => {
+                        const next = new Set(prev);
+                        next.has(group.customer) ? next.delete(group.customer) : next.add(group.customer);
+                        return next;
+                      })}
+                      className="fade-in"
+                      style={{ display:"block", width:"100%", textAlign:"left",
+                        background:"var(--panel-2)", border:"1px solid var(--brass)",
+                        borderRadius:10, padding:"12px 14px" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, flex:1, minWidth:0 }}>
+                          <span style={{ fontSize:14, color:"var(--brass-bright)", flexShrink:0 }}>
+                            {isExpanded ? '▼' : '▶'}
+                          </span>
+                          <div className="head" style={{ fontSize:17, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {group.customer}
+                          </div>
+                        </div>
+                        <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", flexShrink:0 }}>
+                          {group.jobs.length} JOBS
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap", alignItems:"center" }}>
+                        {Object.entries(statusCounts).map(([status, count]) => (
+                          <span key={status} className="head"
+                            style={{ fontSize:11, fontWeight:600, padding:"3px 8px", borderRadius:5,
+                              border:`1px solid ${STATUS_COLOR[status]||"var(--line)"}`,
+                              color: STATUS_COLOR[status]||"var(--muted)",
+                              background: (STATUS_COLOR[status]||"#888")+"18" }}>
+                            {count > 1 ? `${count}× ` : ''}{status}
+                          </span>
+                        ))}
+                        {totalValue > 0 && (
+                          <span className="head" style={{ marginLeft:"auto", fontSize:14, fontWeight:700, color:"var(--olive-bright)" }}>
+                            {money(totalValue)}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div style={{ paddingLeft:12, borderLeft:"2px solid var(--brass)", marginTop:4 }}>
+                        {group.jobs.map(j => <JobCard key={j.id} j={j} />)}
+                      </div>
+                    )}
                   </div>
-                ) : null}
-                <div style={{ fontSize:14, color:"var(--muted)", marginTop:3 }}>{j.type}</div>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
-                  <div className="mono" style={{ fontSize:14, color:"var(--brass-bright)" }}>
-                    {fmtDate(j.scheduled_date)} · {fmtTime(j.scheduled_time)}
-                  </div>
-                  <div className="head" style={{ fontSize:16, fontWeight:700, color:"var(--olive-bright)" }}>{money(j.value)}</div>
-                </div>
-              </button>
-            ))}
+                );
+              });
+            })()}
             <button onClick={fixOldStatuses} className="mono"
               style={{ width:"100%", marginTop:6, padding:"11px", borderRadius:8, fontSize:12, letterSpacing:"0.08em",
                 background:"transparent", color:"var(--muted)", border:"1px dashed var(--line)" }}>
