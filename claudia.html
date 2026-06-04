@@ -81,13 +81,14 @@ const CURRENT_USER_KEY  = "tmc_current_user";
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
+  "On Site","In Route","Scheduled",
   "New","Evaluation Needed","Write Estimate","Waiting on Approval",
-  "Scheduled","En Route","On Site","In Progress","On Hold",
+  "In Progress","On Hold",
   "Completed/Needs Billing","Completed/Paid","Closed",
 ];
 const STATUS_COLOR = {
   "New":"#d9af52","Evaluation Needed":"#8a8c7e","Write Estimate":"#b8923f",
-  "Waiting on Approval":"#c98a3f","Scheduled":"#6b7338","En Route":"#d9af52",
+  "Waiting on Approval":"#c98a3f","Scheduled":"#6b7338","In Route":"#d9af52",
   "On Site":"#93a046","In Progress":"#93a046","On Hold":"#b5432f",
   "Completed/Needs Billing":"#d9af52","Completed/Paid":"#5d8a3a","Closed":"#8a8c7e",
 };
@@ -836,8 +837,7 @@ Command: "${transcript}"`
   );
 
   const isActive = s => s !== "Completed/Paid" && s !== "Closed";
-  const usedStatuses = STATUSES.filter(s => jobs.some(j => j.status === s));
-  const FILTERS = ["All", ...usedStatuses];
+  const FILTERS = ["All", ...STATUSES];
   const q = search.trim().toLowerCase();
 
   function matchesSearch(j) {
@@ -848,7 +848,7 @@ Command: "${transcript}"`
     return hay.includes(q);
   }
 
-  const shown = q ? jobs.filter(matchesSearch) : jobs.filter(j => filter === "All" || j.status === filter);
+  const shown = q ? jobs.filter(matchesSearch) : jobs.filter(j => filter === "All" ? j.status !== "Closed" : j.status === filter);
   const outstanding = jobs.filter(j => isActive(j.status)).reduce((s,j) => s + Number(j.value||0), 0);
 
   return (
