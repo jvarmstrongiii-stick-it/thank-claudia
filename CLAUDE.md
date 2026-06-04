@@ -180,7 +180,7 @@ The live web build can be **behind the working repo revision** if the web output
 | Issue | Severity | Detail |
 |-------|---------|--------|
 | **Speech recognition lag** | High | `expo-speech-recognition` has an ~8-second processing lag. Threading issue, not yet resolved. Voice intake feels slow. |
-| **Voice input dev-build-only** | High | `expo-speech-recognition` does not work in Expo Go or the web build — only in a native dev client build. Since we are currently on the web build, voice intake is unavailable. |
+| **Voice input falls back to text on web** | Medium | `expo-speech-recognition` is native-only (`SPEECH_AVAILABLE = false` on web, line 23 of `VoiceBar.tsx`). On web, pressing the mic button opens a **text input field** instead of activating speech recognition. Browser-level OS dictation still works inside that field, but the app's voice pipeline (speech → backend → Claude → structured JSON) is not triggered until the user submits the typed/dictated text. |
 | **Network flakiness on cellular** | Medium | Backend API calls fail intermittently when device is on mobile data in tunnel mode. Stable on WiFi. |
 | **backendUrl hardcoded to LAN IP** | Medium | `app.json` extra.backendUrl is `http://10.0.0.120:3001`. Must be updated for any device not on the same LAN, or replaced with a public URL for production. |
 | **No migration files committed** | Medium | Schema exists only in the Supabase dashboard. If the project is rebuilt from scratch, schema must be manually recreated from the types/queries. |
