@@ -63,7 +63,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 40;
+const APP_REV = 41;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1391,6 +1391,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [pendingScan, setPendingScan] = useState(null);
   const [expandedEquipId, setExpandedEquipId] = useState(null);
   const [showWarrantySheet, setShowWarrantySheet] = useState(null);
+  const [editEquipItem, setEditEquipItem] = useState(null);
   const [scanning, setScanning] = useState(false);
   const [pendingOtherScan, setPendingOtherScan] = useState(null);
   const [scanningOther, setScanningOther] = useState(false);
@@ -1540,6 +1541,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
               className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>
               {expandedEquipId === eq.id ? '▲' : '▼'}
             </button>
+            <button onClick={() => setEditEquipItem(eq)}
+              className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>✎</button>
             <button onClick={async () => { if (confirm(`Remove "${eq.label}"?`)) { await deleteEquipmentItem(eq.id); setEquipmentList(p => p.filter(e => e.id !== eq.id)); } }}
               className="mono" style={{ fontSize:14, color:"var(--line)", padding:"2px 6px" }}>✕</button>
           </div>
@@ -1744,6 +1747,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
             job={job}
             onRegistered={(updated) => setEquipmentList(prev => prev.map(e => e.id === updated.id ? updated : e))}
             onClose={() => setShowWarrantySheet(null)}
+          />
+        )}
+
+        {editEquipItem && (
+          <EquipEditSheet
+            eq={editEquipItem}
+            onSave={(updated) => { setEquipmentList(prev => prev.map(e => e.id === updated.id ? updated : e)); setEditEquipItem(null); }}
+            onClose={() => setEditEquipItem(null)}
           />
         )}
 
@@ -2137,6 +2148,59 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
           {marking ? 'SAVING…' : '✓ MARK AS REGISTERED'}
         </button>
       )}
+    </Sheet>
+  );
+}
+
+/* ── EquipEditSheet ─────────────────────────────────────────────────────────── */
+function EquipEditSheet({ eq, onSave, onClose }) {
+  const [label, setLabel] = useState(eq.label || '');
+  const [fields, setFields] = useState(() => {
+    const f = {};
+    EQUIP_KEYS.forEach(k => { f[k] = eq[k] || ''; });
+    return f;
+  });
+  const [installDate, setInstallDate] = useState(eq.install_date || '');
+  const [warrantyReg, setWarrantyReg] = useState(!!eq.warranty_registered);
+  const [saving, setSaving] = useState(false);
+
+  async function doSave() {
+    if (!label.trim()) return;
+    setSaving(true);
+    const updates = { label: label.trim(), install_date: installDate || null, warranty_registered: warrantyReg };
+    if (!warrantyReg) updates.warranty_registered_date = null;
+    EQUIP_KEYS.forEach(k => { updates[k] = fields[k] || null; });
+    const error = await updateEquipment(eq.id, updates);
+    setSaving(false);
+    if (error) { alert('Save failed: ' + error.message); return; }
+    onSave({ ...eq, ...updates });
+  }
+
+  return (
+    <Sheet title="EDIT EQUIPMENT" onClose={onClose}>
+      <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, marginTop:4 }}>LABEL / LOCATION</div>
+      <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Living Room, Outdoor Unit" />
+      {EQUIP_FIELDS.map(f => (
+        <div key={f.key}>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"12px 0 6px" }}>{f.label}</div>
+          <input value={fields[f.key] || ''} onChange={e => setFields(s => ({...s,[f.key]:e.target.value}))} />
+        </div>
+      ))}
+      <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"12px 0 6px" }}>INSTALL DATE</div>
+      <input type="date" value={installDate} onChange={e => setInstallDate(e.target.value)} />
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:16, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
+        <input type="checkbox" id="edit-wreg" checked={warrantyReg} onChange={e => setWarrantyReg(e.target.checked)}
+          style={{ width:20, height:20, accentColor:"var(--green)", cursor:"pointer" }} />
+        <label htmlFor="edit-wreg" className="mono"
+          style={{ fontSize:13, color: warrantyReg ? "var(--green)" : "var(--muted)", cursor:"pointer" }}>
+          {warrantyReg ? '✓ WARRANTY REGISTERED' : 'WARRANTY NOT REGISTERED'}
+        </label>
+      </div>
+      <button onClick={doSave} disabled={saving} className="head"
+        style={{ width:"100%", marginTop:18, padding:15, borderRadius:9, fontSize:16, fontWeight:700,
+          background: saving ? "var(--muted)" : "var(--olive-bright)", color:"var(--bg)" }}>
+        {saving ? 'SAVING…' : 'SAVE CHANGES'}
+      </button>
     </Sheet>
   );
 }
