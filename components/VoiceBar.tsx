@@ -82,6 +82,8 @@ export default function VoiceBar() {
         setTranscript(text);
       };
       rec.onend = () => {
+        // Only process on unexpected auto-stop; explicit stopListening clears the ref first
+        if (webRecognitionRef.current !== rec) return;
         webRecognitionRef.current = null;
         if (accumulatedRef.current.trim()) {
           sendToBackend(accumulatedRef.current.trim());
@@ -90,6 +92,7 @@ export default function VoiceBar() {
         }
       };
       rec.onerror = (event: any) => {
+        if (webRecognitionRef.current !== rec) return; // aborted by explicit stop
         webRecognitionRef.current = null;
         setErrorMsg(event.error ?? 'Speech error');
         setMode('error');
@@ -115,8 +118,16 @@ export default function VoiceBar() {
   }
 
   function stopListening() {
-    if (WEB_SPEECH && webRecognitionRef.current) {
-      webRecognitionRef.current.stop();
+    if (WEB_SPEECH) {
+      const rec = webRecognitionRef.current;
+      webRecognitionRef.current = null; // cleared before abort so onend/onerror are no-ops
+      if (rec) { try { rec.abort(); } catch { } }
+      const text = accumulatedRef.current.trim();
+      if (text) {
+        sendToBackend(text);
+      } else {
+        setMode('idle');
+      }
       return;
     }
     ExpoSpeechRecognitionModule?.stop();
