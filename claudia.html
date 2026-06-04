@@ -501,6 +501,14 @@ function App() {
       const jobSummary = jobs.slice(0,30).map(j =>
         `id:${j.id} customer:"${j.customer}" type:"${j.type}" status:"${j.status}" date:${j.scheduled_date||'?'}`
       ).join('\n');
+      const userSummary = users.map(u => `id:${u.id} name:"${u.name}"`).join('\n');
+
+      // Determine current screen so Claude routes commands correctly
+      const currentScreen = showChoresView ? 'chores'
+        : selectedId ? `job_detail:${selectedId}`
+        : adding ? 'new_job_form'
+        : 'dashboard';
+
       const res = await fetch(CLAUDE_PROXY, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
@@ -509,12 +517,17 @@ function App() {
           max_tokens: 300,
           messages: [{ role: 'user', content:
             `You are a voice assistant for an HVAC field service app. Today: ${todayISO()}. User: ${currentUser?.name||'tech'}.
+Current screen: ${currentScreen}
 Jobs:\n${jobSummary}
+Users:\n${userSummary}
 
-Parse this voice command and reply ONLY with JSON (no markdown):
-{"intent":"add_job"|"navigate"|"update_status"|"add_note"|"search"|"unknown",
+Parse this voice command and reply ONLY with JSON (no markdown).
+If the current screen is "chores" and the command describes a task/to-do, use intent "add_chore".
+If the current screen starts with "job_detail" and the command describes a task/to-do, use intent "add_chore" and set job_id to the job in the screen name.
+{"intent":"add_job"|"add_chore"|"navigate"|"update_status"|"add_note"|"search"|"unknown",
 "customer":null,"job_type":null,"status":null,"note":null,"query":null,
-"date":null,"job_id":null,"reply":"brief friendly confirmation under 12 words"}
+"date":null,"job_id":null,"description":null,"assigned_to_name":null,
+"reply":"brief friendly confirmation under 12 words"}
 
 Command: "${transcript}"`
           }],
@@ -528,7 +541,26 @@ Command: "${transcript}"`
 
       showToast(intent.reply || 'Done');
 
-      if (intent.intent === 'add_job') {
+      if (intent.intent === 'add_chore') {
+        const desc = intent.description || intent.note || transcript;
+        const assigneeUser = intent.assigned_to_name
+          ? users.find(u => u.name.toLowerCase().includes(intent.assigned_to_name.toLowerCase()))
+          : null;
+        const jobIdForChore = intent.job_id || (selectedId && currentScreen.startsWith('job_detail') ? selectedId : null);
+        const { data: choreData, error: choreErr } = await sb.from('chores').insert({
+          description: desc,
+          job_id: jobIdForChore || null,
+          assigned_to: assigneeUser?.id || null,
+          status: 'open',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).select().single();
+        if (choreErr) { showToast(`Error: ${choreErr.message}`, true); return; }
+        setChores(cs => [{ id: choreData.id, kind: null, job_id: jobIdForChore || null,
+          assigned_to: assigneeUser?.name || null,
+          label: desc, created: todayISO(), done: false }, ...cs]);
+        showToast('Chore added');
+      } else if (intent.intent === 'add_job') {
         const pre = {};
         if (intent.customer) pre.customer = intent.customer;
         if (intent.job_type) pre.type = intent.job_type;
