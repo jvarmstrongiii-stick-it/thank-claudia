@@ -380,12 +380,12 @@ async function scanNameplateFromUrl(url) {
 
 async function fetchChores() {
   const { data, error } = await sb.from('chores')
-    .select('*').neq('status','done').order('created_at', { ascending: false });
+    .select('*').order('created_at', { ascending: false });
   if (error) { console.warn('fetchChores error', error); return []; }
   return (data||[]).map(c => ({
     id: c.id, kind: c.priority||null, job_id: c.job_id,
     assigned_to: c.assigned_to||null,
-    label: c.description||'', created: (c.created_at||'').slice(0,10)||todayISO(), done: false,
+    label: c.description||'', created: (c.created_at||'').slice(0,10)||todayISO(), done: c.status === 'done',
   }));
 }
 
@@ -705,10 +705,27 @@ Command: "${transcript}"`
   }
 
   async function toggleChore(choreId) {
+    const chore = chores.find(c => c.id === choreId);
+    if (!chore) return;
+    const newStatus = chore.done ? 'open' : 'done';
     const { error } = await sb.from('chores')
-      .update({ status:'done', updated_at: new Date().toISOString() }).eq('id', choreId);
-    if (error) { showToast("Error completing chore", true); return; }
-    setChores(cs => cs.filter(c => c.id !== choreId));
+      .update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', choreId);
+    if (error) { showToast("Error updating chore", true); return; }
+    setChores(cs => cs.map(c => c.id === choreId ? { ...c, done: !chore.done } : c));
+  }
+
+  async function editChore(choreId, fields) {
+    const { error } = await sb.from('chores').update({
+      description: fields.description,
+      job_id: fields.job_id || null,
+      assigned_to: fields.assigned_to || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', choreId);
+    if (error) { showToast(`Error: ${error.message}`, true); return; }
+    setChores(cs => cs.map(c => c.id === choreId ? {
+      ...c, label: fields.description, job_id: fields.job_id || null, assigned_to: fields.assigned_to || null,
+    } : c));
+    showToast('Chore updated');
   }
 
   async function spawnBillingChore(job) {
@@ -1068,6 +1085,7 @@ Command: "${transcript}"`
           chores={chores} jobs={jobs} users={users}
           onClose={() => setShowChoresView(false)}
           onToggle={toggleChore}
+          onEdit={editChore}
           onOpenJob={(jobId) => { setShowChoresView(false); openJobPhotos(jobId); }}
           onAdd={async (desc, jobId, assignedTo) => {
             const { data, error } = await sb.from('chores').insert({
@@ -1121,12 +1139,18 @@ function SettingsModal({ onClose }) {
 }
 
 /* ── ChoresView ────────────────────────────────────────────────────────────── */
-function ChoresView({ chores, jobs, users, onClose, onToggle, onOpenJob, onAdd, onDelete }) {
+function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob, onAdd, onDelete }) {
   const [desc, setDesc] = useState('');
   const [jobId, setJobId] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editDesc, setEditDesc] = useState('');
+  const [editJobId, setEditJobId] = useState('');
+  const [editAssignedTo, setEditAssignedTo] = useState('');
+  const [showCompleted, setShowCompleted] = useState(false);
   const open = chores.filter(c => !c.done);
+  const done = chores.filter(c => c.done);
 
   async function submit() {
     if (!desc.trim()) return;
@@ -1134,12 +1158,99 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onOpenJob, onAdd, 
     setDesc(''); setJobId(''); setAssignedTo(''); setAdding(false);
   }
 
+  function startEdit(c) {
+    setEditingId(c.id);
+    setEditDesc(c.label);
+    setEditJobId(c.job_id || '');
+    setEditAssignedTo(c.assigned_to || '');
+  }
+
+  async function saveEdit(choreId) {
+    if (!editDesc.trim()) return;
+    await onEdit(choreId, { description: editDesc.trim(), job_id: editJobId||null, assigned_to: editAssignedTo||null });
+    setEditingId(null);
+  }
+
+  function ChoreRow({ c, isDone }) {
+    const linkedJob = c.job_id ? jobs.find(j => j.id === c.job_id) : null;
+    const assignee = c.assigned_to ? users.find(u => u.id === c.assigned_to) : null;
+    const isEditing = editingId === c.id;
+
+    if (isEditing) {
+      return (
+        <div className="fade-in" style={{ padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
+          <input value={editDesc} onChange={e=>setEditDesc(e.target.value)} autoFocus
+            style={{ marginBottom:8 }} />
+          <select value={editJobId} onChange={e=>setEditJobId(e.target.value)} style={{ marginBottom:8 }}>
+            <option value="">— Link to a job (optional) —</option>
+            {jobs.filter(j => j.status !== 'Closed').map(j => (
+              <option key={j.id} value={j.id}>{j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
+            ))}
+          </select>
+          <select value={editAssignedTo} onChange={e=>setEditAssignedTo(e.target.value)} style={{ marginBottom:10 }}>
+            <option value="">— Assign to someone (optional) —</option>
+            {users.map(u => (<option key={u.id} value={u.id}>{u.name}</option>))}
+          </select>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={() => saveEdit(c.id)} className="head"
+              style={{ flex:1, padding:"10px", borderRadius:7, fontSize:13, fontWeight:700,
+                background:"var(--olive-bright)", color:"var(--bg)" }}>
+              SAVE
+            </button>
+            <button onClick={() => { onDelete(c.id); setEditingId(null); }} className="mono"
+              style={{ padding:"10px 14px", borderRadius:7, fontSize:13,
+                border:"1px solid var(--error,#c0392b)", color:"var(--error,#c0392b)" }}>
+              DELETE
+            </button>
+            <button onClick={() => setEditingId(null)} className="mono"
+              style={{ padding:"10px 14px", borderRadius:7, fontSize:13,
+                border:"1px solid var(--line)", color:"var(--muted)" }}>
+              CANCEL
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={c.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
+        <button onClick={() => onToggle(c.id)} style={{ flexShrink:0, paddingTop:2 }}>
+          {isDone
+            ? <span style={{ display:"block", width:20, height:20, borderRadius:4,
+                background:"var(--olive)", border:"1.5px solid var(--olive)", color:"var(--bg)",
+                textAlign:"center", lineHeight:"18px", fontSize:13 }}>✓</span>
+            : <span style={{ display:"block", width:20, height:20, borderRadius:4, border:"1.5px solid var(--brass)" }} />
+          }
+        </button>
+        <div style={{ flex:1, cursor:"pointer" }} onClick={() => startEdit(c)}>
+          <div style={{ fontSize:15, textDecoration: isDone ? "line-through" : "none",
+            color: isDone ? "var(--muted)" : "var(--text)" }}>{c.label}</div>
+          <div style={{ display:"flex", gap:10, marginTop:4, flexWrap:"wrap" }}>
+            {assignee && (
+              <span className="mono" style={{ fontSize:11, color:"var(--olive-bright)" }}>
+                👤 {assignee.name}
+              </span>
+            )}
+            {linkedJob && (
+              <button onClick={e => { e.stopPropagation(); onOpenJob(c.job_id); }}
+                style={{ fontSize:12, color:"var(--brass-bright)", textAlign:"left" }}>
+                📋 {linkedJob.customer} →
+              </button>
+            )}
+          </div>
+        </div>
+        <button onClick={() => startEdit(c)}
+          style={{ flexShrink:0, fontSize:17, color:"var(--muted)", paddingTop:2, lineHeight:1 }}>✎</button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ position:"fixed", inset:0, zIndex:100, background:"var(--bg)", overflowY:"auto", paddingBottom:40 }}>
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:10 }}>
         <button onClick={onClose} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
         <div className="head" style={{ fontSize:18, fontWeight:600 }}>CHORES</div>
-        <button onClick={() => setAdding(v=>!v)} className="head"
+        <button onClick={() => { setAdding(v=>!v); setEditingId(null); }} className="head"
           style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
             background: adding ? "var(--panel-2)" : "var(--olive-bright)",
             border: adding ? "1px solid var(--olive)" : "none",
@@ -1179,35 +1290,23 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onOpenJob, onAdd, 
             NO OPEN CHORES
           </div>
         )}
-        {open.map(c => {
-          const linkedJob = c.job_id ? jobs.find(j => j.id === c.job_id) : null;
-          const assignee = c.assigned_to ? users.find(u => u.id === c.assigned_to) : null;
-          return (
-            <div key={c.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
-              <button onClick={() => onToggle(c.id)} style={{ flexShrink:0, paddingTop:2 }}>
-                <span style={{ display:"block", width:20, height:20, borderRadius:4, border:"1.5px solid var(--brass)" }} />
-              </button>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:15 }}>{c.label}</div>
-                <div style={{ display:"flex", gap:10, marginTop:4, flexWrap:"wrap" }}>
-                  {assignee && (
-                    <span className="mono" style={{ fontSize:11, color:"var(--olive-bright)" }}>
-                      👤 {assignee.name}
-                    </span>
-                  )}
-                  {linkedJob && (
-                    <button onClick={() => onOpenJob(c.job_id)}
-                      style={{ fontSize:12, color:"var(--brass-bright)", textAlign:"left" }}>
-                      📋 {linkedJob.customer} →
-                    </button>
-                  )}
-                </div>
+        {open.map(c => <ChoreRow key={c.id} c={c} isDone={false} />)}
+
+        {done.length > 0 && (
+          <div style={{ marginTop:24 }}>
+            <button onClick={() => setShowCompleted(v => !v)} className="mono"
+              style={{ display:"flex", alignItems:"center", gap:6, fontSize:12,
+                color:"var(--muted)", padding:"6px 0", width:"100%" }}>
+              <span style={{ fontSize:10 }}>{showCompleted ? '▼' : '▶'}</span>
+              {showCompleted ? 'HIDE' : 'SHOW'} COMPLETED ({done.length})
+            </button>
+            {showCompleted && (
+              <div className="fade-in" style={{ marginTop:8 }}>
+                {done.map(c => <ChoreRow key={c.id} c={c} isDone={true} />)}
               </div>
-              <button onClick={() => onDelete(c.id)}
-                style={{ flexShrink:0, fontSize:18, color:"var(--line)", paddingTop:2 }}>✕</button>
-            </div>
-          );
-        })}
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
