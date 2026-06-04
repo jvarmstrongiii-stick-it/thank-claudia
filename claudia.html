@@ -837,7 +837,8 @@ Command: "${transcript}"`
   );
 
   const isActive = s => s !== "Completed/Paid" && s !== "Closed";
-  const FILTERS = ["All", ...STATUSES];
+  const usedStatuses = STATUSES.filter(s => jobs.some(j => j.status === s));
+  const FILTERS = ["All", ...usedStatuses];
   const q = search.trim().toLowerCase();
 
   function matchesSearch(j) {
