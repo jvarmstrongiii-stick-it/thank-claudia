@@ -7,10 +7,10 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { fetchJob, updateJobStatus, updateJobTime, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob } from '../../lib/queries';
+import { fetchJob, updateJobStatus, updateJobTime, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob, fetchChores, insertChore, toggleChore } from '../../lib/queries';
 import { STATUS_LABELS, STATUS_COLORS, statusesForJobType, formatTime, formatDate } from '../../lib/status';
 import { fs, colors } from '../../lib/platform';
-import type { Job, JobStatus, Equipment, JobPhoto } from '../../lib/types';
+import type { Job, JobStatus, Equipment, JobPhoto, Chore } from '../../lib/types';
 import PhotoCapture from '../../components/PhotoCapture';
 import PhotoStrip from '../../components/PhotoStrip';
 import EquipmentCard from '../../components/EquipmentCard';
@@ -21,6 +21,8 @@ export default function JobDetail() {
   const [history, setHistory] = useState<Job[]>([]);
   const [photos, setPhotos] = useState<JobPhoto[]>([]);
   const [equipment, setEquipment] = useState<Equipment[]>([]);
+  const [chores, setChores] = useState<Chore[]>([]);
+  const [newChore, setNewChore] = useState('');
   const [loading, setLoading] = useState(true);
   const [statusModal, setStatusModal] = useState(false);
   const [rescheduleModal, setRescheduleModal] = useState(false);
@@ -35,14 +37,16 @@ export default function JobDetail() {
       const data = await fetchJob(id);
       setJob(data);
       if (data) {
-        const [hist, pics, equip] = await Promise.all([
+        const [hist, pics, equip, tasks] = await Promise.all([
           fetchCustomerHistory(data.customer_id, id),
           fetchJobPhotos(id),
           fetchEquipmentForJob(id),
+          fetchChores(id),
         ]);
         setHistory(hist);
         setPhotos(pics);
         setEquipment(equip);
+        setChores(tasks);
       }
     } finally {
       setLoading(false);
@@ -50,6 +54,20 @@ export default function JobDetail() {
   }
 
   useEffect(() => { load(); }, [id]);
+
+  async function handleAddChore() {
+    const text = newChore.trim();
+    if (!text || !job) return;
+    setNewChore('');
+    const chore = await insertChore(job.id, text);
+    setChores(prev => [...prev, chore]);
+  }
+
+  async function handleToggleChore(chore: Chore) {
+    const next = !chore.done;
+    setChores(prev => prev.map(c => c.id === chore.id ? { ...c, done: next } : c));
+    await toggleChore(chore.id, next);
+  }
 
   async function handleStatusChange(status: JobStatus) {
     if (!job) return;
@@ -178,6 +196,42 @@ export default function JobDetail() {
             <Text style={styles.notes}>{job.notes}</Text>
           </>
         )}
+
+        <View style={styles.divider} />
+        <Text style={styles.sectionLabel}>CHORES</Text>
+        {chores.map(chore => (
+          <TouchableOpacity
+            key={chore.id}
+            style={styles.choreRow}
+            onPress={() => handleToggleChore(chore)}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.choreCheck, chore.done && styles.choreCheckDone]}>
+              {chore.done && <Text style={styles.choreCheckMark}>✓</Text>}
+            </View>
+            <Text style={[styles.choreText, chore.done && styles.choreTextDone]}>
+              {chore.text}
+            </Text>
+          </TouchableOpacity>
+        ))}
+        <View style={styles.choreInputRow}>
+          <TextInput
+            style={styles.choreInput}
+            value={newChore}
+            onChangeText={setNewChore}
+            placeholder="// ADD CHORE..."
+            placeholderTextColor={colors.muted}
+            onSubmitEditing={handleAddChore}
+            returnKeyType="done"
+          />
+          <TouchableOpacity
+            style={[styles.choreAddBtn, !newChore.trim() && styles.choreAddBtnDisabled]}
+            onPress={handleAddChore}
+            disabled={!newChore.trim()}
+          >
+            <Text style={styles.choreAddBtnText}>ADD</Text>
+          </TouchableOpacity>
+        </View>
 
         <View style={styles.divider} />
         <Text style={styles.sectionLabel}>PHOTOS</Text>
@@ -377,6 +431,52 @@ const styles = StyleSheet.create({
     fontSize: fs(13),
     color: colors.bg,
     letterSpacing: 2,
+  },
+  choreRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 9,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surface2,
+    gap: 12,
+  },
+  choreCheck: {
+    width: 20,
+    height: 20,
+    borderRadius: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  choreCheckDone: { backgroundColor: colors.accent, borderColor: colors.accent },
+  choreCheckMark: { fontSize: fs(12), color: colors.bg, fontFamily: 'ShareTechMono_400Regular' },
+  choreText: { flex: 1, fontFamily: 'Barlow_400Regular', fontSize: fs(15), color: colors.text },
+  choreTextDone: { color: colors.muted, textDecorationLine: 'line-through' },
+  choreInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 },
+  choreInput: {
+    flex: 1,
+    fontFamily: 'ShareTechMono_400Regular',
+    fontSize: fs(13),
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 2,
+  },
+  choreAddBtn: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 2,
+  },
+  choreAddBtnDisabled: { backgroundColor: colors.surface2 },
+  choreAddBtnText: {
+    fontFamily: 'ShareTechMono_400Regular',
+    fontSize: fs(12),
+    color: colors.bg,
+    letterSpacing: 1,
   },
   historyRow: {
     flexDirection: 'row',

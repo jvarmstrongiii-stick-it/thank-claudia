@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import type { Job, Equipment, JobPhoto } from './types';
+import type { Job, Equipment, JobPhoto, Chore } from './types';
 
 export async function fetchTodaysJobs(): Promise<Job[]> {
   const start = new Date();
@@ -142,6 +142,34 @@ export async function fetchEquipmentForJob(jobId: string): Promise<Equipment[]> 
     .eq('job_id', jobId);
   if (error) throw error;
   return (data ?? []).map((r: any) => r.equipment).filter(Boolean) as Equipment[];
+}
+
+export async function fetchChores(jobId: string): Promise<Chore[]> {
+  const { data, error } = await supabase
+    .from('job_chores')
+    .select('*')
+    .eq('job_id', jobId)
+    .order('created_at');
+  if (error) throw error;
+  return (data ?? []) as Chore[];
+}
+
+export async function insertChore(jobId: string, text: string): Promise<Chore> {
+  const { data, error } = await supabase
+    .from('job_chores')
+    .insert({ job_id: jobId, text, done: false })
+    .select()
+    .single();
+  if (error) throw error;
+  return data as Chore;
+}
+
+export async function toggleChore(id: string, done: boolean): Promise<void> {
+  const { error } = await supabase
+    .from('job_chores')
+    .update({ done })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 // Upsert equipment by serial (per customer). Returns id + isNew.

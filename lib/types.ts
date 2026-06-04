@@ -38,6 +38,14 @@ export interface JobPhoto {
   created_at: string;
 }
 
+export interface Chore {
+  id: string;
+  job_id: string;
+  text: string;
+  done: boolean;
+  created_at: string;
+}
+
 export interface Job {
   id: string;
   customer_id: string;
