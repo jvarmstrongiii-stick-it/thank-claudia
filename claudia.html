@@ -63,7 +63,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 39;
+const APP_REV = 40;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -116,10 +116,11 @@ function deriveCustomers(jobs) {
   jobs.forEach(j => {
     const name = (j.customer||"").trim();
     if (!name) return;
-    if (!map[name]) map[name] = { customer_address:"", phone:"", sites:[] };
+    if (!map[name]) map[name] = { customer_address:"", phone:"", email:"", sites:[] };
     const rec = map[name];
     if (!rec.customer_address && custAddr(j)) rec.customer_address = custAddr(j);
     if (!rec.phone && j.phone) rec.phone = j.phone;
+    if (!rec.email && j.email) rec.email = j.email;
     const site = siteAddr(j).trim();
     if (site && site !== custAddr(j).trim()) {
       const exists = rec.sites.some(s => s.site_address === site);
@@ -150,6 +151,7 @@ function fromRow(row, notes=[]) {
     site_address: addr,
     same_address: true,
     phone: c.phone || '',
+    email: c.email || '',
     type: row.flow_type || 'Service Call',
     status: row.current_status || 'New',
     scheduled_date: scheduledAt ? scheduledAt.slice(0,10) : todayISO(),
@@ -192,9 +194,15 @@ async function resolveCustomer(job) {
   if (!name) return null;
   const { data: existing } = await sb.from('customers')
     .select('id').ilike('name', name).limit(1).maybeSingle();
-  if (existing) return existing.id;
+  if (existing) {
+    const upd = { updated_at: new Date().toISOString() };
+    if (job.phone) upd.phone = job.phone;
+    if (job.email) upd.email = job.email;
+    await sb.from('customers').update(upd).eq('id', existing.id);
+    return existing.id;
+  }
   const { data: created, error } = await sb.from('customers').insert({
-    name, phone: job.phone||null, address: job.customer_address||null,
+    name, phone: job.phone||null, email: job.email||null, address: job.customer_address||null,
     created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
   }).select('id').single();
   if (error) { console.error('resolveCustomer failed', error); return null; }
@@ -1586,6 +1594,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
 
         <div style={{ marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
           <a href={`tel:${(job.phone||"").replace(/[^0-9]/g,"")}`} style={{ color:"var(--olive-bright)", textDecoration:"none", fontSize:16, fontWeight:600 }} className="head">{job.phone||"—"}</a>
+          {job.email && (
+            <a href={`mailto:${job.email}`} style={{ display:"block", color:"var(--muted)", textDecoration:"none", fontSize:14, marginTop:4 }}>{job.email}</a>
+          )}
           <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", marginTop:12 }}>SITE ADDRESS</div>
           <a href={`https://maps.google.com/?q=${encodeURIComponent(siteAddr(job))}`} target="_blank" rel="noreferrer"
             style={{ display:"block", color:"var(--text)", textDecoration:"none", fontSize:15, marginTop:3, lineHeight:1.4 }}>{siteAddr(job)}</a>
@@ -1801,7 +1812,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
   } : {
     customer:"", location:"", customer_address:"", site_address:"",
     same_address: loadSameAddrPref(),
-    phone:"", type:"Service Call",
+    phone:"", email:"", type:"Service Call",
     status:"New", scheduled_date: todayISO(), scheduled_time:"09:00",
     value:"", notes:"", history:[],
     ...(prefill || {}),
@@ -1822,7 +1833,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
   function pickCustomer(name) {
     const rec = customers[name]; setShowCustList(false);
     const hasSites = rec.sites && rec.sites.length > 0;
-    setF(s => ({ ...s, customer:name, customer_address:rec.customer_address||"", phone:rec.phone||"",
+    setF(s => ({ ...s, customer:name, customer_address:rec.customer_address||"", phone:rec.phone||"", email:rec.email||"",
       same_address: hasSites ? false : s.same_address,
       location: hasSites ? "" : s.location,
       site_address: hasSites ? "" : (s.same_address ? rec.customer_address||"" : s.site_address) }));
@@ -1873,6 +1884,10 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
         <div>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>PHONE</div>
           <input type="tel" placeholder="(610) 555-0000" value={f.phone} onChange={e => set("phone",e.target.value)} />
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>EMAIL</div>
+          <input type="email" placeholder="customer@email.com" value={f.email||""} onChange={e => set("email",e.target.value)} />
         </div>
         <button onClick={toggleSameAddr} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 2px", textAlign:"left" }}>
           <span style={{ width:44, height:26, borderRadius:13, flexShrink:0, position:"relative",
