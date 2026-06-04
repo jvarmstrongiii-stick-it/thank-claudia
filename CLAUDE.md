@@ -95,9 +95,7 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, and `PROJECT_SPEC.md`.
 
 ## RLS Policies
 
-**RLS is OFF / not configured.** The app connects with the Supabase anon key and no auth layer. Every user can read and write every row in every table. No policies have been defined.
-
-This is intentional for the current phase (single-user field testing). Adding auth + RLS is a planned future milestone.
+**RLS is ON.** Row Level Security is enabled on the Supabase database. The specific policies are configured in the Supabase dashboard (no policy SQL is committed to the repo). Before writing queries that add or modify data, account for the fact that RLS policies will gate what the anon key can read and write.
 
 ---
 
@@ -153,24 +151,27 @@ lib/
 
 ## Build & Deploy
 
-### EAS build profiles (`eas.json`)
+### Active target: browser (HTML/web)
+The EAS native build was paused mid-build. **The current working deployment is the HTML browser version**, which is fully functional. React Native Web handles rendering; Expo Router's web output is what's in active use.
+
+When making changes, prioritize web compatibility. Test in the browser. Native-only APIs (e.g. `expo-speech-recognition`, native camera dialogs) will not work in the web build — see Gotchas below.
+
+### EAS build profiles (`eas.json`) — paused
 | Profile | Distribution | Notes |
 |---------|-------------|-------|
 | development | internal | Dev client enabled, for Expo Go replacement |
 | preview | internal | Pre-production testing |
 | production | store | Auto-increment version |
 
+EAS mobile builds are on hold. Do not assume a native build is current or runnable.
+
 ### CI/CD
 - **No automated CI/CD.** No GitHub Actions workflows exist.
-- Builds are triggered manually: `eas build --platform android --profile development`
+- EAS builds are triggered manually when resumed: `eas build --platform android --profile development`
 - OTA updates via `eas update` for field testing without a full build.
 
-### Known deploy lag
-The EAS build in the field can be **behind the working repo revision** because there is no auto-build-on-push pipeline. After pushing code changes, a tech's device only gets the update when:
-1. A new EAS build is manually triggered and installed (full update), or
-2. `eas update` is run to push an OTA bundle (JS/assets only, no native changes).
-
-If a bug is reported on a device, verify which build/update version it's running before diagnosing — the installed build may be several commits old.
+### Known deploy lag (web)
+The live web build can be **behind the working repo revision** if the web output has not been rebuilt and redeployed after recent commits. If behavior on the deployed site differs from the source, rebuild and redeploy before diagnosing.
 
 ---
 
@@ -179,7 +180,7 @@ If a bug is reported on a device, verify which build/update version it's running
 | Issue | Severity | Detail |
 |-------|---------|--------|
 | **Speech recognition lag** | High | `expo-speech-recognition` has an ~8-second processing lag. Threading issue, not yet resolved. Voice intake feels slow. |
-| **Voice input dev-build-only** | High | `expo-speech-recognition` does not work in Expo Go — only in a dev client build. |
+| **Voice input dev-build-only** | High | `expo-speech-recognition` does not work in Expo Go or the web build — only in a native dev client build. Since we are currently on the web build, voice intake is unavailable. |
 | **Network flakiness on cellular** | Medium | Backend API calls fail intermittently when device is on mobile data in tunnel mode. Stable on WiFi. |
 | **backendUrl hardcoded to LAN IP** | Medium | `app.json` extra.backendUrl is `http://10.0.0.120:3001`. Must be updated for any device not on the same LAN, or replaced with a public URL for production. |
 | **No migration files committed** | Medium | Schema exists only in the Supabase dashboard. If the project is rebuilt from scratch, schema must be manually recreated from the types/queries. |
