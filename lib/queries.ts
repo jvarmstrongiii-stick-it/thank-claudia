@@ -146,7 +146,7 @@ export async function fetchEquipmentForJob(jobId: string): Promise<Equipment[]> 
 
 export async function fetchChores(jobId: string): Promise<Chore[]> {
   const { data, error } = await supabase
-    .from('job_chores')
+    .from('chores')
     .select('*')
     .eq('job_id', jobId)
     .order('created_at');
@@ -154,20 +154,20 @@ export async function fetchChores(jobId: string): Promise<Chore[]> {
   return (data ?? []) as Chore[];
 }
 
-export async function insertChore(jobId: string, text: string): Promise<Chore> {
+export async function insertChore(jobId: string, description: string, customerId?: string | null): Promise<Chore> {
   const { data, error } = await supabase
-    .from('job_chores')
-    .insert({ job_id: jobId, text, done: false })
+    .from('chores')
+    .insert({ job_id: jobId, customer_id: customerId ?? null, description, status: 'open', priority: 'normal' })
     .select()
     .single();
   if (error) throw error;
   return data as Chore;
 }
 
-export async function toggleChore(id: string, done: boolean): Promise<void> {
+export async function toggleChore(id: string, status: 'open' | 'done'): Promise<void> {
   const { error } = await supabase
-    .from('job_chores')
-    .update({ done })
+    .from('chores')
+    .update({ status, updated_at: new Date().toISOString() })
     .eq('id', id);
   if (error) throw error;
 }

@@ -40,10 +40,15 @@ export interface JobPhoto {
 
 export interface Chore {
   id: string;
-  job_id: string;
-  text: string;
-  done: boolean;
+  description: string;
+  assigned_to: string | null;
+  job_id: string | null;
+  customer_id: string | null;
+  due_date: string | null;
+  priority: string;
+  status: 'open' | 'done';
   created_at: string;
+  updated_at: string;
 }
 
 export interface Job {

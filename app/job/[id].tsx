@@ -59,13 +59,13 @@ export default function JobDetail() {
     const text = newChore.trim();
     if (!text || !job) return;
     setNewChore('');
-    const chore = await insertChore(job.id, text);
+    const chore = await insertChore(job.id, text, job.customer_id);
     setChores(prev => [...prev, chore]);
   }
 
   async function handleToggleChore(chore: Chore) {
-    const next = !chore.done;
-    setChores(prev => prev.map(c => c.id === chore.id ? { ...c, done: next } : c));
+    const next = chore.status === 'open' ? 'done' : 'open';
+    setChores(prev => prev.map(c => c.id === chore.id ? { ...c, status: next } : c));
     await toggleChore(chore.id, next);
   }
 
@@ -206,11 +206,11 @@ export default function JobDetail() {
             onPress={() => handleToggleChore(chore)}
             activeOpacity={0.7}
           >
-            <View style={[styles.choreCheck, chore.done && styles.choreCheckDone]}>
-              {chore.done && <Text style={styles.choreCheckMark}>✓</Text>}
+            <View style={[styles.choreCheck, chore.status === 'done' && styles.choreCheckDone]}>
+              {chore.status === 'done' && <Text style={styles.choreCheckMark}>✓</Text>}
             </View>
-            <Text style={[styles.choreText, chore.done && styles.choreTextDone]}>
-              {chore.text}
+            <Text style={[styles.choreText, chore.status === 'done' && styles.choreTextDone]}>
+              {chore.description}
             </Text>
           </TouchableOpacity>
         ))}
