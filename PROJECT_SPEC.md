@@ -280,6 +280,7 @@ ALTER TABLE job_photos ADD COLUMN IF NOT EXISTS photo_type text;
 | Camera photos don't save to device roll | Low | Browser limitation — use native camera app then 🖼 GALLERY |
 | Scheduled maintenance | Future | Recurring jobs, auto-scheduling — deferred until staffing allows |
 | Supabase Auth (proper login) | Future | Replace passphrase gate with magic-link email auth per user |
+| Warranty badge on components | Low | Countdown shows on motors/capacitors/parts that don't qualify — restrict to whole units (condensers, heat pumps, air handlers, furnaces) only |
 | Daikin WCS dealer integration | Future | warranty.daikincomfort.com/WCS — requires distributor credentials |
 | Real-time push (Supabase Realtime) | Future | Replace 60s poll with live subscriptions |
 
