@@ -600,8 +600,15 @@ Jobs:\n${jobSummary}
 Users:\n${userSummary}
 
 Parse this voice command and reply ONLY with JSON (no markdown).
-If the current screen is "chores" and the command describes a task/to-do, use intent "add_chore".
-If the current screen starts with "job_detail" and the command describes a task/to-do, use intent "add_chore" and set job_id to the job in the screen name.
+
+Intent rules (apply in this exact priority order):
+1. If transcript contains "note", "notes", "write down", "log that", "record that" → ALWAYS use "add_note", never "add_chore"
+2. If current screen is "chores" and command is a task/to-do → "add_chore"
+3. If current screen starts with "job_detail" and command uses task language ("remind", "need to", "don't forget", "pick up", "order", "call", "schedule", "follow up") WITHOUT saying "note" → "add_chore"
+4. If command is status change → "update_status"
+5. If command is adding a job → "add_job"
+6. If command is navigating → "navigate"
+7. Otherwise → "unknown"
 {"intent":"add_job"|"add_chore"|"navigate"|"update_status"|"add_note"|"search"|"unknown",
 "customer":null,"job_type":null,"status":null,"note":null,"query":null,
 "date":null,"job_id":null,"description":null,"assigned_to_name":null,
