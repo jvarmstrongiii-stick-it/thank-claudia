@@ -20,6 +20,8 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -2211,6 +2213,79 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   );
 }
 
+/* ── LocationPickerSheet ───────────────────────────────────────────────────── */
+function LocationPickerSheet({ lat, lng, onConfirm, onCancel }) {
+  const mapDivRef = useRef(null);
+  const mapRef = useRef(null);
+  const [geocoding, setGeocoding] = useState(false);
+
+  useEffect(() => {
+    if (!mapDivRef.current || mapRef.current) return;
+    const map = L.map(mapDivRef.current, { center: [lat, lng], zoom: 18, zoomControl: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 19,
+    }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    mapRef.current = map;
+    // invalidate after a short delay so tiles load in the full-screen container
+    setTimeout(() => map.invalidateSize(), 120);
+    return () => { map.remove(); mapRef.current = null; };
+  }, []);
+
+  async function confirm() {
+    if (!mapRef.current || geocoding) return;
+    setGeocoding(true);
+    const c = mapRef.current.getCenter();
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${c.lat}&lon=${c.lng}&format=json`,
+        { headers: { 'Accept-Language': 'en-US,en' } }
+      );
+      const data = await r.json();
+      const a = data.address || {};
+      const street = a.house_number && a.road ? `${a.house_number} ${a.road}` : (a.road || '');
+      const city = a.city || a.town || a.village || a.hamlet || '';
+      const addr = [street, city, a.state, a.postcode].filter(Boolean).join(', ');
+      onConfirm({ addr: addr || data.display_name || '', name: data.name || null });
+    } catch(e) {
+      alert('Could not look up address. Try again.');
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', flexDirection:'column', background:'var(--bg)' }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', borderBottom:'1px solid var(--line)', flexShrink:0 }}>
+        <button onClick={onCancel} style={{ background:'none', border:'none', color:'var(--muted)', fontSize:22, lineHeight:1, padding:4 }}>✕</button>
+        <div className="head" style={{ fontSize:14, fontWeight:700, letterSpacing:'0.05em' }}>DRAG MAP · PIN STAYS CENTERED</div>
+      </div>
+      <div style={{ flex:1, position:'relative', minHeight:0 }}>
+        <div ref={mapDivRef} style={{ width:'100%', height:'100%' }} />
+        {/* Fixed crosshair — tip anchored exactly at map center */}
+        <div style={{ position:'absolute', top:'50%', left:'50%',
+          transform:'translate(-50%, -100%)', zIndex:1000, pointerEvents:'none',
+          fontSize:36, lineHeight:1, filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.6))' }}>
+          📍
+        </div>
+      </div>
+      <div style={{ display:'flex', gap:10, padding:'12px 16px', flexShrink:0, borderTop:'1px solid var(--line)' }}>
+        <button onClick={confirm} disabled={geocoding} className="head"
+          style={{ flex:1, padding:15, borderRadius:9, fontSize:16, fontWeight:700,
+            background:'var(--olive-bright)', color:'var(--bg)',
+            opacity: geocoding ? 0.6 : 1 }}>
+          {geocoding ? 'LOCATING…' : 'USE THIS LOCATION'}
+        </button>
+        <button onClick={onCancel} className="head"
+          style={{ padding:'15px 18px', borderRadius:9, fontSize:15,
+            background:'var(--panel)', border:'1px solid var(--line)', color:'var(--text)' }}>
+          CANCEL
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ── JobForm ───────────────────────────────────────────────────────────────── */
 function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
   const editing = !!(initial && initial.id);
@@ -2234,6 +2309,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
   });
   const set = (k,v) => setF(s => ({...s,[k]:v}));
   const [pendingLocation, setPendingLocation] = useState(null); // { field, addr, name }
+  const [mapPicker, setMapPicker] = useState(null); // { field, lat, lng }
 
   async function useCurrentLocation(field) {
     if (!navigator.geolocation) { alert('Geolocation not supported by this browser.'); return; }
@@ -2242,19 +2318,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
       const pos = await new Promise((res, rej) =>
         navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000, enableHighAccuracy: true })
       );
-      const { latitude, longitude } = pos.coords;
-      const r = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
-        { headers: { 'Accept-Language': 'en-US,en' } }
-      );
-      const data = await r.json();
-      const a = data.address || {};
-      const street = a.house_number && a.road ? `${a.house_number} ${a.road}` : (a.road || '');
-      const city = a.city || a.town || a.village || a.hamlet || '';
-      const addr = [street, city, a.state, a.postcode].filter(Boolean).join(', ');
-      if (addr) {
-        setPendingLocation({ field, addr, name: data.name || null });
-      } else alert('Could not determine a street address from your location.');
+      setMapPicker({ field, lat: pos.coords.latitude, lng: pos.coords.longitude });
     } catch(err) {
       alert(err.code === 1 ? 'Location permission denied — enable it in browser settings.' : 'Could not get location. Try again.');
     } finally {
@@ -2442,6 +2506,14 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
           {editing?"SAVE CHANGES":"SAVE JOB"}
         </button>
       </div>
+
+      {mapPicker && (
+        <LocationPickerSheet
+          lat={mapPicker.lat} lng={mapPicker.lng}
+          onConfirm={({ addr, name }) => { setMapPicker(null); setPendingLocation({ field: mapPicker.field, addr, name }); }}
+          onCancel={() => setMapPicker(null)}
+        />
+      )}
 
       {pendingLocation && (
         <div onClick={() => setPendingLocation(null)}
