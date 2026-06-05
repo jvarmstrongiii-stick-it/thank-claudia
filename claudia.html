@@ -54,6 +54,8 @@
   ::-webkit-scrollbar { width: 0; }
   .fade-in { animation: fade 0.25s ease; }
   @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .shake { animation: shake 0.5s ease; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)} }
   @keyframes micPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(181,67,47,0.7); } 70% { box-shadow: 0 0 0 14px rgba(181,67,47,0); } }
   @keyframes micSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 </style>
@@ -78,6 +80,9 @@ const STORAGE_KEY       = "tmc_jobs_v1";
 const CHORES_KEY        = "tmc_chores_v1";
 const SAMEADDR_PREF_KEY = "tmc_sameaddr_pref";
 const CURRENT_USER_KEY  = "tmc_current_user";
+const DEVICE_AUTH_KEY   = "tmc_device_auth";
+// ↓ Change this to update the passphrase for all devices (they'll be asked again on next visit)
+const DEVICE_PASSPHRASE = "TMCmech";
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
@@ -430,6 +435,61 @@ function Toast({ msg, isError }) {
   );
 }
 
+function PassphraseGate({ onAuthorize }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  function attempt() {
+    if (value.trim() === DEVICE_PASSPHRASE) {
+      onAuthorize();
+    } else {
+      setError(true);
+      setShake(true);
+      setValue('');
+      setTimeout(() => setShake(false), 600);
+    }
+  }
+
+  return (
+    <div className="fade-in" style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center", padding:32, background:"var(--bg)" }}>
+      <div className="head" style={{ fontSize:28, fontWeight:700, lineHeight:1 }}>
+        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+      </div>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:8, letterSpacing:"0.1em" }}>
+        FIELD JOB TRACKER
+      </div>
+
+      <div className={shake ? "shake" : ""} style={{ width:"100%", maxWidth:320, marginTop:52 }}>
+        <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:10, letterSpacing:"0.08em" }}>
+          DEVICE PASSPHRASE
+        </div>
+        <input
+          type="password"
+          value={value}
+          onChange={e => { setValue(e.target.value); setError(false); }}
+          onKeyDown={e => e.key === 'Enter' && attempt()}
+          placeholder="Enter passphrase…"
+          autoFocus
+          style={{ marginBottom:12, fontSize:18, letterSpacing:"0.12em",
+            borderColor: error ? "var(--error,#c0392b)" : undefined }}
+        />
+        {error && (
+          <div className="mono" style={{ fontSize:12, color:"var(--error,#c0392b)", marginBottom:10 }}>
+            Incorrect passphrase.
+          </div>
+        )}
+        <button onClick={attempt} className="head"
+          style={{ width:"100%", padding:"16px", borderRadius:10, fontSize:16, fontWeight:700,
+            background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+          AUTHORIZE THIS DEVICE
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function Splash({ onSelect }) {
   const [users, setUsers] = useState(FALLBACK_USERS);
   const [loading, setLoading] = useState(true);
@@ -461,6 +521,18 @@ function Splash({ onSelect }) {
 
 /* ── App ───────────────────────────────────────────────────────────────────── */
 function App() {
+  const [deviceAuthorized, setDeviceAuthorized] = useState(
+    () => localStorage.getItem(DEVICE_AUTH_KEY) === DEVICE_PASSPHRASE
+  );
+  function authorizeDevice() {
+    localStorage.setItem(DEVICE_AUTH_KEY, DEVICE_PASSPHRASE);
+    setDeviceAuthorized(true);
+  }
+  function lockDevice() {
+    localStorage.removeItem(DEVICE_AUTH_KEY);
+    setDeviceAuthorized(false);
+  }
+
   const [currentUser, setCurrentUser] = useState(() => {
     try { return JSON.parse(localStorage.getItem(CURRENT_USER_KEY)); } catch { return null; }
   });
@@ -855,6 +927,7 @@ Command: "${transcript}"`
   }
 
   /* ── Render ── */
+  if (!deviceAuthorized) return <PassphraseGate onAuthorize={authorizeDevice} />;
   if (!currentUser) return <Splash onSelect={selectUser} />;
 
   const selected = jobs.find(j => j.id === selectedId);
@@ -936,6 +1009,10 @@ Command: "${transcript}"`
           <button onClick={() => setShowSettings(true)} className="mono"
             style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
             ⚙
+          </button>
+          <button onClick={lockDevice} className="mono"
+            style={{ fontSize:11, color:"var(--error,#c0392b)", padding:"3px 8px", border:"1px solid var(--error,#c0392b)", borderRadius:5 }}>
+            🔒
           </button>
           <div className="mono" style={{ fontSize:10, color:"var(--line)", marginLeft:2 }}>r{APP_REV}</div>
         </div>
@@ -1185,7 +1262,7 @@ Command: "${transcript}"`
         />
       )}
 
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLock={() => { setShowSettings(false); lockDevice(); }} />}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </div>
@@ -1193,7 +1270,7 @@ Command: "${transcript}"`
 }
 
 /* ── SettingsModal ─────────────────────────────────────────────────────────── */
-function SettingsModal({ onClose }) {
+function SettingsModal({ onClose, onLock }) {
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
       <div onClick={e => e.stopPropagation()} className="fade-in"
@@ -1207,8 +1284,13 @@ function SettingsModal({ onClose }) {
           AI nameplate scanning runs via a Supabase Edge Function (claude-proxy).<br/>
           API key is stored as a server-side secret — not on this device.
         </div>
-        <button onClick={onClose} className="head"
+        <button onClick={onLock} className="head"
           style={{ width:"100%", marginTop:20, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+            background:"transparent", border:"1px solid var(--error,#c0392b)", color:"var(--error,#c0392b)" }}>
+          🔒 LOCK THIS DEVICE
+        </button>
+        <button onClick={onClose} className="head"
+          style={{ width:"100%", marginTop:10, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
             background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
           CLOSE
         </button>
