@@ -149,10 +149,15 @@ function saveSameAddrPref(val) {
 }
 
 /* ── Supabase mapping ──────────────────────────────────────────────────────── */
+// Rejects addresses that are just a state abbreviation or ", PA" — artifact of old fromRow code
+function isJunkAddr(s) { return /^,?\s*[A-Z]{2}\s*$/.test((s||'').trim()); }
+
 function fromRow(row, notes=[]) {
   const c = row.customers || {};
-  const customerAddr = c.address || '';
-  const siteAddr = row.site_address || row.address || customerAddr;
+  const rawCustomerAddr = c.address || '';
+  const customerAddr = isJunkAddr(rawCustomerAddr) ? '' : rawCustomerAddr;
+  const rawSiteAddr = row.site_address || row.address || customerAddr;
+  const siteAddr = isJunkAddr(rawSiteAddr) ? customerAddr : rawSiteAddr;
   const scheduledAt = row.scheduled_at || '';
   return {
     id: row.id,
@@ -197,6 +202,7 @@ function toRow(job, customerId, userId) {
     scheduled_at,
     notes: job.notes || null,
     site_address: job.site_address || null,
+    address: null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -211,7 +217,7 @@ async function resolveCustomer(job) {
     const upd = { updated_at: new Date().toISOString() };
     if (job.phone) upd.phone = job.phone;
     if (job.email) upd.email = job.email;
-    if (job.customer_address !== undefined) upd.address = job.customer_address || null;
+    if (job.customer_address !== undefined) upd.address = (!job.customer_address || isJunkAddr(job.customer_address)) ? null : job.customer_address;
     await sb.from('customers').update(upd).eq('id', existing.id);
     return existing.id;
   }
