@@ -2232,7 +2232,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
   });
   const set = (k,v) => setF(s => ({...s,[k]:v}));
 
-  async function useCurrentLocation() {
+  async function useCurrentLocation(field) {
     if (!navigator.geolocation) { alert('Geolocation not supported by this browser.'); return; }
     setLocating(true);
     try {
@@ -2249,8 +2249,10 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
       const street = a.house_number && a.road ? `${a.house_number} ${a.road}` : (a.road || '');
       const city = a.city || a.town || a.village || a.hamlet || '';
       const addr = [street, city, a.state, a.postcode].filter(Boolean).join(', ');
-      if (addr) set('site_address', addr);
-      else alert('Could not determine a street address from your location.');
+      if (addr) {
+        if (field === 'customer_address') setCustomerAddr(addr);
+        else set('site_address', addr);
+      } else alert('Could not determine a street address from your location.');
     } catch(err) {
       alert(err.code === 1 ? 'Location permission denied — enable it in browser settings.' : 'Could not get location. Try again.');
     } finally {
@@ -2318,7 +2320,18 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
         </div>
         <div>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>CUSTOMER ADDRESS</div>
-          <input type="text" placeholder="Main / billing address" value={f.customer_address} onChange={e => setCustomerAddr(e.target.value)} />
+          <div style={{ display:"flex", gap:8 }}>
+            <input type="text" placeholder="Main / billing address"
+              value={f.customer_address} onChange={e => setCustomerAddr(e.target.value)}
+              style={{ flex:1, minWidth:0 }} />
+            <button type="button" onClick={() => useCurrentLocation('customer_address')} disabled={locating}
+              title="Use my current location"
+              style={{ flexShrink:0, width:44, borderRadius:8, border:"1px solid var(--brass)",
+                background:"var(--panel)", color:locating?"var(--muted)":"var(--brass-bright)",
+                fontSize:20, cursor:locating?"default":"pointer" }}>
+              {locating ? '⏳' : '📍'}
+            </button>
+          </div>
         </div>
         <div>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>PHONE</div>
@@ -2364,7 +2377,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
                 <input type="text" placeholder="Where the job is (name and/or address)"
                   value={f.site_address} onChange={e => set("site_address",e.target.value)}
                   style={{ flex:1, minWidth:0 }} />
-                <button type="button" onClick={useCurrentLocation} disabled={locating}
+                <button type="button" onClick={() => useCurrentLocation('site_address')} disabled={locating}
                   title="Use my current location"
                   style={{ flexShrink:0, width:44, borderRadius:8, border:"1px solid var(--brass)",
                     background:"var(--panel)", color:locating?"var(--muted)":"var(--brass-bright)",
