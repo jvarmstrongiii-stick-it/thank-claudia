@@ -1734,6 +1734,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const otherScanGalleryRef = useRef();
   const photoRef = useRef();
 
+  // Keep history in sync when parent refreshes job data (e.g. after voice note)
+  useEffect(() => {
+    setHistory(job.history || []);
+  }, [job.history]);
+
   useEffect(() => {
     fetchPhotos(job.id).then(setPhotos);
   }, [job.id]);
