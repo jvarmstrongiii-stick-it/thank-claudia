@@ -2149,7 +2149,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
                       style={{ background:"none", border:"none", color:"var(--muted)", fontSize:16, padding:"0 4px", cursor:"pointer" }}>✎</button>
                   )}
                 </div>
-                {editingNote?.id === h.id ? (
+                {editingNote && editingNote.id === h.id ? (
                   <div style={{ marginTop:6 }}>
                     <textarea value={editingNote.content}
                       onChange={e => setEditingNote(n => ({...n, content: e.target.value}))}
