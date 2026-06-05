@@ -2324,6 +2324,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
             <input type="text" placeholder="Main / billing address"
               value={f.customer_address} onChange={e => setCustomerAddr(e.target.value)}
               style={{ flex:1, minWidth:0 }} />
+            {!f.customer_address.trim() && (
             <button type="button" onClick={() => useCurrentLocation('customer_address')} disabled={locating}
               title="Use my current location"
               style={{ flexShrink:0, width:44, borderRadius:8, border:"1px solid var(--brass)",
@@ -2331,6 +2332,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
                 fontSize:20, cursor:locating?"default":"pointer" }}>
               {locating ? '⏳' : '📍'}
             </button>
+            )}
           </div>
         </div>
         <div>
@@ -2377,6 +2379,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
                 <input type="text" placeholder="Where the job is (name and/or address)"
                   value={f.site_address} onChange={e => set("site_address",e.target.value)}
                   style={{ flex:1, minWidth:0 }} />
+                {!f.site_address.trim() && (
                 <button type="button" onClick={() => useCurrentLocation('site_address')} disabled={locating}
                   title="Use my current location"
                   style={{ flexShrink:0, width:44, borderRadius:8, border:"1px solid var(--brass)",
@@ -2384,6 +2387,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
                     fontSize:20, cursor:locating?"default":"pointer" }}>
                   {locating ? '⏳' : '📍'}
                 </button>
+                )}
               </div>
             </div>
           </div>
