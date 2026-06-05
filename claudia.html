@@ -146,8 +146,8 @@ function saveSameAddrPref(val) {
 /* ── Supabase mapping ──────────────────────────────────────────────────────── */
 function fromRow(row, notes=[]) {
   const c = row.customers || {};
-  const addrParts = [c.address, c.city, c.state].filter(Boolean);
-  const addr = addrParts.join(', ') + (c.zip ? ' ' + c.zip : '');
+  // Use the stored address string as-is; only assemble from parts if address is absent
+  const addr = c.address || [c.city, c.state].filter(Boolean).join(', ') + (c.zip ? ' ' + c.zip : '');
   const scheduledAt = row.scheduled_at || '';
   return {
     id: row.id,
