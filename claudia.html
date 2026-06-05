@@ -2231,6 +2231,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
     ...(prefill || {}),
   });
   const set = (k,v) => setF(s => ({...s,[k]:v}));
+  const [pendingLocation, setPendingLocation] = useState(null); // { field, addr, name }
 
   async function useCurrentLocation(field) {
     if (!navigator.geolocation) { alert('Geolocation not supported by this browser.'); return; }
@@ -2250,14 +2251,20 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
       const city = a.city || a.town || a.village || a.hamlet || '';
       const addr = [street, city, a.state, a.postcode].filter(Boolean).join(', ');
       if (addr) {
-        if (field === 'customer_address') setCustomerAddr(addr);
-        else set('site_address', addr);
+        setPendingLocation({ field, addr, name: data.name || null });
       } else alert('Could not determine a street address from your location.');
     } catch(err) {
       alert(err.code === 1 ? 'Location permission denied — enable it in browser settings.' : 'Could not get location. Try again.');
     } finally {
       setLocating(false);
     }
+  }
+
+  function confirmLocation() {
+    if (!pendingLocation) return;
+    if (pendingLocation.field === 'customer_address') setCustomerAddr(pendingLocation.addr);
+    else set('site_address', pendingLocation.addr);
+    setPendingLocation(null);
   }
 
   const [showCustList, setShowCustList] = useState(false);
@@ -2433,6 +2440,31 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
           {editing?"SAVE CHANGES":"SAVE JOB"}
         </button>
       </div>
+
+      {pendingLocation && (
+        <div onClick={() => setPendingLocation(null)}
+          style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div onClick={e => e.stopPropagation()} className="fade-in"
+            style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+              borderRadius:"16px 16px 0 0", padding:"20px 16px 36px" }}>
+            <div className="head" style={{ fontSize:15, fontWeight:700, marginBottom:14 }}>IS THIS WHERE YOU ARE?</div>
+            {pendingLocation.name && (
+              <div style={{ fontSize:18, fontWeight:600, marginBottom:4 }}>{pendingLocation.name}</div>
+            )}
+            <div className="mono" style={{ fontSize:15, color:"var(--brass-bright)", marginBottom:20 }}>{pendingLocation.addr}</div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={confirmLocation} className="head"
+                style={{ flex:1, padding:15, borderRadius:9, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
+                YES, USE THIS
+              </button>
+              <button onClick={() => setPendingLocation(null)} className="head"
+                style={{ padding:"15px 18px", borderRadius:9, fontSize:15, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
