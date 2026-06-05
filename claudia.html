@@ -2329,26 +2329,64 @@ function VoiceButton({ onCommand }) {
   });
   const drag = useRef(null);
   const recognitionRef = useRef(null);
+  const stateRef = useRef('idle');
 
-  function startListening() {
-    if (state !== 'idle') return;
+  function setS(s) { stateRef.current = s; setState(s); }
+
+  function spawnRec() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { alert('Speech recognition not supported in this browser. Try Chrome.'); return; }
+    if (!SR) return null;
     const rec = new SR();
     rec.lang = 'en-US';
+    rec.continuous = false;
     rec.interimResults = false;
     rec.maxAlternatives = 1;
-    recognitionRef.current = rec;
     rec.onresult = async (e) => {
       const transcript = e.results[0][0].transcript;
-      setState('processing');
+      recognitionRef.current = null;
+      setS('processing');
       await onCommand(transcript);
-      setState('idle');
+      if (stateRef.current === 'processing') {
+        setS('listening');
+        const next = spawnRec();
+        if (next) { recognitionRef.current = next; try { next.start(); } catch(err) { setS('idle'); } }
+      }
     };
-    rec.onerror = () => setState('idle');
-    rec.onend = () => { if (state === 'listening') setState('idle'); };
-    rec.start();
-    setState('listening');
+    rec.onerror = (e) => {
+      if (e.error === 'aborted') return;
+      if (e.error === 'no-speech' && stateRef.current === 'listening') {
+        const next = spawnRec();
+        if (next) { recognitionRef.current = next; try { next.start(); } catch(err) { setS('idle'); } }
+      } else {
+        setS('idle');
+      }
+    };
+    rec.onend = () => {
+      if (stateRef.current === 'listening') {
+        const next = spawnRec();
+        if (next) { recognitionRef.current = next; try { next.start(); } catch(err) { setS('idle'); } }
+      }
+    };
+    return rec;
+  }
+
+  function startListening() {
+    if (stateRef.current !== 'idle') return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert('Speech recognition not supported in this browser. Try Chrome.'); return; }
+    setS('listening');
+    const rec = spawnRec();
+    if (rec) { recognitionRef.current = rec; try { rec.start(); } catch(err) { setS('idle'); } }
+  }
+
+  function stopListening() {
+    setS('idle');
+    if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch(e){} recognitionRef.current = null; }
+  }
+
+  function toggle() {
+    if (stateRef.current === 'idle') startListening();
+    else stopListening();
   }
 
   function onTouchStart(e) {
@@ -2370,7 +2408,7 @@ function VoiceButton({ onCommand }) {
   }
   function onTouchEnd() {
     if (!drag.current) return;
-    if (!drag.current.moved) startListening();
+    if (!drag.current.moved) toggle();
     else { try { localStorage.setItem('tmc_mic_pos', JSON.stringify(pos)); } catch(e){} }
     drag.current = null;
   }
@@ -2383,7 +2421,7 @@ function VoiceButton({ onCommand }) {
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
-      onClick={() => { if (!('ontouchstart' in window)) startListening(); }}
+      onClick={() => { if (!('ontouchstart' in window)) toggle(); }}
       style={{
         position:'fixed', left:pos.x, top:pos.y, width:56, height:56,
         borderRadius:'50%', background:bg, display:'flex', alignItems:'center',
