@@ -682,11 +682,22 @@ Command: "${transcript}"`
           intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
         );
         if (match) {
-          await sb.from('job_notes').insert({
-            job_id: match.id, content: noteContent,
-            source: 'voice', created_at: new Date().toISOString(),
-          });
-          showToast('Note added');
+          const todayStart = todayISO() + 'T00:00:00';
+          const todayEnd   = todayISO() + 'T23:59:59';
+          const { data: existing } = await sb.from('job_notes')
+            .select('id, content').eq('job_id', match.id).eq('source', 'voice')
+            .gte('created_at', todayStart).lte('created_at', todayEnd)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+          if (existing) {
+            await sb.from('job_notes').update({ content: existing.content + ' ' + noteContent }).eq('id', existing.id);
+            showToast('Note updated');
+          } else {
+            await sb.from('job_notes').insert({
+              job_id: match.id, content: noteContent,
+              source: 'voice', created_at: new Date().toISOString(),
+            });
+            showToast('Note added');
+          }
           if (selectedId === match.id) refresh();
         } else {
           showToast(`No job found — note not saved`, true);
