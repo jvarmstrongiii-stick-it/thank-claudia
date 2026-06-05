@@ -149,16 +149,16 @@ function saveSameAddrPref(val) {
 /* ── Supabase mapping ──────────────────────────────────────────────────────── */
 function fromRow(row, notes=[]) {
   const c = row.customers || {};
-  // Use the stored address string as-is; only assemble from parts if address is absent
-  const addr = c.address || [c.city, c.state].filter(Boolean).join(', ') + (c.zip ? ' ' + c.zip : '');
+  const customerAddr = c.address || '';
+  const siteAddr = row.site_address || row.address || customerAddr;
   const scheduledAt = row.scheduled_at || '';
   return {
     id: row.id,
     customer: c.name || '',
     location: '',
-    customer_address: addr,
-    site_address: addr,
-    same_address: true,
+    customer_address: customerAddr,
+    site_address: siteAddr,
+    same_address: !siteAddr || siteAddr === customerAddr,
     phone: c.phone || '',
     email: c.email || '',
     type: row.flow_type || 'Service Call',
@@ -194,6 +194,7 @@ function toRow(job, customerId, userId) {
     value: Number(job.value) || null,
     scheduled_at,
     notes: job.notes || null,
+    site_address: job.site_address || null,
     updated_at: new Date().toISOString(),
   };
 }
@@ -208,6 +209,7 @@ async function resolveCustomer(job) {
     const upd = { updated_at: new Date().toISOString() };
     if (job.phone) upd.phone = job.phone;
     if (job.email) upd.email = job.email;
+    if (job.customer_address !== undefined) upd.address = job.customer_address || null;
     await sb.from('customers').update(upd).eq('id', existing.id);
     return existing.id;
   }
