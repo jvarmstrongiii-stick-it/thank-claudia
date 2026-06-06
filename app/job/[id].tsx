@@ -150,7 +150,12 @@ export default function JobDetail() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.customerName}>{job.customer.name}</Text>
-        <Text style={styles.jobType}>{job.job_type.toUpperCase()}</Text>
+        <View style={styles.jobTypeLine}>
+          <Text style={styles.jobType}>{job.job_type.toUpperCase()}</Text>
+          {!!originalAsk && (
+            <Text style={styles.jobAsk} numberOfLines={1}> · {originalAsk}</Text>
+          )}
+        </View>
 
         <View style={styles.divider} />
 
@@ -402,7 +407,9 @@ const styles = StyleSheet.create({
   backText: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(13), color: colors.accent, letterSpacing: 1 },
   content: { paddingHorizontal: 16, paddingBottom: 40 },
   customerName: { fontFamily: 'RussoOne_400Regular', fontSize: fs(26), color: colors.text, marginTop: 8 },
-  jobType: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(12), color: colors.muted, letterSpacing: 2, marginTop: 4 },
+  jobTypeLine: { flexDirection: 'row', alignItems: 'center', marginTop: 4, overflow: 'hidden' },
+  jobType: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(12), color: colors.muted, letterSpacing: 2, flexShrink: 0 },
+  jobAsk: { fontFamily: 'Barlow_400Regular', fontSize: fs(12), color: colors.muted, flex: 1 },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: 16 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   label: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(12), color: colors.muted, letterSpacing: 1 },
