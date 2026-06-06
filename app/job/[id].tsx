@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
   StyleSheet, Linking, SafeAreaView, Modal,
@@ -7,7 +7,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { fetchJob, updateJobStatus, updateJobTime, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob, fetchChores, insertChore, toggleChore } from '../../lib/queries';
+import { fetchJob, updateJobStatus, updateJobTime, updateJobAddress, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob, fetchChores, insertChore, toggleChore } from '../../lib/queries';
 import { STATUS_LABELS, STATUS_COLORS, statusesForJobType, formatTime, formatDate } from '../../lib/status';
 import { fs, colors } from '../../lib/platform';
 import type { Job, JobStatus, Equipment, JobPhoto, Chore } from '../../lib/types';
@@ -26,6 +26,18 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [statusModal, setStatusModal] = useState(false);
   const [rescheduleModal, setRescheduleModal] = useState(false);
+  const [addressModal, setAddressModal] = useState(false);
+  const [editAddress, setEditAddress] = useState('');
+  const [locating, setLocating] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<Array<{
+    place_id: number;
+    name: string;
+    display_name: string;
+    address: Record<string, string>;
+  }>>([]);
+  const [searching, setSearching] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pickedDate, setPickedDate] = useState<Date>(new Date());
   const [pickerStep, setPickerStep] = useState<'date' | 'time' | 'done'>('date');
   const [webDateStr, setWebDateStr] = useState('');
@@ -74,6 +86,82 @@ export default function JobDetail() {
     setStatusModal(false);
     await updateJobStatus(job.id, status);
     setJob({ ...job, status });
+  }
+
+  function openAddressEdit() {
+    setEditAddress(address ?? '');
+    setSearchQuery('');
+    setSearchResults([]);
+    setAddressModal(true);
+  }
+
+  function handleSearchChange(text: string) {
+    setSearchQuery(text);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    if (!text.trim()) { setSearchResults([]); return; }
+    searchTimer.current = setTimeout(() => runSearch(text), 500);
+  }
+
+  async function runSearch(query: string) {
+    setSearching(true);
+    try {
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=us&addressdetails=1&viewbox=-76.5,40.6,-74.5,39.5&bounded=1`,
+        { headers: { 'User-Agent': 'TMC-Mechanical-App/1.0' } }
+      );
+      setSearchResults(await resp.json());
+    } catch {
+      // user can still type manually
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleSelectResult(r: { name: string; display_name: string; address: Record<string, string> }) {
+    const a = r.address;
+    const street = a.house_number && a.road ? `${a.house_number} ${a.road}` : a.road ?? '';
+    const city = a.city ?? a.town ?? a.village ?? a.county ?? '';
+    const formatted = [street, city, a.state, a.postcode].filter(Boolean).join(', ');
+    setEditAddress(formatted || r.display_name);
+    setSearchQuery('');
+    setSearchResults([]);
+  }
+
+  async function handleLocate() {
+    if (!navigator?.geolocation) return;
+    setLocating(true);
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+      );
+      const { latitude, longitude } = pos.coords;
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+        { headers: { 'User-Agent': 'TMC-Mechanical-App/1.0' } }
+      );
+      const json = await resp.json();
+      const a = json.address ?? {};
+      const formatted = [
+        a.house_number && a.road ? `${a.house_number} ${a.road}` : a.road,
+        a.city ?? a.town ?? a.village,
+        a.state,
+        a.postcode,
+      ].filter(Boolean).join(', ');
+      setEditAddress(formatted || json.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+    } catch {
+      // user can type manually
+    } finally {
+      setLocating(false);
+    }
+  }
+
+  async function handleSaveAddress() {
+    if (!job) return;
+    const addr = editAddress.trim();
+    if (!addr) return;
+    setAddressModal(false);
+    await updateJobAddress(job.id, addr);
+    setJob({ ...job, address: addr });
   }
 
   function openReschedule() {
@@ -127,9 +215,18 @@ export default function JobDetail() {
     );
   }
 
+  const NOTES_SEP = '\n\n---\n\n';
+  function parseNotes(raw: string | null): [string, string] {
+    if (!raw) return ['', ''];
+    const idx = raw.indexOf(NOTES_SEP);
+    if (idx === -1) return [raw, ''];
+    return [raw.slice(0, idx), raw.slice(idx + NOTES_SEP.length)];
+  }
+
   const statusLabel = STATUS_LABELS[job.status] ?? job.status;
   const statusColor = STATUS_COLORS[job.status] ?? '#2a2b22';
   const address = job.address ?? job.customer.address;
+  const [originalAsk, additionalComments] = parseNotes(job.notes);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -141,7 +238,12 @@ export default function JobDetail() {
 
       <ScrollView contentContainerStyle={styles.content}>
         <Text style={styles.customerName}>{job.customer.name}</Text>
-        <Text style={styles.jobType}>{job.job_type.toUpperCase()}</Text>
+        <View style={styles.jobTypeLine}>
+          <Text style={styles.jobType}>{job.job_type.toUpperCase()}</Text>
+          {!!originalAsk && (
+            <Text style={styles.jobAsk} numberOfLines={1}> · {originalAsk}</Text>
+          )}
+        </View>
 
         <View style={styles.divider} />
 
@@ -167,19 +269,14 @@ export default function JobDetail() {
           </Row>
         )}
 
-        {address && (
-          <Row label="ADDRESS">
-            <TouchableOpacity onPress={() => {
-              const encoded = encodeURIComponent(address);
-              const url = Platform.OS === 'ios'
-                ? `maps://?q=${encoded}`
-                : `https://maps.google.com/maps?q=${encoded}`;
-              Linking.openURL(url);
-            }}>
-              <Text style={[styles.value, styles.link]}>{address}</Text>
-            </TouchableOpacity>
-          </Row>
-        )}
+        <Row label="ADDRESS">
+          <TouchableOpacity onPress={openAddressEdit}>
+            {address
+              ? <Text style={[styles.value, styles.link]}>{address}</Text>
+              : <Text style={[styles.value, { color: colors.muted }]}>// TAP TO SET</Text>
+            }
+          </TouchableOpacity>
+        </Row>
 
         {job.customer.phone && (
           <Row label="PHONE">
@@ -189,11 +286,21 @@ export default function JobDetail() {
           </Row>
         )}
 
-        {job.notes && (
+        {(originalAsk || additionalComments) && (
           <>
             <View style={styles.divider} />
-            <Text style={styles.sectionLabel}>NOTES</Text>
-            <Text style={styles.notes}>{job.notes}</Text>
+            {!!originalAsk && (
+              <>
+                <Text style={styles.sectionLabel}>ORIGINAL ASK</Text>
+                <Text style={styles.notes}>{originalAsk}</Text>
+              </>
+            )}
+            {!!additionalComments && (
+              <>
+                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>ADDITIONAL COMMENTS</Text>
+                <Text style={styles.notes}>{additionalComments}</Text>
+              </>
+            )}
           </>
         )}
 
@@ -339,6 +446,96 @@ export default function JobDetail() {
         </Modal>
       )}
 
+      <Modal visible={addressModal} transparent animationType="slide">
+        <TouchableOpacity style={styles.overlay} onPress={() => setAddressModal(false)} />
+        <View style={styles.sheet}>
+          <Text style={styles.sheetTitle}>JOB ADDRESS</Text>
+
+          {/* Forward geocode search */}
+          <View style={styles.addrSearchRow}>
+            <TextInput
+              style={[styles.webInput, { flex: 1 }]}
+              value={searchQuery}
+              onChangeText={handleSearchChange}
+              placeholder="Search by name or address..."
+              placeholderTextColor={colors.muted}
+              autoFocus
+              returnKeyType="search"
+              onSubmitEditing={() => searchQuery.trim() && runSearch(searchQuery)}
+            />
+            {searching && <ActivityIndicator color={colors.accent} size="small" style={{ marginLeft: 8 }} />}
+          </View>
+
+          {searchResults.length > 0 && (
+            <View style={styles.resultsList}>
+              {searchResults.map(r => (
+                <TouchableOpacity
+                  key={r.place_id}
+                  style={styles.resultItem}
+                  onPress={() => handleSelectResult(r)}
+                >
+                  <Text style={styles.resultName} numberOfLines={1}>
+                    {r.name || r.address.road || r.display_name}
+                  </Text>
+                  <Text style={styles.resultAddr} numberOfLines={1}>
+                    {[r.address.house_number && r.address.road
+                        ? `${r.address.house_number} ${r.address.road}`
+                        : r.address.road,
+                      r.address.city ?? r.address.town ?? r.address.village,
+                      r.address.state,
+                    ].filter(Boolean).join(', ')}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Confirmed address + actions */}
+          <View style={styles.addrConfirmSection}>
+            <Text style={styles.addrConfirmLabel}>ADDRESS TO SAVE</Text>
+            <TextInput
+              style={[styles.webInput, { minHeight: 44, textAlignVertical: 'top', marginBottom: 10 }]}
+              value={editAddress}
+              onChangeText={setEditAddress}
+              placeholder="Filled by search or GPS, or type manually..."
+              placeholderTextColor={colors.muted}
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.saveBtn, { backgroundColor: colors.border, marginBottom: 8 }]}
+              onPress={handleLocate}
+              disabled={locating}
+            >
+              {locating
+                ? <ActivityIndicator color={colors.text} size="small" />
+                : <Text style={[styles.saveBtnText, { color: colors.text }]}>USE MY LOCATION</Text>
+              }
+            </TouchableOpacity>
+            {!!editAddress.trim() && (
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: colors.surface2, marginBottom: 8 }]}
+                onPress={() => {
+                  const encoded = encodeURIComponent(editAddress.trim());
+                  const url = Platform.OS === 'ios'
+                    ? `maps://?q=${encoded}`
+                    : `https://maps.google.com/maps?q=${encoded}`;
+                  Linking.openURL(url);
+                }}
+              >
+                <Text style={[styles.saveBtnText, { color: colors.muted }]}>NAVIGATE</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.saveBtn, !editAddress.trim() && styles.choreAddBtnDisabled]}
+              onPress={handleSaveAddress}
+              disabled={!editAddress.trim()}
+            >
+              <Text style={styles.saveBtnText}>SAVE ADDRESS</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={statusModal} transparent animationType="slide">
         <TouchableOpacity style={styles.overlay} onPress={() => setStatusModal(false)} />
         <View style={styles.sheet}>
@@ -383,7 +580,9 @@ const styles = StyleSheet.create({
   backText: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(13), color: colors.accent, letterSpacing: 1 },
   content: { paddingHorizontal: 16, paddingBottom: 40 },
   customerName: { fontFamily: 'RussoOne_400Regular', fontSize: fs(26), color: colors.text, marginTop: 8 },
-  jobType: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(12), color: colors.muted, letterSpacing: 2, marginTop: 4 },
+  jobTypeLine: { flexDirection: 'row', alignItems: 'center', marginTop: 4, overflow: 'hidden' },
+  jobType: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(12), color: colors.muted, letterSpacing: 2, flexShrink: 0 },
+  jobAsk: { fontFamily: 'Barlow_400Regular', fontSize: fs(12), color: colors.muted, flex: 1 },
   divider: { height: 1, backgroundColor: colors.border, marginVertical: 16 },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   label: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(12), color: colors.muted, letterSpacing: 1 },
@@ -501,4 +700,43 @@ const styles = StyleSheet.create({
   statusOptionActive: { backgroundColor: colors.surface2 },
   statusOptionText: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(13), letterSpacing: 1 },
   statusOptionSub: { fontFamily: 'Barlow_400Regular', fontSize: fs(12), color: colors.muted, marginTop: 3 },
+  addrSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  resultsList: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  resultItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surface2,
+  },
+  resultName: {
+    fontFamily: 'Barlow_600SemiBold',
+    fontSize: fs(13),
+    color: colors.text,
+  },
+  resultAddr: {
+    fontFamily: 'Barlow_400Regular',
+    fontSize: fs(11),
+    color: colors.muted,
+    marginTop: 2,
+  },
+  addrConfirmSection: {
+    padding: 16,
+  },
+  addrConfirmLabel: {
+    fontFamily: 'ShareTechMono_400Regular',
+    fontSize: fs(10),
+    color: colors.muted,
+    letterSpacing: 2,
+    marginBottom: 6,
+  },
 });

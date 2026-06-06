@@ -12,7 +12,7 @@
 |-------|-----------|
 | Mobile/Web UI | React Native 0.81.5, React 19.1.0, React Native Web 0.21.0 |
 | Framework | Expo SDK 54.0.9, Expo Router v6.0.22 (file-based routing) |
-| Language | TypeScript 5.9.2 |
+| Language | TypeScript 5.9.2 (strict mode) |
 | Database | Supabase (PostgreSQL + Storage + Realtime) |
 | AI | Claude API (`claude-sonnet-4-20250514`) via Node.js backend |
 | Backend | Node.js on port 3001 — handles `/api/voice` and `/api/ocr` |
@@ -43,17 +43,38 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard scr
 | id | uuid PK | |
 | customer_id | uuid FK → customers | |
 | job_type | text | enum: `Service Call`, `New Install`, `Maintenance`, `Estimate`, `Emergency`, `Custom` |
-| status | text | 12-value enum — see `lib/status.ts` |
+| status | text | 13-value enum — see `lib/types.ts` and `lib/status.ts` |
 | scheduled_time | timestamptz | nullable |
 | address | text | nullable — job-site address, may differ from customer address |
 | value | numeric | nullable — job revenue |
 | notes | text | nullable |
 | priority | int4 | sort order |
-| assigned_to | text | nullable — free-text technician name, not validated |
+| assigned_to | text | nullable — free-text technician name, not validated against users table |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
-**Job status values** (from `lib/status.ts`): `Scheduled`, `In Progress`, `Complete`, `Invoiced`, `Paid`, `Parts Ordered`, `Equipment Ordered`, `On Hold`, `Cancelled`, `No Show`, `Estimate Sent`, `Estimate Approved`. Available statuses depend on `job_type`.
+**Job status values** (from `lib/types.ts` — use these exact strings):
+
+| Status | Display label | Color |
+|--------|--------------|-------|
+| `Estimate Scheduled` | NEXT UP | #8fba3c (accent green) |
+| `Estimate Given` | NEXT UP | #8fba3c |
+| `Approved` | NEXT UP | #8fba3c |
+| `Parts Ordered` | STANDING BY | #2a2b22 (border) |
+| `Scheduled` | NEXT UP | #8fba3c |
+| `In Route` | IN FIELD | #e8a020 (orange) |
+| `In Progress` | IN FIELD | #c8b97a (gold) |
+| `Complete` | COMPLETE | #2a2b22 |
+| `Needs Billing` | STANDING BY | #2a2b22 |
+| `Invoiced` | STANDING BY | #2a2b22 |
+| `Paid` | COMPLETE | #2a2b22 |
+| `On Hold` | ON HOLD | #555 |
+| `Cancelled` | ON HOLD | #555 |
+
+**Valid statuses by job type** (from `lib/status.ts`):
+- **Estimate:** `Estimate Scheduled`, `Estimate Given`, `Approved`, `On Hold`, `Cancelled`
+- **New Install:** all 13 statuses
+- **Service Call, Maintenance, Emergency, Custom:** `Scheduled`, `In Route`, `In Progress`, `Complete`, `Needs Billing`, `Invoiced`, `Paid`, `On Hold`, `Cancelled`
 
 ### `job_photos`
 | Column | Type | Notes |
@@ -72,7 +93,7 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard scr
 | customer_id | uuid FK → customers | |
 | brand | text | nullable |
 | model | text | nullable |
-| serial | text | nullable — used as upsert key (per customer_id) |
+| serial | text | nullable — used as upsert key per customer_id |
 | tonnage | text | nullable |
 | refrigerant | text | nullable |
 | fuel_type | text | nullable — enum: `gas`, `electric`, `oil`, `other` |
@@ -219,7 +240,7 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard scr
 
 **Not implemented.** There is no multi-tenancy:
 - No authentication system
-- `assigned_to` on jobs is a free-text string — no validated user table
+- `assigned_to` on jobs is a free-text string — no validated user reference
 - All data is globally visible to anyone with the anon key
 - Single Supabase project = single implicit tenant
 
@@ -243,25 +264,110 @@ There is no `.env.example` — this is a known gap. Required vars:
 
 ```
 app/
-  _layout.tsx          # Root layout: loads fonts, status bar
-  index.tsx            # Dashboard — job list with revenue pipeline
-  job/[id].tsx         # Job detail view
+  _layout.tsx          # Root layout: loads 4 Google Fonts, configures StatusBar, wraps Stack navigator
+  index.tsx            # Dashboard — job list, pipeline value, status filter tabs
+  job/[id].tsx         # Job detail: status/reschedule/chores/photos/equipment
 components/
-  JobCard.tsx          # Job list card
-  VoiceBar.tsx         # Floating voice input (dev build only)
-  ConfirmJobModal.tsx  # Confirm/edit voice-extracted job before saving
-  PhotoCapture.tsx     # Camera/gallery picker + Supabase upload
-  PhotoStrip.tsx       # Horizontal scrollable photo gallery
-  EquipmentCard.tsx    # Equipment details
-  OCRResultCard.tsx    # Editable OCR results
+  JobCard.tsx          # Job list card — customer, type, address, status chip, time, value
+  VoiceBar.tsx         # Floating voice input — native speech or browser SpeechRecognition or text fallback
+  ConfirmJobModal.tsx  # Confirm/edit voice-extracted job data before saving to Supabase
+  PhotoCapture.tsx     # Camera/gallery picker + Supabase Storage upload + OCR
+  PhotoStrip.tsx       # Horizontal scrollable photo thumbnail gallery
+  EquipmentCard.tsx    # Equipment detail chips (brand, model, serial, tonnage, refrigerant, etc.)
+  OCRResultCard.tsx    # Editable form for Claude OCR-extracted equipment or document data
 lib/
-  supabase.ts          # Supabase client init
-  types.ts             # TypeScript interfaces (Job, Customer, Equipment, JobPhoto, etc.)
-  api.ts               # Backend API calls (voice, OCR)
-  queries.ts           # All Supabase queries
-  status.ts            # Job status enums, labels, colors, valid transitions
-  platform.ts          # Platform-aware scaling and colors
+  supabase.ts          # Supabase client singleton (EXPO_PUBLIC_* env vars)
+  types.ts             # TypeScript interfaces: Job, Customer, Equipment, JobPhoto, User, Chore + enums
+  api.ts               # Backend API calls: submitVoice(), submitOCR() — VoiceResult and OCRResult types
+  queries.ts           # All Supabase queries (16 functions covering all data operations)
+  status.ts            # Status enum helpers: STATUS_LABELS, STATUS_COLORS, statusesForJobType(), formatTime(), formatDate()
+  platform.ts          # Platform-aware font scaling (fs()) and color palette (colors object)
 ```
+
+---
+
+## Component Details
+
+### `VoiceBar.tsx`
+States: `idle` → `input` → `listening` → `processing` → `confirming` → `error`. Three speech modes determined at runtime:
+- **Native:** `expo-speech-recognition` (Android/iOS dev build) — has ~8s processing lag
+- **Web speech:** browser `SpeechRecognition` API (Chrome/Edge) — `WEB_SPEECH` flag path
+- **Text fallback:** shown in Firefox/Safari or when speech unavailable
+
+Color-coded: green (#8fba3c) = ready, red = listening, gold (#c8b97a) = accent. On success, opens `ConfirmJobModal`.
+
+### `PhotoCapture.tsx`
+States: `idle` → `uploading` → `reading` → `extracted` → `error`. Flow:
+1. Pick from camera or gallery via `expo-image-picker`
+2. Upload to Supabase Storage at `job-photos/{jobId}/{timestamp}.jpg`
+3. Send base64 to `/api/ocr` → Claude extracts structured data
+4. Render `OCRResultCard` with editable result
+5. On save: if `photo_type === 'equipment'` → `upsertEquipment()` by `(customer_id, serial)`
+
+### `OCRResultCard.tsx`
+Two field sets depending on `photo_type`:
+- **equipment:** brand, model, serial, tonnage, refrigerant, fuel_type, year
+- **document (estimate/invoice/other):** customer_name, address, description, amount, date
+
+### `app/index.tsx` (Dashboard)
+Status filter tabs: ALL + all 13 individual statuses. `CLOSED_STATUSES` (`Complete`, `Paid`, `Cancelled`) are hidden from the default ALL view. Dashboard-level display labels override status labels (e.g., `In Progress` tab shows as "ON SITE").
+
+### `app/job/[id].tsx` (Job Detail)
+- Status modal: shows only `statusesForJobType(job.job_type)` as options
+- Reschedule modal: Android uses native date/time pickers; iOS/web uses text inputs
+- Address chip: tappable — iOS opens `maps://`, other platforms open Google Maps URL
+- Phone chip: tappable → `tel:` link
+- Customer name display: shortens "Last, First Middle" format to "First Last-initial"
+
+---
+
+## Design System
+
+All colors and font scaling live in `lib/platform.ts`:
+
+```ts
+colors = {
+  bg:      '#0b0c08',   // near-black olive
+  surface: '#0e0f0a',
+  surface2:'#111114',
+  border:  '#2a2b22',
+  accent:  '#8fba3c',   // green
+  gold:    '#c8b97a',
+  text:    '#d4d0b8',   // warm off-white
+  muted:   '#6b7252',
+}
+```
+
+Font scale: `fs(size)` → `size * 1.4` on web, `size * 1.3` on native. Always use `fs()` for font sizes; never hardcode.
+
+Fonts (loaded in `app/_layout.tsx`):
+- **Russo One** — section headers, labels
+- **Share Tech Mono** — data values, status chips, numeric readouts
+- **Barlow 400** — body text
+- **Barlow 600** — emphasized body
+
+---
+
+## Lib: `queries.ts` — Query Reference
+
+| Function | Description |
+|----------|-------------|
+| `fetchAllJobs()` | All open jobs ordered by `scheduled_time` |
+| `fetchTodaysJobs()` | Jobs scheduled for today (time-filtered) |
+| `fetchJob(id)` | Single job by id |
+| `fetchCustomerHistory(customerId, excludeJobId)` | Last 10 jobs for a customer |
+| `fetchJobPhotos(jobId)` | All photos for a job |
+| `fetchEquipmentForJob(jobId)` | Equipment via `job_equipment` junction |
+| `fetchChores(jobId)` | Chores with assignee name via relationship |
+| `updateJobStatus(id, status)` | Updates `status` + `updated_at` |
+| `updateJobTime(id, scheduled_time)` | Updates `scheduled_time` + `updated_at` |
+| `findCustomerByName(name)` | Case-insensitive customer search |
+| `insertCustomer(fields)` | Creates customer, returns id |
+| `insertJob(fields)` | Creates job, returns full Job object |
+| `insertJobPhoto(fields)` | Saves photo metadata + ocr_data |
+| `insertChore(jobId, description, customerId)` | Creates chore |
+| `toggleChore(id, status)` | Updates chore status |
+| `upsertEquipment(customerId, jobId, fields)` | Creates/updates equipment by `(customer_id, serial)`, links to `job_equipment` |
 
 ---
 
@@ -271,6 +377,11 @@ lib/
 The EAS native build was paused mid-build. **The current working deployment is the HTML browser version**, which is fully functional. React Native Web handles rendering; Expo Router's web output is what's in active use.
 
 When making changes, prioritize web compatibility. Test in the browser. Native-only APIs (e.g. `expo-speech-recognition`, native camera dialogs) will not work in the web build — see Gotchas below.
+
+### Build config notes
+- **`babel.config.js`:** Uses `babel-preset-expo` with a custom plugin that polyfills `import.meta` to `{}` for web compatibility.
+- **`metro.config.js`:** Stubs native-only modules for web (e.g., speech recognition).
+- **`tsconfig.json`:** Extends `expo/tsconfig.base`, strict mode enabled.
 
 ### EAS build profiles (`eas.json`) — paused
 | Profile | Distribution | Notes |
@@ -296,21 +407,25 @@ The live web build can be **behind the working repo revision** if the web output
 | Issue | Severity | Detail |
 |-------|---------|--------|
 | **Speech recognition lag** | High | `expo-speech-recognition` has an ~8-second processing lag. Threading issue, not yet resolved. Voice intake feels slow. |
-| **Voice input on web uses browser SpeechRecognition** | Low | `expo-speech-recognition` is native-only. On web, VoiceBar uses the browser's `SpeechRecognition` API (`WEB_SPEECH` flag, `VoiceBar.tsx`). Chrome and Edge support this; Firefox and Safari do not — those browsers fall back to a text input field in the VoiceBar. |
+| **Voice input on web uses browser SpeechRecognition** | Low | `expo-speech-recognition` is native-only. On web, VoiceBar uses the browser's `SpeechRecognition` API (`WEB_SPEECH` flag, `VoiceBar.tsx`). Chrome and Edge support this; Firefox and Safari fall back to a text input field. |
 | **Network flakiness on cellular** | Medium | Backend API calls fail intermittently when device is on mobile data in tunnel mode. Stable on WiFi. |
 | **backendUrl hardcoded to LAN IP** | Medium | `app.json` extra.backendUrl is `http://10.0.0.120:3001`. Must be updated for any device not on the same LAN, or replaced with a public URL for production. |
 | **No migration files committed** | Medium | Schema exists only in the Supabase dashboard. If the project is rebuilt from scratch, schema must be manually recreated from the types/queries. |
 | **No .env.example** | Low | New contributors won't know what env vars are needed. |
 | **iOS not yet built** | Low | Android was built first. No iOS EAS build has been run. |
-| **Expo SDK version** | Critical | **SDK 54 is what's installed. AGENTS.md says to read v56 docs — check which is actually installed before coding. Run `cat package.json | grep expo` to confirm.** |
+| **Expo SDK version mismatch in AGENTS.md** | Critical | **SDK 54 is installed. AGENTS.md says to read v56 docs — always verify with `cat package.json \| grep expo` before coding. Use v54 behavior, not v56.** |
+| **Backend code not in repo** | Medium | The Node.js server (port 3001, `/api/voice`, `/api/ocr`) is not committed. No server code is present in this repository. |
+| **No `App.tsx` usage** | Low | `App.tsx` exists at root but is not used — Expo Router takes over via `index.ts` → `registerRootComponent`. |
 
 ---
 
 ## Key Architecture Decisions
 
-- **Voice-first:** VoiceBar floats over every screen; speech → backend → Claude → structured JSON → ConfirmJobModal → Supabase.
-- **OCR flow:** Photo → base64 → backend → Claude → structured JSON → OCRResultCard (editable) → upsert.
-- **Equipment deduplication:** Upserted by `(customer_id, serial)` — same serial on same customer overwrites.
-- **Status machine:** Job type gates which statuses are available (hardcoded in `lib/status.ts`).
-- **Platform scaling:** Web renders at 1.4× font scale, native at 1.3×, handled in `lib/platform.ts`.
-- **Realtime:** Supabase Realtime is available but not yet wired to live-push updates. Dashboard uses pull-to-refresh + refetch on focus.
+- **Voice-first:** VoiceBar floats over every screen; speech → `/api/voice` → Claude → structured JSON → ConfirmJobModal → Supabase.
+- **OCR flow:** Photo → base64 → `/api/ocr` → Claude → structured JSON → OCRResultCard (editable) → upsert.
+- **Equipment deduplication:** Upserted by `(customer_id, serial)` — same serial on same customer overwrites, preventing duplicates.
+- **Status machine:** Job type gates which statuses are available, hardcoded in `lib/status.ts` via `statusesForJobType()`. Do not allow invalid status transitions.
+- **Platform scaling:** Web renders at 1.4× font scale, native at 1.3×, via `fs()` in `lib/platform.ts`. Always use `fs()` — never hardcode font sizes.
+- **Realtime:** Supabase Realtime is available but not wired to live-push updates. Dashboard uses pull-to-refresh and refetch-on-focus only.
+- **No auth:** All operations use the public anon key. RLS policies on the database side control access, not application-level auth.
+- **Dark olive theme:** Not a generic blue SaaS palette. Colors are defined in `lib/platform.ts`. Do not introduce off-palette colors without updating that file.

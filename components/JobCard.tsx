@@ -12,6 +12,12 @@ export default function JobCard({ job }: { job: Job }) {
     ? `${nameParts[0].trim()}, ${nameParts[1].trim().charAt(0)}.`
     : job.customer.name;
 
+  const NOTES_SEP = '\n\n---\n\n';
+  const notesIdx = (job.notes ?? '').indexOf(NOTES_SEP);
+  const originalAsk = job.notes
+    ? (notesIdx === -1 ? job.notes : job.notes.slice(0, notesIdx))
+    : '';
+
   return (
     <TouchableOpacity
       style={[styles.card, { borderLeftColor: borderColor }]}
@@ -23,7 +29,12 @@ export default function JobCard({ job }: { job: Job }) {
         <Text style={styles.time}>{formatTime(job.scheduled_time)}</Text>
       </View>
       <View style={styles.row}>
-        <Text style={styles.type}>{job.job_type.toUpperCase()}</Text>
+        <View style={styles.typeGroup}>
+          <Text style={styles.type}>{job.job_type.toUpperCase()}</Text>
+          {!!originalAsk && (
+            <Text style={styles.ask} numberOfLines={1}> · {originalAsk}</Text>
+          )}
+        </View>
         {job.value != null && job.value > 0 && (
           <Text style={styles.value}>${job.value.toLocaleString()}</Text>
         )}
@@ -62,11 +73,25 @@ const styles = StyleSheet.create({
     fontSize: fs(15),
     color: colors.gold,
   },
+  typeGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+    overflow: 'hidden',
+  },
   type: {
     fontFamily: 'ShareTechMono_400Regular',
     fontSize: fs(11),
     color: colors.muted,
     letterSpacing: 1,
+    flexShrink: 0,
+  },
+  ask: {
+    fontFamily: 'Barlow_400Regular',
+    fontSize: fs(11),
+    color: colors.muted,
+    flex: 1,
   },
   value: {
     fontFamily: 'ShareTechMono_400Regular',

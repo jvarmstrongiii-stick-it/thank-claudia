@@ -52,6 +52,14 @@ export async function fetchJob(id: string): Promise<Job | null> {
   return data as Job | null;
 }
 
+export async function updateJobAddress(id: string, address: string) {
+  const { error } = await supabase
+    .from('jobs')
+    .update({ address, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function updateJobStatus(id: string, status: string) {
   const { error } = await supabase
     .from('jobs')
