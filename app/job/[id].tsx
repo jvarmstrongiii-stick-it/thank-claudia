@@ -127,9 +127,18 @@ export default function JobDetail() {
     );
   }
 
+  const NOTES_SEP = '\n\n---\n\n';
+  function parseNotes(raw: string | null): [string, string] {
+    if (!raw) return ['', ''];
+    const idx = raw.indexOf(NOTES_SEP);
+    if (idx === -1) return [raw, ''];
+    return [raw.slice(0, idx), raw.slice(idx + NOTES_SEP.length)];
+  }
+
   const statusLabel = STATUS_LABELS[job.status] ?? job.status;
   const statusColor = STATUS_COLORS[job.status] ?? '#2a2b22';
   const address = job.address ?? job.customer.address;
+  const [originalAsk, additionalComments] = parseNotes(job.notes);
 
   return (
     <SafeAreaView style={styles.safe}>
@@ -189,11 +198,21 @@ export default function JobDetail() {
           </Row>
         )}
 
-        {job.notes && (
+        {(originalAsk || additionalComments) && (
           <>
             <View style={styles.divider} />
-            <Text style={styles.sectionLabel}>NOTES</Text>
-            <Text style={styles.notes}>{job.notes}</Text>
+            {!!originalAsk && (
+              <>
+                <Text style={styles.sectionLabel}>ORIGINAL ASK</Text>
+                <Text style={styles.notes}>{originalAsk}</Text>
+              </>
+            )}
+            {!!additionalComments && (
+              <>
+                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>ADDITIONAL COMMENTS</Text>
+                <Text style={styles.notes}>{additionalComments}</Text>
+              </>
+            )}
           </>
         )}
 

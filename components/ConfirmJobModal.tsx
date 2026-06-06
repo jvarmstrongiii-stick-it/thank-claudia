@@ -18,15 +18,22 @@ interface Props {
   onCancel: () => void;
 }
 
+const NOTES_SEP = '\n\n---\n\n';
+
+function mergeNotes(ask: string, comments: string): string | null {
+  const a = ask.trim();
+  const c = comments.trim();
+  if (!a && !c) return null;
+  if (!c) return a || null;
+  return `${a}${NOTES_SEP}${c}`;
+}
+
 export default function ConfirmJobModal({ visible, initial, onConfirm, onCancel }: Props) {
   const [data, setData] = useState<VoiceResult>(initial);
+  const [originalAsk, setOriginalAsk] = useState(initial.notes ?? '');
+  const [additionalComments, setAdditionalComments] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  // Reset when new initial data comes in
-  if (JSON.stringify(initial) !== JSON.stringify(data) && !saving) {
-    // only reset if modal just opened
-  }
 
   function field(key: keyof VoiceResult, label: string, required = false) {
     const val = data[key];
@@ -55,7 +62,7 @@ export default function ConfirmJobModal({ visible, initial, onConfirm, onCancel 
     setSaving(true);
     setError(null);
     try {
-      await onConfirm(data);
+      await onConfirm({ ...data, notes: mergeNotes(originalAsk, additionalComments) });
     } catch (e: any) {
       setError(e.message ?? 'Save failed');
       setSaving(false);
@@ -91,7 +98,30 @@ export default function ConfirmJobModal({ visible, initial, onConfirm, onCancel 
 
           {field('scheduled_time', 'TIME (ISO)')}
           {field('value', 'VALUE ($)')}
-          {field('notes', 'NOTES')}
+
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>ORIGINAL ASK</Text>
+            <TextInput
+              style={[styles.input, styles.multilineInput]}
+              value={originalAsk}
+              onChangeText={setOriginalAsk}
+              placeholder="What did the customer ask for?"
+              placeholderTextColor={colors.muted}
+              multiline
+            />
+          </View>
+
+          <View style={styles.field}>
+            <Text style={styles.fieldLabel}>ADDITIONAL COMMENTS</Text>
+            <TextInput
+              style={[styles.input, styles.multilineInput]}
+              value={additionalComments}
+              onChangeText={setAdditionalComments}
+              placeholder="—"
+              placeholderTextColor={colors.muted}
+              multiline
+            />
+          </View>
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </ScrollView>
@@ -149,6 +179,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface2,
   },
   inputRequired: { borderColor: colors.accent },
+  multilineInput: { minHeight: 64, textAlignVertical: 'top' },
   typeRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   typeBtn: {
     borderWidth: 1,
