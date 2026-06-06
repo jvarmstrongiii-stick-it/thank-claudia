@@ -7,7 +7,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { fetchJob, updateJobStatus, updateJobTime, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob, fetchChores, insertChore, toggleChore } from '../../lib/queries';
+import { fetchJob, updateJobStatus, updateJobTime, updateJobAddress, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob, fetchChores, insertChore, toggleChore } from '../../lib/queries';
 import { STATUS_LABELS, STATUS_COLORS, statusesForJobType, formatTime, formatDate } from '../../lib/status';
 import { fs, colors } from '../../lib/platform';
 import type { Job, JobStatus, Equipment, JobPhoto, Chore } from '../../lib/types';
@@ -26,6 +26,9 @@ export default function JobDetail() {
   const [loading, setLoading] = useState(true);
   const [statusModal, setStatusModal] = useState(false);
   const [rescheduleModal, setRescheduleModal] = useState(false);
+  const [addressModal, setAddressModal] = useState(false);
+  const [editAddress, setEditAddress] = useState('');
+  const [locating, setLocating] = useState(false);
   const [pickedDate, setPickedDate] = useState<Date>(new Date());
   const [pickerStep, setPickerStep] = useState<'date' | 'time' | 'done'>('date');
   const [webDateStr, setWebDateStr] = useState('');
@@ -74,6 +77,48 @@ export default function JobDetail() {
     setStatusModal(false);
     await updateJobStatus(job.id, status);
     setJob({ ...job, status });
+  }
+
+  function openAddressEdit() {
+    setEditAddress(address ?? '');
+    setAddressModal(true);
+  }
+
+  async function handleLocate() {
+    if (!navigator?.geolocation) return;
+    setLocating(true);
+    try {
+      const pos = await new Promise<GeolocationPosition>((resolve, reject) =>
+        navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+      );
+      const { latitude, longitude } = pos.coords;
+      const resp = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
+        { headers: { 'User-Agent': 'TMC-Mechanical-App/1.0' } }
+      );
+      const json = await resp.json();
+      const a = json.address ?? {};
+      const formatted = [
+        a.house_number && a.road ? `${a.house_number} ${a.road}` : a.road,
+        a.city ?? a.town ?? a.village,
+        a.state,
+        a.postcode,
+      ].filter(Boolean).join(', ');
+      setEditAddress(formatted || json.display_name || `${latitude.toFixed(5)}, ${longitude.toFixed(5)}`);
+    } catch {
+      // user can type manually
+    } finally {
+      setLocating(false);
+    }
+  }
+
+  async function handleSaveAddress() {
+    if (!job) return;
+    const addr = editAddress.trim();
+    if (!addr) return;
+    setAddressModal(false);
+    await updateJobAddress(job.id, addr);
+    setJob({ ...job, address: addr });
   }
 
   function openReschedule() {
@@ -181,19 +226,14 @@ export default function JobDetail() {
           </Row>
         )}
 
-        {address && (
-          <Row label="ADDRESS">
-            <TouchableOpacity onPress={() => {
-              const encoded = encodeURIComponent(address);
-              const url = Platform.OS === 'ios'
-                ? `maps://?q=${encoded}`
-                : `https://maps.google.com/maps?q=${encoded}`;
-              Linking.openURL(url);
-            }}>
-              <Text style={[styles.value, styles.link]}>{address}</Text>
-            </TouchableOpacity>
-          </Row>
-        )}
+        <Row label="ADDRESS">
+          <TouchableOpacity onPress={openAddressEdit}>
+            {address
+              ? <Text style={[styles.value, styles.link]}>{address}</Text>
+              : <Text style={[styles.value, { color: colors.muted }]}>// TAP TO SET</Text>
+            }
+          </TouchableOpacity>
+        </Row>
 
         {job.customer.phone && (
           <Row label="PHONE">
@@ -362,6 +402,55 @@ export default function JobDetail() {
           </View>
         </Modal>
       )}
+
+      <Modal visible={addressModal} transparent animationType="slide">
+        <TouchableOpacity style={styles.overlay} onPress={() => setAddressModal(false)} />
+        <View style={styles.sheet}>
+          <Text style={styles.sheetTitle}>JOB ADDRESS</Text>
+          <View style={{ padding: 16 }}>
+            <TextInput
+              style={[styles.webInput, { minHeight: 52, textAlignVertical: 'top', marginBottom: 10 }]}
+              value={editAddress}
+              onChangeText={setEditAddress}
+              placeholder="Street address..."
+              placeholderTextColor={colors.muted}
+              multiline
+              autoFocus
+            />
+            <TouchableOpacity
+              style={[styles.saveBtn, { backgroundColor: colors.border, marginBottom: 8 }]}
+              onPress={handleLocate}
+              disabled={locating}
+            >
+              {locating
+                ? <ActivityIndicator color={colors.text} size="small" />
+                : <Text style={[styles.saveBtnText, { color: colors.text }]}>USE MY LOCATION</Text>
+              }
+            </TouchableOpacity>
+            {!!editAddress.trim() && !!address && (
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: colors.surface2, marginBottom: 8 }]}
+                onPress={() => {
+                  const encoded = encodeURIComponent(address);
+                  const url = Platform.OS === 'ios'
+                    ? `maps://?q=${encoded}`
+                    : `https://maps.google.com/maps?q=${encoded}`;
+                  Linking.openURL(url);
+                }}
+              >
+                <Text style={[styles.saveBtnText, { color: colors.muted }]}>NAVIGATE</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={[styles.saveBtn, !editAddress.trim() && styles.choreAddBtnDisabled]}
+              onPress={handleSaveAddress}
+              disabled={!editAddress.trim()}
+            >
+              <Text style={styles.saveBtnText}>SAVE ADDRESS</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={statusModal} transparent animationType="slide">
         <TouchableOpacity style={styles.overlay} onPress={() => setStatusModal(false)} />
