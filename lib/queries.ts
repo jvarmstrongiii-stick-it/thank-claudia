@@ -107,6 +107,7 @@ export async function insertJob(fields: {
   scheduled_time?: string | null;
   address?: string | null;
   value?: number | null;
+  original_ask?: string | null;
   notes?: string | null;
 }): Promise<Job> {
   const { data, error } = await supabase

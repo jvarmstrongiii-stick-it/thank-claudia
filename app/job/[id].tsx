@@ -215,18 +215,11 @@ export default function JobDetail() {
     );
   }
 
-  const NOTES_SEP = '\n\n---\n\n';
-  function parseNotes(raw: string | null): [string, string] {
-    if (!raw) return ['', ''];
-    const idx = raw.indexOf(NOTES_SEP);
-    if (idx === -1) return [raw, ''];
-    return [raw.slice(0, idx), raw.slice(idx + NOTES_SEP.length)];
-  }
-
   const statusLabel = STATUS_LABELS[job.status] ?? job.status;
   const statusColor = STATUS_COLORS[job.status] ?? '#2a2b22';
   const address = job.address ?? job.customer.address;
-  const [originalAsk, additionalComments] = parseNotes(job.notes);
+  const originalAsk = job.original_ask ?? '';
+  const additionalComments = job.notes ?? '';
 
   return (
     <SafeAreaView style={styles.safe}>

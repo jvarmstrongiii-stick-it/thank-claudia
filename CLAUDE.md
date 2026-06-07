@@ -47,7 +47,8 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard scr
 | scheduled_time | timestamptz | nullable |
 | address | text | nullable — job-site address, may differ from customer address |
 | value | numeric | nullable — job revenue |
-| notes | text | nullable |
+| original_ask | text | nullable — what the customer originally asked for, captured separately from notes |
+| notes | text | nullable — additional comments/notes, distinct from original_ask |
 | priority | int4 | sort order |
 | assigned_to | text | nullable — free-text technician name, not validated against users table |
 | created_at | timestamptz | |

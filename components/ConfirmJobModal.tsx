@@ -18,19 +18,9 @@ interface Props {
   onCancel: () => void;
 }
 
-const NOTES_SEP = '\n\n---\n\n';
-
-function mergeNotes(ask: string, comments: string): string | null {
-  const a = ask.trim();
-  const c = comments.trim();
-  if (!a && !c) return null;
-  if (!c) return a || null;
-  return `${a}${NOTES_SEP}${c}`;
-}
-
 export default function ConfirmJobModal({ visible, initial, onConfirm, onCancel }: Props) {
   const [data, setData] = useState<VoiceResult>(initial);
-  const [originalAsk, setOriginalAsk] = useState(initial.notes ?? '');
+  const [originalAsk, setOriginalAsk] = useState(initial.original_ask ?? initial.notes ?? '');
   const [additionalComments, setAdditionalComments] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -62,7 +52,11 @@ export default function ConfirmJobModal({ visible, initial, onConfirm, onCancel 
     setSaving(true);
     setError(null);
     try {
-      await onConfirm({ ...data, notes: mergeNotes(originalAsk, additionalComments) });
+      await onConfirm({
+        ...data,
+        original_ask: originalAsk.trim() || null,
+        notes: additionalComments.trim() || null,
+      });
     } catch (e: any) {
       setError(e.message ?? 'Save failed');
       setSaving(false);
