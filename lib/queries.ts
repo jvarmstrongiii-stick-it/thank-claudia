@@ -60,6 +60,14 @@ export async function updateJobAddress(id: string, address: string) {
   if (error) throw error;
 }
 
+export async function updateJobNotes(id: string, original_ask: string | null, notes: string | null) {
+  const { error } = await supabase
+    .from('jobs')
+    .update({ original_ask, notes, updated_at: new Date().toISOString() })
+    .eq('id', id);
+  if (error) throw error;
+}
+
 export async function updateJobStatus(id: string, status: string) {
   const { error } = await supabase
     .from('jobs')
