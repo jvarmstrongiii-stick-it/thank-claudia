@@ -195,6 +195,7 @@ export default function VoiceBar() {
       scheduled_time: data.scheduled_time,
       address: data.address,
       value: data.value,
+      original_ask: data.original_ask,
       notes: data.notes,
     });
 

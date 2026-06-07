@@ -13,6 +13,7 @@ export interface VoiceResult {
   job_type: string | null;
   scheduled_time: string | null;
   value: number | null;
+  original_ask: string | null;
   notes: string | null;
   missing_fields: string[];
 }

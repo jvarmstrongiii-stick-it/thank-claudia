@@ -12,11 +12,7 @@ export default function JobCard({ job }: { job: Job }) {
     ? `${nameParts[0].trim()}, ${nameParts[1].trim().charAt(0)}.`
     : job.customer.name;
 
-  const NOTES_SEP = '\n\n---\n\n';
-  const notesIdx = (job.notes ?? '').indexOf(NOTES_SEP);
-  const originalAsk = job.notes
-    ? (notesIdx === -1 ? job.notes : job.notes.slice(0, notesIdx))
-    : '';
+  const originalAsk = job.original_ask ?? '';
 
   return (
     <TouchableOpacity

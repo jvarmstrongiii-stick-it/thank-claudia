@@ -66,6 +66,7 @@ export interface Job {
   scheduled_time: string | null;
   address: string | null;
   value: number | null;
+  original_ask: string | null;
   notes: string | null;
   priority: number;
   assigned_to: string | null;
