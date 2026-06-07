@@ -1,0 +1,2927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Claudia r16 — TMC Mechanical</title>
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="TMC" />
+<meta name="theme-color" content="#0e0f0c" />
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+<meta http-equiv="Pragma" content="no-cache" />
+<meta http-equiv="Expires" content="0" />
+<link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;TMC Mechanical&quot;,&quot;short_name&quot;:&quot;TMC&quot;,&quot;start_url&quot;:&quot;.&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%230e0f0c&quot;,&quot;theme_color&quot;:&quot;%230e0f0c&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230e0f0c'/%3E%3Ctext y='.9em' font-size='80' x='10' fill='%2393a046'%3ET%3C/text%3E%3C/svg%3E&quot;,&quot;sizes&quot;:&quot;any&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #0e0f0c;
+    --panel: #16180f;
+    --panel-2: #1c1f14;
+    --line: #2c3020;
+    --olive: #6b7338;
+    --olive-bright: #93a046;
+    --brass: #b8923f;
+    --brass-bright: #d9af52;
+    --text: #e8e6dd;
+    --muted: #8a8c7e;
+    --danger: #b5432f;
+    --green: #5d8a3a;
+  }
+  html, body { background: var(--bg); color: var(--text); font-family: 'Barlow Semi Condensed', sans-serif; overscroll-behavior: none; }
+  body {
+    background-image:
+      radial-gradient(circle at 20% 0%, rgba(107,115,56,0.08), transparent 40%),
+      radial-gradient(circle at 90% 100%, rgba(184,146,63,0.06), transparent 45%);
+    background-attachment: fixed;
+    min-height: 100vh;
+  }
+  #root { max-width: 520px; margin: 0 auto; min-height: 100vh; }
+  .mono { font-family: 'Share Tech Mono', monospace; }
+  .head { font-family: 'Oswald', sans-serif; text-transform: uppercase; letter-spacing: 0.04em; }
+  button { font-family: 'Barlow Semi Condensed', sans-serif; cursor: pointer; border: none; background: none; color: inherit; }
+  input, select, textarea {
+    font-family: 'Barlow Semi Condensed', sans-serif; font-size: 16px;
+    background: var(--bg); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 12px; width: 100%; outline: none;
+  }
+  input:focus, select:focus, textarea:focus { border-color: var(--olive-bright); }
+  ::-webkit-scrollbar { width: 0; }
+  .fade-in { animation: fade 0.25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  .shake { animation: shake 0.5s ease; }
+  @keyframes shake { 0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)} }
+  @keyframes micPulse { 0%,100% { box-shadow: 0 0 0 0 rgba(181,67,47,0.7); } 70% { box-shadow: 0 0 0 14px rgba(181,67,47,0); } }
+  @keyframes micSpin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+const APP_REV = 41;
+
+/* ── Supabase ──────────────────────────────────────────────────────────────── */
+const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzaXZpd3dzdGdsbml1aHNyeXplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDkzOTcsImV4cCI6MjA5NTU4NTM5N30.Eo_waRUbNxdq3xEfEd7AxCAEnVc4VobaV8N5ZPyGi0o';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const CLAUDE_PROXY = `${SUPABASE_URL}/functions/v1/claude-proxy`;
+function getAnthropicKey() { return ''; } // key lives in Supabase Edge Function secret
+function setAnthropicKey(k) { localStorage.setItem(ANTHROPIC_KEY_STORAGE, k); }
+
+/* ── Storage keys ──────────────────────────────────────────────────────────── */
+const STORAGE_KEY       = "tmc_jobs_v1";
+const CHORES_KEY        = "tmc_chores_v1";
+const SAMEADDR_PREF_KEY = "tmc_sameaddr_pref";
+const CURRENT_USER_KEY  = "tmc_current_user";
+const DEVICE_AUTH_KEY   = "tmc_device_auth";
+// ↓ Change this to update the passphrase for all devices (they'll be asked again on next visit)
+const DEVICE_PASSPHRASE = "TMCmech";
+
+/* ── Status / type lists ───────────────────────────────────────────────────── */
+const STATUSES = [
+  "On Site","In Route","Scheduled",
+  "New","Evaluation Needed","Write Estimate","Waiting on Approval",
+  "In Progress","On Hold",
+  "Completed/Needs Billing","Billed/Waiting for Payment","Completed/Paid","Closed",
+];
+const STATUS_COLOR = {
+  "New":"#d9af52","Evaluation Needed":"#8a8c7e","Write Estimate":"#b8923f",
+  "Waiting on Approval":"#c98a3f","Scheduled":"#6b7338","In Route":"#d9af52",
+  "On Site":"#93a046","In Progress":"#93a046","On Hold":"#b5432f",
+  "Completed/Needs Billing":"#d9af52","Billed/Waiting for Payment":"#c98a3f","Completed/Paid":"#5d8a3a","Closed":"#8a8c7e",
+};
+const JOB_TYPES = ["Service Call","New Install","Maintenance","Replacement","Warranty","Estimate"];
+
+/* ── Utilities ─────────────────────────────────────────────────────────────── */
+function todayISO() { return new Date().toISOString().split("T")[0]; }
+function siteAddr(j) { return j.site_address || j.address || ""; }
+function custAddr(j) { return j.customer_address || j.address || ""; }
+function uid() { return "job_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function money(n) { return "$" + Number(n||0).toLocaleString("en-US"); }
+function fmtDate(iso) {
+  if (!iso) return "—";
+  const [y,m,d] = iso.split("-");
+  return `${m}/${d}/${y.slice(2)}`;
+}
+function fmtTime(t) {
+  if (!t) return "—";
+  let [h,mn] = t.split(":").map(Number);
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${h}:${String(mn).padStart(2,"0")} ${ap}`;
+}
+function deriveCustomers(jobs) {
+  const map = {};
+  jobs.forEach(j => {
+    const name = (j.customer||"").trim();
+    if (!name) return;
+    if (!map[name]) map[name] = { customer_address:"", phone:"", email:"", sites:[] };
+    const rec = map[name];
+    if (!rec.customer_address && custAddr(j)) rec.customer_address = custAddr(j);
+    if (!rec.phone && j.phone) rec.phone = j.phone;
+    if (!rec.email && j.email) rec.email = j.email;
+    const site = siteAddr(j).trim();
+    if (site && site !== custAddr(j).trim()) {
+      const exists = rec.sites.some(s => s.site_address === site);
+      if (!exists) rec.sites.push({ site_address: site });
+    }
+  });
+  return map;
+}
+function loadSameAddrPref() {
+  try { const r = localStorage.getItem(SAMEADDR_PREF_KEY); if (r !== null) return r === "true"; } catch(e){}
+  return true;
+}
+function saveSameAddrPref(val) {
+  try { localStorage.setItem(SAMEADDR_PREF_KEY, String(val)); } catch(e){}
+}
+
+/* ── Supabase mapping ──────────────────────────────────────────────────────── */
+// Rejects addresses that are just a state abbreviation or ", PA" — artifact of old fromRow code
+function isJunkAddr(s) { return /^,?\s*[A-Z]{2}\s*$/.test((s||'').trim()); }
+
+function fromRow(row, notes=[]) {
+  const c = row.customers || {};
+  const rawCustomerAddr = c.address || '';
+  const customerAddr = isJunkAddr(rawCustomerAddr) ? '' : rawCustomerAddr;
+  const rawSiteAddr = row.site_address || row.address || customerAddr;
+  const siteAddr = isJunkAddr(rawSiteAddr) ? customerAddr : rawSiteAddr;
+  const scheduledAt = row.scheduled_at || '';
+  return {
+    id: row.id,
+    customer: c.name || '',
+    location: '',
+    customer_address: customerAddr,
+    site_address: siteAddr,
+    same_address: !siteAddr || siteAddr === customerAddr,
+    phone: c.phone || '',
+    email: c.email || '',
+    type: row.flow_type || 'Service Call',
+    status: row.current_status || 'New',
+    scheduled_date: scheduledAt ? scheduledAt.slice(0,10) : todayISO(),
+    scheduled_time: scheduledAt ? scheduledAt.slice(11,16) : '09:00',
+    value: Number(row.value) || 0,
+    notes: row.notes || '',
+    history: notes.filter(n => n.source !== 'system').map(n => ({
+      id: n.id,
+      date: (n.created_at||'').slice(0,10),
+      note: n.content,
+    })),
+    _customer_id: row.customer_id,
+    _assigned_to: row.assigned_to,
+  };
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function validUUID(s) { return UUID_RE.test(s||'') ? s : null; }
+
+function toRow(job, customerId, userId) {
+  let scheduled_at = null;
+  if (job.scheduled_date && job.scheduled_time) {
+    const d = new Date(`${job.scheduled_date}T${job.scheduled_time}:00`);
+    if (!isNaN(d)) scheduled_at = d.toISOString();
+  }
+  return {
+    customer_id: customerId || job._customer_id,
+    assigned_to: validUUID(userId) || validUUID(job._assigned_to),
+    flow_type: job.type,
+    current_status: job.status,
+    value: Number(job.value) || null,
+    scheduled_at,
+    notes: job.notes || null,
+    site_address: job.site_address || null,
+    address: null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+/* ── Supabase data fetchers ────────────────────────────────────────────────── */
+async function resolveCustomer(job) {
+  const name = (job.customer||'').trim();
+  if (!name) return null;
+  const { data: existing } = await sb.from('customers')
+    .select('id').ilike('name', name).limit(1).maybeSingle();
+  if (existing) {
+    const upd = { updated_at: new Date().toISOString() };
+    if (job.phone) upd.phone = job.phone;
+    if (job.email) upd.email = job.email;
+    if (job.customer_address !== undefined) upd.address = (!job.customer_address || isJunkAddr(job.customer_address)) ? null : job.customer_address;
+    await sb.from('customers').update(upd).eq('id', existing.id);
+    return existing.id;
+  }
+  const { data: created, error } = await sb.from('customers').insert({
+    name, phone: job.phone||null, email: job.email||null, address: job.customer_address||null,
+    created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+  }).select('id').single();
+  if (error) { console.error('resolveCustomer failed', error); return null; }
+  return created.id;
+}
+
+async function fetchJobs() {
+  const { data: rows, error } = await sb.from('jobs')
+    .select('*, customers(*)')
+    .order('scheduled_at', { ascending: true, nullsFirst: false });
+  if (error) { console.warn('fetchJobs error', error); return null; }
+  if (!rows || rows.length === 0) return [];
+  const jobIds = rows.map(r => r.id);
+  const { data: notes } = await sb.from('job_notes')
+    .select('*').in('job_id', jobIds).order('created_at');
+  const notesByJob = {};
+  (notes||[]).forEach(n => { (notesByJob[n.job_id] = notesByJob[n.job_id]||[]).push(n); });
+  return rows.map(r => fromRow(r, notesByJob[r.id]||[]));
+}
+
+async function fetchPhotos(jobId) {
+  const { data, error } = await sb.from('job_photos')
+    .select('*').eq('job_id', jobId).order('created_at', { ascending: true });
+  if (error) { console.warn('fetchPhotos error', error); return []; }
+  return (data||[]).map(p => ({ id: p.id, url: p.url || p.photo_url || '', storage_path: p.storage_path || '', photo_type: p.photo_type || null }));
+}
+
+async function uploadPhoto(jobId, file, photoType) {
+  const ext = (file.name||'photo.jpg').split('.').pop().toLowerCase() || 'jpg';
+  const path = `${jobId}/${Date.now()}.${ext}`;
+  const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
+  if (upErr) { console.error('upload error', upErr); return { error: upErr.message || JSON.stringify(upErr) }; }
+  const { data: urlData } = sb.storage.from('job-photos').getPublicUrl(path);
+  const url = urlData.publicUrl;
+  const insertRow = { job_id: jobId, url, storage_path: path, created_at: new Date().toISOString() };
+  if (photoType) insertRow.photo_type = photoType;
+  const { data: row, error: dbErr } = await sb.from('job_photos')
+    .insert(insertRow)
+    .select().single();
+  if (dbErr) { console.error('job_photos insert error', dbErr); return { error: dbErr.message || JSON.stringify(dbErr) }; }
+  return row ? { id: row.id, url, storage_path: path, photo_type: photoType || null } : null;
+}
+
+async function deletePhoto(photoId, storagePath) {
+  if (storagePath) await sb.storage.from('job-photos').remove([storagePath]);
+  await sb.from('job_photos').delete().eq('id', photoId);
+}
+
+async function fetchEquipment(customerId) {
+  if (!customerId) return [];
+  const { data, error } = await sb.from('equipment').select('*').eq('customer_id', customerId).order('created_at');
+  if (error) { console.warn('fetchEquipment', error); return []; }
+  return data || [];
+}
+
+async function saveEquipment(customerId, label, fields, installDate, jobId) {
+  const row = { customer_id: customerId, label, created_at: new Date().toISOString() };
+  EQUIP_KEYS.forEach(k => { if (fields[k] != null) row[k] = String(fields[k]); });
+  if (installDate) row.install_date = installDate;
+  if (jobId) row.job_id = jobId;
+  const { data, error } = await sb.from('equipment').insert(row).select().single();
+  return { data, error };
+}
+
+async function updateEquipment(id, fields) {
+  const row = { updated_at: new Date().toISOString() };
+  if ('label' in fields) row.label = fields.label;
+  if ('install_date' in fields) row.install_date = fields.install_date || null;
+  if ('warranty_registered' in fields) row.warranty_registered = fields.warranty_registered;
+  if ('warranty_registered_date' in fields) row.warranty_registered_date = fields.warranty_registered_date || null;
+  EQUIP_KEYS.forEach(k => { if (k in fields) row[k] = fields[k]||null; });
+  const { error } = await sb.from('equipment').update(row).eq('id', id);
+  return error;
+}
+
+async function deleteEquipmentItem(id) {
+  await sb.from('equipment').delete().eq('id', id);
+}
+
+const EQUIP_KEYS = ['equipment_type','brand','model_number','serial_number','tonnage','horsepower','rpm','shaft_diameter','refrigerant','voltage','seer','mca','mop','year_manufactured'];
+
+function getLabelSuggestions(equipType) {
+  const t = (equipType||'').toLowerCase();
+  if (t.includes('indoor') || t.includes('mini') || t.includes('split') || t.includes('air handler'))
+    return ['Living Room','Master Bedroom','Bedroom 2','Bedroom 3','Kitchen','Office','Basement','Dining Room','Hallway'];
+  if (t.includes('outdoor') || t.includes('condenser') || t.includes('heat pump'))
+    return ['Outdoor Unit','Condenser'];
+  if (t.includes('furnace') || t.includes('boiler'))
+    return ['Furnace','Boiler','Basement Unit'];
+  if (t.includes('water'))
+    return ['Water Heater','Hot Water Tank'];
+  return ['Living Room','Master Bedroom','Outdoor Unit','Furnace','Water Heater','Air Handler','Basement Unit','Office'];
+}
+
+function warrantyStatus(eq) {
+  if (eq.warranty_registered) {
+    if (eq.install_date) {
+      const exp = new Date(eq.install_date + 'T12:00:00');
+      exp.setFullYear(exp.getFullYear() + 12);
+      return { type:'registered', expires: exp.toISOString().split('T')[0] };
+    }
+    return { type:'registered', expires:null };
+  }
+  if (!eq.install_date) return { type:'untracked' };
+  const deadline = new Date(eq.install_date + 'T12:00:00');
+  deadline.setDate(deadline.getDate() + 60);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const daysLeft = Math.ceil((deadline - today) / 86400000);
+  if (daysLeft < 0) return { type:'lapsed', deadline: deadline.toISOString().split('T')[0] };
+  if (daysLeft <= 14) return { type:'urgent', daysLeft, deadline: deadline.toISOString().split('T')[0] };
+  return { type:'pending', daysLeft, deadline: deadline.toISOString().split('T')[0] };
+}
+
+async function scanNameplate(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('File read failed'));
+    reader.onload = async (e) => {
+      try {
+        const dataUrl = e.target.result;
+        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (!match) { reject(new Error('Invalid image data')); return; }
+        const rawType = match[1];
+        const base64Data = match[2];
+        const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType) ? rawType : 'image/jpeg';
+        const res = await fetch(CLAUDE_PROXY, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 512,
+            messages: [{
+              role: 'user',
+              content: [
+                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+                { type: 'text', text: 'You are an HVAC expert reading a photo of HVAC equipment, a nameplate, a data tag, or a part/component label.\n\nCRITICAL — label field mapping (read ALL digits exactly, do not truncate):\n- "P/N:", "Part No", "Part #", "CPN", "CPN-", "Model:" → model_number (use this, NOT the barcode model string, when both present)\n- "S/N:", "Serial:", "Serial No" → serial_number (completely separate from P/N — NEVER put a P/N value into serial_number)\n- "V:", "Volts:", "VAC" → voltage\n- "Hz" → frequency only, do NOT store in any field\n- "A", "Amps", "FLA", "RLA" → rated current only, do NOT store in mca (mca is a separate calculated value, leave null unless explicitly labeled MCA)\n\nEquipment types — this can be a WHOLE UNIT or a COMPONENT/PART:\n- Whole units: AC Condenser, Heat Pump, Air Handler, Gas Furnace, Electric Furnace, Mini-Split Indoor, Mini-Split Outdoor, Water Heater, Boiler, Package Unit\n- Motors & drives: Condenser Fan Motor, Evaporator Fan Motor, Blower Motor, ECM Motor, Variable-Speed Motor\n- Electrical components: Dual Run Capacitor, Start Capacitor, Contactor, Transformer, Circuit Board, Control Board, Sequencer\n- Refrigeration parts: Compressor, Expansion Valve, Reversing Valve, Filter Drier, Metering Device\n- Heating parts: Heat Strip, Igniter, Inducer Motor, Pressure Switch, Gas Valve\n\nEquipment type + brand inference from model/part number:\n- 253xxxxx = Interlink condenser fan motor\n- 5KCP, 3S, HC = GE/Genteq motor\n- CAP-xx = capacitor\n- DR96TC = 96% two-stage gas furnace (Daikin/Goodman)\n- GSX/SSX/XC = AC condenser; CAPEA/CHPF = evaporator coil\n- ARUF/AH = air handler; GMSS/GCSS = furnace\n- MXZ/FTX = Mitsubishi mini-split\n- H6HK/H8HK = Nordyne/Intertherm electric heat strip\n\nCapacity/spec → use "tonnage" for unit capacity only:\n- AC units: "3 ton (36,000 BTU)" (018=1.5T, 024=2T, 036=3T, 048=4T, 060=5T)\n- Heat strips: kW × 3,412 = BTU (H6HK010 → "10 kW (34,120 BTU)")\n- Furnaces: "80,000 BTU" (080=80K, 100=100K in model)\n- Capacitors: "45+5 MFD, 440V"\n- For motors, leave tonnage null — use dedicated fields below\n\nBARCODE TEXT — if a 2D barcode (DataMatrix/QR/Code128) is visible, read the encoded text. Interlink barcodes encode: YSLB-{W}-{P}-{variant} e.g. YSLB-350-6-B001 (350W, 6-pole).\n\nPole count → RPM at 60 Hz: 2P=3450, 4P=1625, 6P=1075, 8P=825\nWatts → HP (input power, prefer printed label value): 150-180W=1/5, 190-230W=1/4, 240-370W=1/3, 371-540W=1/2, 541-700W=3/4, 701-760W=1\n\nMotor brand decoding by part number:\n- Interlink 253xxxxx: brand=Interlink, voltage=208-230V, shaft_diameter=1/2 inch; decode barcode YSLB-{W}-{P}-xxx → HP from watts, RPM from poles\n- GE/Genteq 5KCP39xx, 3S1xx, HC43xx: brand=GE/Genteq, shaft_diameter=1/2 inch\n- A.O. Smith / US Motor / Nidec F48xx, S58xx: shaft_diameter=1/2 inch\n- Century / Regal Beloit CPxx, CAxx: shaft_diameter=1/2 inch\n- Emerson K55xxx: shaft_diameter=1/2 inch\n\nMotor-specific fields (extract from label or barcode, or infer from part number):\n- horsepower: "1/4", "1/3", "1/2", "3/4", "1" — if printed on label (e.g. "1/3HP") use that value exactly; only derive from watts if HP not printed\n- rpm: "1075", "1625", "825", "1100", "3450" — derive from pole count if RPM not printed\n- shaft_diameter: "1/2 inch", "5/8 inch" — default "1/2 inch" for condenser fan motors\n\nReply with ONLY a JSON object using these exact keys (null if unknown):\n{"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"horsepower":null,"rpm":null,"shaft_diameter":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
+              ],
+            }],
+          }),
+        });
+        if (!res.ok) { const t = await res.text(); reject(new Error(`API ${res.status}: ${t}`)); return; }
+        const data = await res.json();
+        const text = (data.content[0].text || '').trim();
+        const m = text.match(/\{[\s\S]*\}/);
+        if (!m) { reject(new Error('No JSON in response')); return; }
+        resolve(JSON.parse(m[0]));
+      } catch(err) { reject(err); }
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+async function scanNameplateFromUrl(url) {
+  const apiRes = await fetch(CLAUDE_PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'url', url } },
+          { type: 'text', text: 'You are an HVAC expert reading a photo of HVAC equipment, a nameplate, a data tag, or a part/component label.\n\nCRITICAL — label field mapping (read ALL digits exactly, do not truncate):\n- "P/N:", "Part No", "Part #", "CPN", "CPN-", "Model:" → model_number (use this, NOT the barcode model string, when both present)\n- "S/N:", "Serial:", "Serial No" → serial_number (completely separate from P/N — NEVER put a P/N value into serial_number)\n- "V:", "Volts:", "VAC" → voltage\n- "Hz" → frequency only, do NOT store in any field\n- "A", "Amps", "FLA", "RLA" → rated current only, do NOT store in mca (mca is a separate calculated value, leave null unless explicitly labeled MCA)\n\nEquipment types — this can be a WHOLE UNIT or a COMPONENT/PART:\n- Whole units: AC Condenser, Heat Pump, Air Handler, Gas Furnace, Electric Furnace, Mini-Split Indoor, Mini-Split Outdoor, Water Heater, Boiler, Package Unit\n- Motors & drives: Condenser Fan Motor, Evaporator Fan Motor, Blower Motor, ECM Motor, Variable-Speed Motor\n- Electrical components: Dual Run Capacitor, Start Capacitor, Contactor, Transformer, Circuit Board, Control Board, Sequencer\n- Refrigeration parts: Compressor, Expansion Valve, Reversing Valve, Filter Drier, Metering Device\n- Heating parts: Heat Strip, Igniter, Inducer Motor, Pressure Switch, Gas Valve\n\nEquipment type + brand inference from model/part number:\n- 253xxxxx = Interlink condenser fan motor\n- 5KCP, 3S, HC = GE/Genteq motor\n- CAP-xx = capacitor\n- DR96TC = 96% two-stage gas furnace (Daikin/Goodman)\n- GSX/SSX/XC = AC condenser; CAPEA/CHPF = evaporator coil\n- ARUF/AH = air handler; GMSS/GCSS = furnace\n- MXZ/FTX = Mitsubishi mini-split\n- H6HK/H8HK = Nordyne/Intertherm electric heat strip\n\nCapacity/spec → use "tonnage" for unit capacity only:\n- AC units: "3 ton (36,000 BTU)" (018=1.5T, 024=2T, 036=3T, 048=4T, 060=5T)\n- Heat strips: kW × 3,412 = BTU (H6HK010 → "10 kW (34,120 BTU)")\n- Furnaces: "80,000 BTU" (080=80K, 100=100K in model)\n- Capacitors: "45+5 MFD, 440V"\n- For motors, leave tonnage null — use dedicated fields below\n\nBARCODE TEXT — if a 2D barcode (DataMatrix/QR/Code128) is visible, read the encoded text. Interlink barcodes encode: YSLB-{W}-{P}-{variant} e.g. YSLB-350-6-B001 (350W, 6-pole).\n\nPole count → RPM at 60 Hz: 2P=3450, 4P=1625, 6P=1075, 8P=825\nWatts → HP (input power, prefer printed label value): 150-180W=1/5, 190-230W=1/4, 240-370W=1/3, 371-540W=1/2, 541-700W=3/4, 701-760W=1\n\nMotor brand decoding by part number:\n- Interlink 253xxxxx: brand=Interlink, voltage=208-230V, shaft_diameter=1/2 inch; decode barcode YSLB-{W}-{P}-xxx → HP from watts, RPM from poles\n- GE/Genteq 5KCP39xx, 3S1xx, HC43xx: brand=GE/Genteq, shaft_diameter=1/2 inch\n- A.O. Smith / US Motor / Nidec F48xx, S58xx: shaft_diameter=1/2 inch\n- Century / Regal Beloit CPxx, CAxx: shaft_diameter=1/2 inch\n- Emerson K55xxx: shaft_diameter=1/2 inch\n\nMotor-specific fields (extract from label or barcode, or infer from part number):\n- horsepower: "1/4", "1/3", "1/2", "3/4", "1" — if printed on label (e.g. "1/3HP") use that value exactly; only derive from watts if HP not printed\n- rpm: "1075", "1625", "825", "1100", "3450" — derive from pole count if RPM not printed\n- shaft_diameter: "1/2 inch", "5/8 inch" — default "1/2 inch" for condenser fan motors\n\nReply with ONLY a JSON object using these exact keys (null if unknown):\n{"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"horsepower":null,"rpm":null,"shaft_diameter":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
+        ],
+      }],
+    }),
+  });
+  if (!apiRes.ok) { const t = await apiRes.text(); throw new Error(`API ${apiRes.status}: ${t}`); }
+  const data = await apiRes.json();
+  const text = (data.content[0].text || '').trim();
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('No JSON in response');
+  return JSON.parse(m[0]);
+}
+
+async function fetchChores() {
+  const { data, error } = await sb.from('chores')
+    .select('*').order('created_at', { ascending: false });
+  if (error) { console.warn('fetchChores error', error); return []; }
+  return (data||[]).map(c => ({
+    id: c.id, kind: c.priority||null, job_id: c.job_id,
+    assigned_to: c.assigned_to||null,
+    label: c.description||'', created: (c.created_at||'').slice(0,10)||todayISO(), done: c.status === 'done',
+  }));
+}
+
+const FALLBACK_USERS = [
+  { id: 'tyler', name: 'Tyler' },
+  { id: 'jack',  name: 'Jack'  },
+];
+
+async function fetchUsers() {
+  const { data, error } = await sb.from('users').select('*');
+  if (error) { console.warn('fetchUsers error', error.message || error); return null; }
+  const mapped = (data||[]).map(u => ({
+    id: u.id,
+    name: u.name || u.display_name || u.full_name || u.email || 'Tech',
+  }));
+  return mapped.length > 0 ? mapped : null;
+}
+
+/* ── Components ────────────────────────────────────────────────────────────── */
+function StatusPill({ status }) {
+  const c = STATUS_COLOR[status] || "#8a8c7e";
+  return (
+    <span className="head" style={{
+      fontSize:11, fontWeight:600, padding:"4px 9px", borderRadius:5,
+      border:`1px solid ${c}`, color:c, background:c+"18", whiteSpace:"nowrap",
+    }}>{status}</span>
+  );
+}
+
+function Toast({ msg, isError }) {
+  return (
+    <div style={{
+      position:"fixed", bottom:90, left:"50%", transform:"translateX(-50%)",
+      background: isError ? "#5c1a0f" : "var(--panel-2)",
+      border:`1px solid ${isError ? "var(--danger)" : "var(--olive)"}`,
+      color:"var(--text)", padding:"10px 18px", borderRadius:8,
+      fontSize:14, zIndex:200, whiteSpace:"nowrap", maxWidth:"90vw",
+      boxShadow:"0 4px 20px rgba(0,0,0,0.5)",
+    }}>{msg}</div>
+  );
+}
+
+function PassphraseGate({ onAuthorize }) {
+  const [value, setValue] = useState('');
+  const [error, setError] = useState(false);
+  const [shake, setShake] = useState(false);
+
+  function attempt() {
+    if (value.trim() === DEVICE_PASSPHRASE) {
+      onAuthorize();
+    } else {
+      setError(true);
+      setShake(true);
+      setValue('');
+      setTimeout(() => setShake(false), 600);
+    }
+  }
+
+  return (
+    <div className="fade-in" style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center", padding:32, background:"var(--bg)" }}>
+      <div className="head" style={{ fontSize:28, fontWeight:700, lineHeight:1 }}>
+        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+      </div>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:8, letterSpacing:"0.1em" }}>
+        FIELD JOB TRACKER
+      </div>
+
+      <div className={shake ? "shake" : ""} style={{ width:"100%", maxWidth:320, marginTop:52 }}>
+        <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:10, letterSpacing:"0.08em" }}>
+          DEVICE PASSPHRASE
+        </div>
+        <input
+          type="password"
+          value={value}
+          onChange={e => { setValue(e.target.value); setError(false); }}
+          onKeyDown={e => e.key === 'Enter' && attempt()}
+          placeholder="Enter passphrase…"
+          autoFocus
+          style={{ marginBottom:12, fontSize:18, letterSpacing:"0.12em",
+            borderColor: error ? "var(--error,#c0392b)" : undefined }}
+        />
+        {error && (
+          <div className="mono" style={{ fontSize:12, color:"var(--error,#c0392b)", marginBottom:10 }}>
+            Incorrect passphrase.
+          </div>
+        )}
+        <button onClick={attempt} className="head"
+          style={{ width:"100%", padding:"16px", borderRadius:10, fontSize:16, fontWeight:700,
+            background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+          AUTHORIZE THIS DEVICE
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function Splash({ onSelect }) {
+  const [users, setUsers] = useState(FALLBACK_USERS);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetchUsers().then(u => {
+      setLoading(false);
+      if (u) setUsers(u);
+      // if null, FALLBACK_USERS stays — Tyler/Jack always work
+    });
+  }, []);
+  return (
+    <div className="fade-in" style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32 }}>
+      <div className="head" style={{ fontSize:28, fontWeight:700, lineHeight:1 }}>
+        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+      </div>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:8, letterSpacing:"0.1em" }}>FIELD JOB TRACKER</div>
+      <div className="head" style={{ fontSize:16, color:"var(--muted)", marginTop:40, marginBottom:20 }}>WHO'S THIS?</div>
+      {loading && <div className="mono" style={{ color:"var(--muted)", fontSize:13, marginBottom:12 }}>…</div>}
+      {users.map(u => (
+        <button key={u.id} onClick={() => onSelect(u)} className="head"
+          style={{ width:"100%", maxWidth:320, marginBottom:12, padding:"18px 24px", borderRadius:10,
+            fontSize:20, fontWeight:700, background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--text)" }}>
+          {u.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/* ── App ───────────────────────────────────────────────────────────────────── */
+function App() {
+  const [deviceAuthorized, setDeviceAuthorized] = useState(
+    () => localStorage.getItem(DEVICE_AUTH_KEY) === DEVICE_PASSPHRASE
+  );
+  function authorizeDevice() {
+    localStorage.setItem(DEVICE_AUTH_KEY, DEVICE_PASSPHRASE);
+    setDeviceAuthorized(true);
+  }
+  function lockDevice() {
+    localStorage.removeItem(DEVICE_AUTH_KEY);
+    setDeviceAuthorized(false);
+  }
+
+  const [currentUser, setCurrentUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(CURRENT_USER_KEY)); } catch { return null; }
+  });
+  const [jobs, setJobs] = useState(() => {
+    try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : []; } catch { return []; }
+  });
+  const [chores, setChores] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [rlsWarning, setRlsWarning] = useState(false);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+
+  const [selectedId, setSelectedIdRaw] = useState(() => sessionStorage.getItem('tmc_selected_job') || null);
+  function setSelectedId(id) {
+    if (id) sessionStorage.setItem('tmc_selected_job', id);
+    else sessionStorage.removeItem('tmc_selected_job');
+    setSelectedIdRaw(id);
+  }
+  const [adding, setAdding] = useState(false);
+  const [voicePreFill, setVoicePreFill] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [filter, setFilter] = useState("All");
+  const [search, setSearch] = useState("");
+  const [searchClosed, setSearchClosed] = useState(false);
+  const [choresExpanded, setChoresExpanded] = useState(false);
+  const [showChoresView, setShowChoresView] = useState(false);
+  const [focusPhotos, setFocusPhotos] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [users, setUsers] = useState(FALLBACK_USERS);
+  const [expandedCustomers, setExpandedCustomers] = useState(new Set());
+
+  function showToast(msg, isError=false) {
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    setToast({ msg, isError });
+    toastTimer.current = setTimeout(() => setToast(null), 3000);
+  }
+
+  async function processVoiceCommand(transcript) {
+    const words = transcript.trim().split(/\s+/);
+    if (words.length < 2) return; // single-word STT artifact — ignore silently
+    showToast(`"${transcript}"`);
+    try {
+      const jobSummary = jobs.slice(0,30).map(j =>
+        `id:${j.id} customer:"${j.customer}" type:"${j.type}" status:"${j.status}" date:${j.scheduled_date||'?'}`
+      ).join('\n');
+      const userSummary = users.map(u => `id:${u.id} name:"${u.name}"`).join('\n');
+
+      // Determine current screen so Claude routes commands correctly
+      const currentScreen = showChoresView ? 'chores'
+        : selectedId ? `job_detail:${selectedId}`
+        : adding ? 'new_job_form'
+        : 'dashboard';
+
+      const res = await fetch(CLAUDE_PROXY, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
+        body: JSON.stringify({
+          model: 'claude-haiku-4-5-20251001',
+          max_tokens: 300,
+          messages: [{ role: 'user', content:
+            `You are a voice assistant for an HVAC field service app. Today: ${todayISO()}. User: ${currentUser?.name||'tech'}.
+Current screen: ${currentScreen}
+Jobs:\n${jobSummary}
+Users:\n${userSummary}
+
+Parse this voice command and reply ONLY with JSON (no markdown).
+
+Intent rules (apply in this exact priority order):
+1. If transcript contains "note", "notes", "write down", "log", "record", "add that" → ALWAYS "add_note"
+2. If command is a status change (on site, in progress, completed, etc.) → "update_status"
+3. If command is adding a new job → "add_job"
+4. If command is navigating to a customer → "navigate"
+5. If command uses explicit task/reminder language ("remind", "don't forget", "pick up", "order parts", "call", "follow up", "schedule") → "add_chore"
+6. If current screen is "chores" → "add_chore"
+7. If current screen starts with "job_detail" → default to "add_note" (observations, what was found, what was done, customer info all go here)
+8. Otherwise → "unknown"
+{"intent":"add_job"|"add_chore"|"navigate"|"update_status"|"add_note"|"search"|"unknown",
+"customer":null,"job_type":null,"status":null,"note":null,"query":null,
+"date":null,"job_id":null,"description":null,"assigned_to_name":null,
+"reply":"brief friendly confirmation under 12 words"}
+
+Command: "${transcript}"`
+          }],
+        }),
+      });
+      const data = await res.json();
+      const text = (data.content?.[0]?.text || '').trim();
+      const m = text.match(/\{[\s\S]*\}/);
+      if (!m) throw new Error('no json');
+      const intent = JSON.parse(m[0]);
+
+      showToast(intent.reply || 'Done');
+
+      if (intent.intent === 'add_chore') {
+        const desc = intent.description || intent.note || transcript;
+        const assigneeUser = intent.assigned_to_name
+          ? users.find(u => u.name.toLowerCase().includes(intent.assigned_to_name.toLowerCase()))
+          : null;
+        const jobIdForChore = intent.job_id || (selectedId && currentScreen.startsWith('job_detail') ? selectedId : null);
+        const { data: choreData, error: choreErr } = await sb.from('chores').insert({
+          description: desc,
+          job_id: jobIdForChore || null,
+          assigned_to: assigneeUser?.id || null,
+          status: 'open',
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }).select().single();
+        if (choreErr) { showToast(`Error: ${choreErr.message}`, true); return; }
+        setChores(cs => [{ id: choreData.id, kind: null, job_id: jobIdForChore || null,
+          assigned_to: assigneeUser?.name || null,
+          label: desc, created: todayISO(), done: false }, ...cs]);
+        showToast('Chore added');
+      } else if (intent.intent === 'add_job') {
+        const pre = {};
+        if (intent.customer) pre.customer = intent.customer;
+        if (intent.job_type) pre.type = intent.job_type;
+        if (intent.date) pre.scheduled_date = intent.date === 'today' ? todayISO() : intent.date;
+        if (intent.note) pre.notes = intent.note;
+        setVoicePreFill(pre);
+        setAdding(true);
+      } else if (intent.intent === 'navigate') {
+        const match = jobs.find(j =>
+          intent.job_id ? j.id === intent.job_id :
+          intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
+        );
+        if (match) setSelectedId(match.id);
+        else showToast(`No job found for "${intent.customer}"`, true);
+      } else if (intent.intent === 'search') {
+        setSearch(intent.query || intent.customer || '');
+        setSelectedId(null);
+      } else if (intent.intent === 'update_status' && intent.status) {
+        const match = jobs.find(j =>
+          intent.job_id ? j.id === intent.job_id :
+          intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
+        );
+        if (match) await updateJob(match.id, { status: intent.status });
+        else showToast(`No job found for "${intent.customer}"`, true);
+      } else if (intent.intent === 'add_note') {
+        const noteContent = intent.note || transcript;
+        const match = jobs.find(j =>
+          intent.job_id ? j.id === intent.job_id :
+          selectedId ? j.id === selectedId :
+          intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
+        );
+        if (match) {
+          const todayStart = todayISO() + 'T00:00:00';
+          const todayEnd   = todayISO() + 'T23:59:59';
+          const { data: existing } = await sb.from('job_notes')
+            .select('id, content').eq('job_id', match.id).eq('source', 'voice')
+            .gte('created_at', todayStart).lte('created_at', todayEnd)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle();
+          if (existing) {
+            await sb.from('job_notes').update({ content: existing.content + ' ' + noteContent }).eq('id', existing.id);
+            showToast('Note updated');
+          } else {
+            await sb.from('job_notes').insert({
+              job_id: match.id, content: noteContent,
+              source: 'voice', created_at: new Date().toISOString(),
+            });
+            showToast('Note added');
+          }
+          if (selectedId === match.id) refresh();
+        } else {
+          showToast(`No job found — note not saved`, true);
+        }
+      }
+    } catch(err) {
+      showToast('Voice command failed', true);
+      console.error('voice error', err);
+    }
+  }
+
+  function selectUser(user) {
+    localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
+    setCurrentUser(user);
+  }
+  function switchUser() {
+    localStorage.removeItem(CURRENT_USER_KEY);
+    setCurrentUser(null);
+  }
+
+  const refresh = useCallback(async () => {
+    const [jobData, choreData, userData] = await Promise.all([fetchJobs(), fetchChores(), fetchUsers()]);
+    if (jobData === null) {
+      showToast("Can't reach Supabase — showing cached data", true);
+    } else {
+      setRlsWarning(jobData.length === 0);
+      setJobs(jobData);
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(jobData)); } catch(e){}
+    }
+    setChores(choreData);
+    if (userData) setUsers(userData);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    refresh();
+    window.addEventListener('focus', refresh);
+    const timer = setInterval(refresh, 60000); // auto-refresh every 60s
+    return () => { window.removeEventListener('focus', refresh); clearInterval(timer); };
+  }, [currentUser, refresh]);
+
+  /* ── CRUD ── */
+  async function addJob(job) {
+    const customerId = await resolveCustomer(job);
+    if (!customerId) { showToast("Could not resolve customer", true); return; }
+    const { data, error } = await sb.from('jobs').insert({
+      ...toRow(job, customerId, currentUser?.id),
+      created_at: new Date().toISOString(),
+    }).select('*, customers(*)').single();
+    if (error) { showToast("Error saving job", true); console.error(error); return; }
+    await sb.from('job_notes').insert({
+      job_id: data.id, content: `Job created. Status: ${job.status}`,
+      source: 'system', created_at: new Date().toISOString(),
+    });
+    const newJob = fromRow(data);
+    setJobs(js => [newJob, ...js]);
+    setAdding(false);
+    setSelectedId(data.id);
+    showToast("Job saved");
+    if (job.status === "Completed/Needs Billing") spawnBillingChore(newJob);
+  }
+
+  async function updateJob(id, patch) {
+    const job = jobs.find(j => j.id === id);
+    if (!job) return;
+    const updateData = { updated_at: new Date().toISOString() };
+    if ('status' in patch)        updateData.current_status = patch.status;
+    if ('type' in patch)          updateData.flow_type = patch.type;
+    if ('notes' in patch)         updateData.notes = patch.notes||null;
+    if ('value' in patch)         updateData.value = Number(patch.value)||null;
+    if ('scheduled_date' in patch || 'scheduled_time' in patch) {
+      const d = ('scheduled_date' in patch ? patch.scheduled_date : job.scheduled_date);
+      const t = ('scheduled_time' in patch ? patch.scheduled_time : job.scheduled_time);
+      if (d && t) { const dt = new Date(`${d}T${t}:00`); updateData.scheduled_at = isNaN(dt) ? null : dt.toISOString(); }
+    }
+    const { error } = await sb.from('jobs').update(updateData).eq('id', id);
+    if (error) { showToast("Error updating job", true); console.error(error); return; }
+    if (patch.status && patch.status !== job.status) {
+      await sb.from('job_notes').insert({
+        job_id: id, content: `Status → ${patch.status}`,
+        source: 'system', created_at: new Date().toISOString(),
+      });
+      if (patch.status === "Completed/Needs Billing") spawnBillingChore({ ...job, ...patch });
+    }
+    setJobs(js => js.map(j => j.id === id ? { ...j, ...patch } : j));
+  }
+
+  async function saveEdit(edited) {
+    const customerId = await resolveCustomer(edited);
+    if (!customerId) { showToast("Could not resolve customer", true); return; }
+    const { error } = await sb.from('jobs').update(toRow(edited, customerId, currentUser?.id)).eq('id', edited.id);
+    if (error) { showToast("Error saving changes", true); console.error(error); return; }
+    setJobs(js => js.map(j => j.id === edited.id ? { ...j, ...edited, _customer_id: customerId } : j));
+    setEditingId(null);
+    showToast("Changes saved");
+    if (edited.status === "Completed/Needs Billing") spawnBillingChore({ ...edited, _customer_id: customerId });
+  }
+
+  async function deleteJob(id) {
+    const { error } = await sb.from('jobs').delete().eq('id', id);
+    if (error) { showToast("Error deleting job", true); console.error(error); return; }
+    setJobs(js => js.filter(j => j.id !== id));
+    setChores(cs => cs.filter(c => c.job_id !== id));
+    setSelectedId(null);
+    showToast("Job deleted");
+  }
+
+  async function toggleChore(choreId) {
+    const chore = chores.find(c => c.id === choreId);
+    if (!chore) return;
+    const newStatus = chore.done ? 'open' : 'done';
+    const { error } = await sb.from('chores')
+      .update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', choreId);
+    if (error) { showToast("Error updating chore", true); return; }
+    setChores(cs => cs.map(c => c.id === choreId ? { ...c, done: !chore.done } : c));
+  }
+
+  async function editChore(choreId, fields) {
+    const { error } = await sb.from('chores').update({
+      description: fields.description,
+      job_id: fields.job_id || null,
+      assigned_to: fields.assigned_to || null,
+      updated_at: new Date().toISOString(),
+    }).eq('id', choreId);
+    if (error) { showToast(`Error: ${error.message}`, true); return; }
+    setChores(cs => cs.map(c => c.id === choreId ? {
+      ...c, label: fields.description, job_id: fields.job_id || null, assigned_to: fields.assigned_to || null,
+    } : c));
+    showToast('Chore updated');
+  }
+
+  async function spawnBillingChore(job) {
+    if (chores.some(c => c.job_id === job.id && c.kind === 'billing')) return;
+    const { data, error } = await sb.from('chores').insert({
+      description: `Create bill for ${job.customer}`,
+      job_id: job.id,
+      priority: 'billing', status: 'open',
+      created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).select().single();
+    if (error) { showToast(`Chore error: ${error.message}`, true); console.error('spawnBillingChore', error); return; }
+    if (data) {
+      setChores(cs => [{
+        id: data.id, kind:'billing', job_id: job.id,
+        label: `Create bill for ${job.customer}`, created: todayISO(), done: false,
+      }, ...cs]);
+      showToast("Billing chore created");
+    }
+  }
+
+  function openJobPhotos(jobId) {
+    setSelectedId(jobId);
+    setFocusPhotos(true);
+  }
+
+  function fixOldStatuses() {
+    const MAP = {
+      "Needs Billing":"Completed/Needs Billing","Paid":"Completed/Paid",
+      "Completed":"Completed/Needs Billing","Estimate Scheduled":"Evaluation Needed",
+      "Estimate Given":"Waiting on Approval",
+    };
+    let changed = 0;
+    const next = jobs.map(j => { if (MAP[j.status]) { changed++; return {...j,status:MAP[j.status]}; } return j; });
+    setJobs(next);
+    Promise.all(next.filter((_,i) => MAP[jobs[i]?.status]).map(j =>
+      sb.from('jobs').update({ current_status:j.status }).eq('id',j.id)
+    )).then(() => setTimeout(() => alert(changed > 0 ? `Updated ${changed} job(s).` : "No old statuses found."), 50));
+  }
+
+  function exportJobs() {
+    const payload = { jobs, chores, exported: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload,null,2)], { type:"application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = `tmc-jobs-${todayISO()}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function importJobs() {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".json";
+    input.onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      let payload;
+      try { payload = JSON.parse(await file.text()); } catch {
+        showToast("Invalid JSON file", true); return;
+      }
+      const importList = payload.jobs || [];
+      const choreList  = payload.chores || [];
+      if (!importList.length && !choreList.length) {
+        showToast("Nothing to import", true); return;
+      }
+      showToast(`Importing ${importList.length} jobs…`);
+      let ok = 0, fail = 0, firstErr = null;
+      for (const job of importList) {
+        // resolve or create customer
+        const name = (job.customer||'').trim();
+        let customerId = null;
+        if (name) {
+          const { data: ex } = await sb.from('customers').select('id').ilike('name', name).limit(1).maybeSingle();
+          if (ex) {
+            customerId = ex.id;
+          } else {
+            const addr = job.customer_address || job.address || null;
+            const { data: nc, error: ce } = await sb.from('customers').insert({
+              name, phone: job.phone||null, address: addr,
+              created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            }).select('id').single();
+            if (ce) {
+              fail++;
+              if (!firstErr) firstErr = `Customer insert: ${ce.message||JSON.stringify(ce)}`;
+              console.error('import customer error', ce, job);
+              continue;
+            }
+            customerId = nc.id;
+          }
+        }
+        if (!customerId) { fail++; if (!firstErr) firstErr = `No customer name for job: ${job.id}`; continue; }
+
+        const { data, error } = await sb.from('jobs').insert({
+          ...toRow(job, customerId, currentUser?.id),
+          created_at: new Date().toISOString(),
+        }).select('id').single();
+        if (error) {
+          fail++;
+          if (!firstErr) firstErr = `Job insert: ${error.message||JSON.stringify(error)}`;
+          console.error('import job error', error, job);
+          continue;
+        }
+        for (const h of (job.history || [])) {
+          await sb.from('job_notes').insert({
+            job_id: data.id, content: h.note,
+            source: 'user',
+            created_at: h.date ? new Date(h.date).toISOString() : new Date().toISOString(),
+          });
+        }
+        ok++;
+      }
+      for (const chore of choreList) {
+        await sb.from('chores').insert({
+          description: chore.label || chore.description || '',
+          status: chore.done ? 'done' : 'open',
+          priority: chore.kind || null,
+          created_at: new Date().toISOString(),
+        });
+      }
+      if (firstErr) showToast(`Failed: ${firstErr}`, true);
+      else showToast(`Imported ${ok} job${ok!==1?'s':''}${fail ? `, ${fail} failed` : ''}`);
+      await refresh();
+    };
+    input.click();
+  }
+
+  /* ── Render ── */
+  if (!deviceAuthorized) return <PassphraseGate onAuthorize={authorizeDevice} />;
+  if (!currentUser) return <Splash onSelect={selectUser} />;
+
+  const selected = jobs.find(j => j.id === selectedId);
+  if (adding) return (
+    <React.Fragment>
+      <JobForm onSave={addJob} onCancel={() => { setAdding(false); setVoicePreFill(null); }} prefill={voicePreFill} allJobs={jobs} />
+      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      <VoiceButton onCommand={processVoiceCommand} />
+    </React.Fragment>
+  );
+  if (editingId) {
+    const editJob = jobs.find(j => j.id === editingId);
+    if (editJob) return (
+      <React.Fragment>
+        <JobForm initial={editJob} onSave={saveEdit} onCancel={() => setEditingId(null)} allJobs={jobs} />
+        {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+        <VoiceButton onCommand={processVoiceCommand} />
+      </React.Fragment>
+    );
+  }
+  if (selected) return (
+    <React.Fragment>
+      <JobDetail job={selected}
+        onBack={() => { setSelectedId(null); setFocusPhotos(false); }}
+        onUpdate={(patch) => updateJob(selected.id, patch)}
+        onEdit={() => setEditingId(selected.id)}
+        onDelete={() => deleteJob(selected.id)}
+        focusPhotos={focusPhotos} />
+      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      <VoiceButton onCommand={processVoiceCommand} />
+    </React.Fragment>
+  );
+
+  const isActive = s => s !== "Completed/Paid" && s !== "Closed";
+  const usedStatuses = STATUSES.filter(s => s !== "Closed" && jobs.some(j => j.status === s));
+  const hasClosed = jobs.some(j => j.status === "Closed");
+  const FILTERS = [...usedStatuses, "All", ...(hasClosed ? ["Closed"] : [])];
+  const q = search.trim().toLowerCase();
+
+  function matchesSearch(j) {
+    if (!q) return true;
+    if (j.status === "Closed" && !searchClosed) return false;
+    const hay = [j.customer, j.phone, j.notes, custAddr(j), siteAddr(j), j.location]
+      .filter(Boolean).join(" ").toLowerCase();
+    return hay.includes(q);
+  }
+
+  const shown = q ? jobs.filter(matchesSearch) : jobs.filter(j => filter === "All" ? j.status !== "Closed" : j.status === filter);
+  const outstanding = jobs.filter(j => isActive(j.status)).reduce((s,j) => s + Number(j.value||0), 0);
+
+  return (
+    <div className="fade-in">
+      {/* Header */}
+      <div style={{ padding:"18px 16px 14px", borderBottom:"1px solid var(--line)", background:"var(--panel)" }}>
+        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+          <div>
+            <div className="head" style={{ fontSize:22, fontWeight:700, lineHeight:1 }}>
+              TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+            </div>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:4, letterSpacing:"0.1em" }}>FIELD JOB TRACKER</div>
+          </div>
+          <div style={{ textAlign:"right" }}>
+            <div className="mono" style={{ fontSize:10, color:"var(--muted)" }}>OUTSTANDING</div>
+            <div className="head" style={{ fontSize:20, fontWeight:700, color:"var(--olive-bright)" }}>{money(outstanding)}</div>
+          </div>
+        </div>
+        {/* User indicator */}
+        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:10 }}>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.08em" }}>LOGGED IN AS:</div>
+          <div className="head" style={{ fontSize:13, fontWeight:600, color:"var(--olive-bright)" }}>{currentUser.name}</div>
+          <button onClick={switchUser} className="mono"
+            style={{ marginLeft:"auto", fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
+            SWITCH
+          </button>
+          <button onClick={refresh} className="mono"
+            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
+            ↺
+          </button>
+          <button onClick={() => setShowSettings(true)} className="mono"
+            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
+            ⚙
+          </button>
+          <button onClick={lockDevice} className="mono"
+            style={{ fontSize:11, color:"var(--error,#c0392b)", padding:"3px 8px", border:"1px solid var(--error,#c0392b)", borderRadius:5 }}>
+            🔒
+          </button>
+          <div className="mono" style={{ fontSize:10, color:"var(--line)", marginLeft:2 }}>r{APP_REV}</div>
+        </div>
+      </div>
+
+      {/* empty state — not an error */}
+      {rlsWarning && !loading && (
+        <div style={{ margin:"12px 16px 0", padding:"10px 14px", background:"var(--panel)",
+          border:"1px solid var(--olive)", borderRadius:8, fontSize:13, color:"var(--muted)",
+          textAlign:"center" }}>
+          No jobs yet — tap + to add the first one.
+        </div>
+      )}
+
+      {/* Loading */}
+      {loading && (
+        <div className="mono" style={{ textAlign:"center", color:"var(--muted)", padding:"40px 0", fontSize:13, letterSpacing:"0.1em" }}>
+          LOADING…
+        </div>
+      )}
+
+      {!loading && (
+        <React.Fragment>
+          {/* Search bar */}
+          <div style={{ padding:"12px 16px 0", position:"relative" }}>
+            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="Search customers, addresses, sites, notes…"
+              style={{ paddingLeft:38 }} />
+            <span style={{ position:"absolute", left:28, top:22, fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
+            {search && (
+              <button onClick={() => setSearch("")}
+                style={{ position:"absolute", right:26, top:18, fontSize:16, color:"var(--muted)", padding:4 }}>✕</button>
+            )}
+          </div>
+
+          {/* Include-closed toggle — only while searching */}
+          {q && (
+            <button onClick={() => setSearchClosed(v => !v)} className="fade-in"
+              style={{ display:"flex", alignItems:"center", gap:8, padding:"10px 16px 0", textAlign:"left" }}>
+              <span style={{ width:38, height:22, borderRadius:11, flexShrink:0, position:"relative",
+                background: searchClosed ? "var(--olive-bright)" : "var(--line)", transition:"background 0.15s" }}>
+                <span style={{ position:"absolute", top:3, left: searchClosed ? 19 : 3,
+                  width:16, height:16, borderRadius:"50%", background:"var(--bg)", transition:"left 0.15s" }}></span>
+              </span>
+              <span style={{ fontSize:13, color:"var(--muted)" }}>Include closed jobs</span>
+            </button>
+          )}
+          {!q && (
+            <div style={{ display:"flex", gap:8, padding:"12px 16px", overflowX:"auto" }}>
+              {FILTERS.map(f => (
+                <button key={f} onClick={() => setFilter(f)} className="head"
+                  style={{ fontSize:13, fontWeight:600, padding:"7px 16px", borderRadius:6, flexShrink:0,
+                    border:`1px solid ${filter===f ? "var(--olive-bright)" : "var(--line)"}`,
+                    color: filter===f ? "var(--bg)" : "var(--muted)",
+                    background: filter===f ? "var(--olive-bright)" : "transparent" }}>{f}</button>
+              ))}
+            </div>
+          )}
+
+          {/* Chores strip — collapsible */}
+          {!q && chores.filter(c => !c.done).length > 0 && (
+            <div style={{ margin:"4px 16px 0", background:"var(--panel-2)", border:"1px solid var(--brass)", borderRadius:10, overflow:"hidden" }}>
+              <button onClick={() => setChoresExpanded(v => !v)}
+                style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", padding:"12px 14px", textAlign:"left" }}>
+                <span className="mono" style={{ fontSize:12, color:"var(--brass-bright)", letterSpacing:"0.08em" }}>
+                  ⚑ {chores.filter(c=>!c.done).length} CHORE{chores.filter(c=>!c.done).length>1?"S":""}
+                </span>
+                <span style={{ color:"var(--brass)", fontSize:13 }}>{choresExpanded?"▲":"▼"}</span>
+              </button>
+              {choresExpanded && (
+                <div className="fade-in" style={{ padding:"0 14px 10px" }}>
+                  {chores.filter(c=>!c.done).map(c => (
+                    <div key={c.id} style={{ display:"flex", width:"100%", alignItems:"center", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
+                      <button onClick={() => toggleChore(c.id)} style={{ flexShrink:0 }}>
+                        <span style={{ display:"block", width:18, height:18, borderRadius:4, border:"1.5px solid var(--brass)" }}></span>
+                      </button>
+                      <button onClick={() => c.job_id ? openJobPhotos(c.job_id) : null}
+                        style={{ flex:1, textAlign:"left", fontSize:14, color: c.job_id ? "var(--text)" : "var(--muted)" }}>
+                        {c.label}{c.job_id ? " →" : ""}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Job list */}
+          <div style={{ padding:"12px 16px 120px" }}>
+            {shown.length === 0 && !rlsWarning && (
+              <div style={{ textAlign:"center", color:"var(--muted)", padding:"40px 0" }} className="mono">
+                {q ? `NO MATCHES FOR "${search.trim().toUpperCase()}"` : "NO JOBS HERE"}
+              </div>
+            )}
+            {(() => {
+              // Group by customer name, preserving order of first appearance
+              const groups = [];
+              const groupMap = {};
+              for (const j of shown) {
+                const key = j.customer || '';
+                if (!groupMap[key]) {
+                  const g = { customer: key, jobs: [] };
+                  groupMap[key] = g;
+                  groups.push(g);
+                }
+                groupMap[key].jobs.push(j);
+              }
+
+              function JobCard({ j }) {
+                return (
+                  <button key={j.id} onClick={() => setSelectedId(j.id)} className="fade-in"
+                    style={{ display:"block", width:"100%", textAlign:"left", marginBottom:8,
+                      background:"var(--panel)", border:"1px solid var(--line)",
+                      borderLeft:`3px solid ${STATUS_COLOR[j.status]||"var(--line)"}`,
+                      borderRadius:10, padding:14 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
+                      <div className="head" style={{ fontSize:18, fontWeight:600 }}>{j.customer}</div>
+                      <StatusPill status={j.status} />
+                    </div>
+                    {(siteAddr(j)||custAddr(j)||j.location) ? (
+                      <div className="head" style={{ fontSize:14, fontWeight:600, color:"var(--brass-bright)", marginTop:2 }}>
+                        📍 {siteAddr(j)||custAddr(j)||j.location}
+                      </div>
+                    ) : null}
+                    <div style={{ fontSize:14, color:"var(--muted)", marginTop:3 }}>{j.type}</div>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
+                      <div className="mono" style={{ fontSize:14, color:"var(--brass-bright)" }}>
+                        {fmtDate(j.scheduled_date)} · {fmtTime(j.scheduled_time)}
+                      </div>
+                      <div className="head" style={{ fontSize:16, fontWeight:700, color:"var(--olive-bright)" }}>{money(j.value)}</div>
+                    </div>
+                  </button>
+                );
+              }
+
+              return groups.map(group => {
+                if (group.jobs.length === 1) {
+                  return <JobCard key={group.jobs[0].id} j={group.jobs[0]} />;
+                }
+                // Multi-job customer: collapsible group
+                const isExpanded = q || expandedCustomers.has(group.customer);
+                const totalValue = group.jobs.reduce((s, j) => s + Number(j.value||0), 0);
+                const statusCounts = {};
+                group.jobs.forEach(j => { statusCounts[j.status] = (statusCounts[j.status]||0) + 1; });
+                return (
+                  <div key={group.customer} style={{ marginBottom:10 }}>
+                    <button onClick={() => setExpandedCustomers(prev => {
+                        const next = new Set(prev);
+                        next.has(group.customer) ? next.delete(group.customer) : next.add(group.customer);
+                        return next;
+                      })}
+                      className="fade-in"
+                      style={{ display:"block", width:"100%", textAlign:"left",
+                        background:"var(--panel-2)", border:"1px solid var(--brass)",
+                        borderRadius:10, padding:"12px 14px" }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                        <div style={{ display:"flex", alignItems:"center", gap:8, flex:1, minWidth:0 }}>
+                          <span style={{ fontSize:14, color:"var(--brass-bright)", flexShrink:0 }}>
+                            {isExpanded ? '▼' : '▶'}
+                          </span>
+                          <div className="head" style={{ fontSize:17, fontWeight:700, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                            {group.customer}
+                          </div>
+                        </div>
+                        <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", flexShrink:0 }}>
+                          {group.jobs.length} JOBS
+                        </div>
+                      </div>
+                      <div style={{ display:"flex", gap:6, marginTop:8, flexWrap:"wrap", alignItems:"center" }}>
+                        {Object.entries(statusCounts).map(([status, count]) => (
+                          <span key={status} className="head"
+                            style={{ fontSize:11, fontWeight:600, padding:"3px 8px", borderRadius:5,
+                              border:`1px solid ${STATUS_COLOR[status]||"var(--line)"}`,
+                              color: STATUS_COLOR[status]||"var(--muted)",
+                              background: (STATUS_COLOR[status]||"#888")+"18" }}>
+                            {count > 1 ? `${count}× ` : ''}{status}
+                          </span>
+                        ))}
+                        {totalValue > 0 && (
+                          <span className="head" style={{ marginLeft:"auto", fontSize:14, fontWeight:700, color:"var(--olive-bright)" }}>
+                            {money(totalValue)}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                    {isExpanded && (
+                      <div style={{ paddingLeft:12, borderLeft:"2px solid var(--brass)", marginTop:4 }}>
+                        {group.jobs.map(j => <JobCard key={j.id} j={j} />)}
+                      </div>
+                    )}
+                  </div>
+                );
+              });
+            })()}
+            <button onClick={fixOldStatuses} className="mono"
+              style={{ width:"100%", marginTop:6, padding:"11px", borderRadius:8, fontSize:12, letterSpacing:"0.08em",
+                background:"transparent", color:"var(--muted)", border:"1px dashed var(--line)" }}>
+              ⟳ FIX OLD STATUSES
+            </button>
+          </div>
+        </React.Fragment>
+      )}
+
+      {/* Bottom bar */}
+      <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
+        width:"100%", maxWidth:520, background:"var(--panel)", borderTop:"1px solid var(--line)",
+        padding:"12px 16px", display:"flex", gap:10, boxShadow:"0 -8px 24px rgba(0,0,0,0.4)" }}>
+        <button onClick={() => setAdding(true)} className="head"
+          style={{ flex:2, padding:"15px", borderRadius:9, fontSize:16, fontWeight:700,
+            background:"var(--olive-bright)", color:"var(--bg)" }}>+ NEW JOB</button>
+        <button onClick={() => setShowChoresView(true)} className="head"
+          style={{ flex:1, padding:"15px", borderRadius:9, fontSize:14, fontWeight:700,
+            background:"transparent", border:"1px solid var(--brass)", color:"var(--brass-bright)",
+            position:"relative" }}>
+          ⚑ CHORES
+          {chores.filter(c=>!c.done).length > 0 && (
+            <span style={{ position:"absolute", top:6, right:6, width:8, height:8,
+              borderRadius:"50%", background:"var(--brass-bright)" }} />
+          )}
+        </button>
+      </div>
+
+      {/* Chores management view */}
+      {showChoresView && (
+        <ChoresView
+          chores={chores} jobs={jobs} users={users}
+          onClose={() => setShowChoresView(false)}
+          onToggle={toggleChore}
+          onEdit={editChore}
+          onOpenJob={(jobId) => { setShowChoresView(false); openJobPhotos(jobId); }}
+          onAdd={async (desc, jobId, assignedTo) => {
+            const { data, error } = await sb.from('chores').insert({
+              description: desc, job_id: jobId||null,
+              assigned_to: validUUID(assignedTo)||null,
+              status: 'open', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+            }).select().single();
+            if (error) { showToast(`Error: ${error.message}`, true); return; }
+            setChores(cs => [{ id: data.id, kind: null, job_id: jobId||null,
+              assigned_to: assignedTo||null,
+              label: desc, created: todayISO(), done: false }, ...cs]);
+            showToast("Chore added");
+          }}
+          onDelete={async (choreId) => {
+            await sb.from('chores').delete().eq('id', choreId);
+            setChores(cs => cs.filter(c => c.id !== choreId));
+          }}
+        />
+      )}
+
+      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLock={() => { setShowSettings(false); lockDevice(); }} />}
+      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      <VoiceButton onCommand={processVoiceCommand} />
+    </div>
+  );
+}
+
+/* ── SettingsModal ─────────────────────────────────────────────────────────── */
+function SettingsModal({ onClose, onLock }) {
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="fade-in"
+        style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+          borderRadius:"16px 16px 0 0", padding:"20px 16px 36px" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
+          <div className="head" style={{ fontSize:16, fontWeight:700 }}>SETTINGS</div>
+          <button onClick={onClose} className="mono" style={{ color:"var(--muted)", fontSize:18 }}>✕</button>
+        </div>
+        <div className="mono" style={{ fontSize:12, color:"var(--muted)", lineHeight:1.6 }}>
+          AI nameplate scanning runs via a Supabase Edge Function (claude-proxy).<br/>
+          API key is stored as a server-side secret — not on this device.
+        </div>
+        <button onClick={onLock} className="head"
+          style={{ width:"100%", marginTop:20, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+            background:"transparent", border:"1px solid var(--error,#c0392b)", color:"var(--error,#c0392b)" }}>
+          🔒 LOCK THIS DEVICE
+        </button>
+        <button onClick={onClose} className="head"
+          style={{ width:"100%", marginTop:10, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+            background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+          CLOSE
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── ChoresView ────────────────────────────────────────────────────────────── */
+function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob, onAdd, onDelete }) {
+  const [desc, setDesc] = useState('');
+  const [jobId, setJobId] = useState('');
+  const [assignedTo, setAssignedTo] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editDesc, setEditDesc] = useState('');
+  const [editJobId, setEditJobId] = useState('');
+  const [editAssignedTo, setEditAssignedTo] = useState('');
+  const [showCompleted, setShowCompleted] = useState(false);
+  const open = chores.filter(c => !c.done);
+  const done = chores.filter(c => c.done);
+
+  async function submit() {
+    if (!desc.trim()) return;
+    await onAdd(desc.trim(), jobId||null, assignedTo||null);
+    setDesc(''); setJobId(''); setAssignedTo(''); setAdding(false);
+  }
+
+  function startEdit(c) {
+    setEditingId(c.id);
+    setEditDesc(c.label);
+    setEditJobId(c.job_id || '');
+    setEditAssignedTo(c.assigned_to || '');
+  }
+
+  async function saveEdit(choreId) {
+    if (!editDesc.trim()) return;
+    await onEdit(choreId, { description: editDesc.trim(), job_id: editJobId||null, assigned_to: editAssignedTo||null });
+    setEditingId(null);
+  }
+
+  function ChoreRow({ c, isDone }) {
+    const linkedJob = c.job_id ? jobs.find(j => j.id === c.job_id) : null;
+    const assignee = c.assigned_to ? users.find(u => u.id === c.assigned_to) : null;
+    const isEditing = editingId === c.id;
+
+    if (isEditing) {
+      return (
+        <div className="fade-in" style={{ padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
+          <input value={editDesc} onChange={e=>setEditDesc(e.target.value)} autoFocus
+            style={{ marginBottom:8 }} />
+          <select value={editJobId} onChange={e=>setEditJobId(e.target.value)} style={{ marginBottom:8 }}>
+            <option value="">— Link to a job (optional) —</option>
+            {jobs.filter(j => j.status !== 'Closed').map(j => (
+              <option key={j.id} value={j.id}>{j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
+            ))}
+          </select>
+          <select value={editAssignedTo} onChange={e=>setEditAssignedTo(e.target.value)} style={{ marginBottom:10 }}>
+            <option value="">— Assign to someone (optional) —</option>
+            {users.map(u => (<option key={u.id} value={u.id}>{u.name}</option>))}
+          </select>
+          <div style={{ display:"flex", gap:8 }}>
+            <button onClick={() => saveEdit(c.id)} className="head"
+              style={{ flex:1, padding:"10px", borderRadius:7, fontSize:13, fontWeight:700,
+                background:"var(--olive-bright)", color:"var(--bg)" }}>
+              SAVE
+            </button>
+            <button onClick={() => { onDelete(c.id); setEditingId(null); }} className="mono"
+              style={{ padding:"10px 14px", borderRadius:7, fontSize:13,
+                border:"1px solid var(--error,#c0392b)", color:"var(--error,#c0392b)" }}>
+              DELETE
+            </button>
+            <button onClick={() => setEditingId(null)} className="mono"
+              style={{ padding:"10px 14px", borderRadius:7, fontSize:13,
+                border:"1px solid var(--line)", color:"var(--muted)" }}>
+              CANCEL
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return (
+      <div key={c.id} style={{ display:"flex", alignItems:"flex-start", gap:10, padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
+        <button onClick={() => onToggle(c.id)} style={{ flexShrink:0, paddingTop:2 }}>
+          {isDone
+            ? <span style={{ display:"block", width:20, height:20, borderRadius:4,
+                background:"var(--olive)", border:"1.5px solid var(--olive)", color:"var(--bg)",
+                textAlign:"center", lineHeight:"18px", fontSize:13 }}>✓</span>
+            : <span style={{ display:"block", width:20, height:20, borderRadius:4, border:"1.5px solid var(--brass)" }} />
+          }
+        </button>
+        <div style={{ flex:1, cursor:"pointer" }} onClick={() => startEdit(c)}>
+          <div style={{ fontSize:15, textDecoration: isDone ? "line-through" : "none",
+            color: isDone ? "var(--muted)" : "var(--text)" }}>{c.label}</div>
+          <div style={{ display:"flex", gap:10, marginTop:4, flexWrap:"wrap" }}>
+            {assignee && (
+              <span className="mono" style={{ fontSize:11, color:"var(--olive-bright)" }}>
+                👤 {assignee.name}
+              </span>
+            )}
+            {linkedJob && (
+              <button onClick={e => { e.stopPropagation(); onOpenJob(c.job_id); }}
+                style={{ fontSize:12, color:"var(--brass-bright)", textAlign:"left" }}>
+                📋 {linkedJob.customer} →
+              </button>
+            )}
+          </div>
+        </div>
+        <button onClick={() => startEdit(c)}
+          style={{ flexShrink:0, fontSize:17, color:"var(--muted)", paddingTop:2, lineHeight:1 }}>✎</button>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:100, background:"var(--bg)", overflowY:"auto", paddingBottom:40 }}>
+      <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:10 }}>
+        <button onClick={onClose} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
+        <div className="head" style={{ fontSize:18, fontWeight:600 }}>CHORES</div>
+        <button onClick={() => { setAdding(v=>!v); setEditingId(null); }} className="head"
+          style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
+            background: adding ? "var(--panel-2)" : "var(--olive-bright)",
+            border: adding ? "1px solid var(--olive)" : "none",
+            color: adding ? "var(--text)" : "var(--bg)" }}>
+          {adding ? 'CANCEL' : '+ ADD'}
+        </button>
+      </div>
+
+      {adding && (
+        <div className="fade-in" style={{ padding:16, borderBottom:"1px solid var(--line)", background:"var(--panel-2)" }}>
+          <input value={desc} onChange={e=>setDesc(e.target.value)}
+            placeholder="What needs doing?" autoFocus
+            style={{ marginBottom:10 }} />
+          <select value={jobId} onChange={e=>setJobId(e.target.value)} style={{ marginBottom:10 }}>
+            <option value="">— Link to a job (optional) —</option>
+            {jobs.filter(j => j.status !== 'Closed').map(j => (
+              <option key={j.id} value={j.id}>{j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
+            ))}
+          </select>
+          <select value={assignedTo} onChange={e=>setAssignedTo(e.target.value)} style={{ marginBottom:12 }}>
+            <option value="">— Assign to someone (optional) —</option>
+            {users.map(u => (
+              <option key={u.id} value={u.id}>{u.name}</option>
+            ))}
+          </select>
+          <button onClick={submit} className="head"
+            style={{ width:"100%", padding:"14px", borderRadius:9, fontSize:15, fontWeight:700,
+              background:"var(--olive-bright)", color:"var(--bg)" }}>
+            SAVE CHORE
+          </button>
+        </div>
+      )}
+
+      <div style={{ padding:"12px 16px" }}>
+        {open.length === 0 && (
+          <div className="mono" style={{ color:"var(--muted)", fontSize:13, textAlign:"center", padding:"40px 0" }}>
+            NO OPEN CHORES
+          </div>
+        )}
+        {open.map(c => <ChoreRow key={c.id} c={c} isDone={false} />)}
+
+        {done.length > 0 && (
+          <div style={{ marginTop:24 }}>
+            <button onClick={() => setShowCompleted(v => !v)} className="mono"
+              style={{ display:"flex", alignItems:"center", gap:6, fontSize:12,
+                color:"var(--muted)", padding:"6px 0", width:"100%" }}>
+              <span style={{ fontSize:10 }}>{showCompleted ? '▼' : '▶'}</span>
+              {showCompleted ? 'HIDE' : 'SHOW'} COMPLETED ({done.length})
+            </button>
+            {showCompleted && (
+              <div className="fade-in" style={{ marginTop:8 }}>
+                {done.map(c => <ChoreRow key={c.id} c={c} isDone={true} />)}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const EQUIP_FIELDS = [
+  { key:'equipment_type',   label:'TYPE'        },
+  { key:'brand',            label:'BRAND'       },
+  { key:'year_manufactured',label:'YEAR MFG'    },
+  { key:'model_number',     label:'MODEL #'     },
+  { key:'serial_number',    label:'SERIAL #'    },
+  { key:'tonnage',          label:'CAPACITY'    },
+  { key:'horsepower',       label:'HORSEPOWER'  },
+  { key:'rpm',              label:'RPM'         },
+  { key:'shaft_diameter',   label:'SHAFT DIA'   },
+  { key:'refrigerant',      label:'REFRIGERANT' },
+  { key:'voltage',          label:'VOLTAGE'     },
+  { key:'seer',             label:'SEER'        },
+  { key:'mca',              label:'MCA'         },
+  { key:'mop',              label:'MOP'         },
+];
+
+/* ── Lightbox ──────────────────────────────────────────────────────────────── */
+function Lightbox({ url, onClose, onScanResult }) {
+  const [scale, setScale] = useState(1);
+  const [offset, setOffset] = useState({ x:0, y:0 });
+  const lastDist = useRef(null);
+  const lastMid  = useRef(null);
+  const dragStart = useRef(null);
+  const lastOffset = useRef({ x:0, y:0 });
+  const [scanning, setScanning] = useState(false);
+  const [scanResult, setScanResult] = useState(null);
+  const [scanError, setScanError] = useState(null);
+
+  function onTouchStart(e) {
+    if (e.touches.length === 2) {
+      lastDist.current = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      lastMid.current = {
+        x: (e.touches[0].clientX + e.touches[1].clientX) / 2,
+        y: (e.touches[0].clientY + e.touches[1].clientY) / 2,
+      };
+    } else if (e.touches.length === 1 && scale > 1) {
+      dragStart.current = { x: e.touches[0].clientX - lastOffset.current.x, y: e.touches[0].clientY - lastOffset.current.y };
+    }
+  }
+
+  function onTouchMove(e) {
+    e.preventDefault();
+    if (e.touches.length === 2 && lastDist.current) {
+      const dist = Math.hypot(
+        e.touches[0].clientX - e.touches[1].clientX,
+        e.touches[0].clientY - e.touches[1].clientY
+      );
+      setScale(s => Math.max(1, Math.min(6, s * (dist / lastDist.current))));
+      lastDist.current = dist;
+    } else if (e.touches.length === 1 && dragStart.current) {
+      const nx = e.touches[0].clientX - dragStart.current.x;
+      const ny = e.touches[0].clientY - dragStart.current.y;
+      lastOffset.current = { x: nx, y: ny };
+      setOffset({ x: nx, y: ny });
+    }
+  }
+
+  function onTouchEnd(e) {
+    if (e.touches.length < 2) lastDist.current = null;
+    if (e.touches.length === 0) dragStart.current = null;
+    if (scale <= 1) { setOffset({ x:0, y:0 }); lastOffset.current = { x:0, y:0 }; }
+  }
+
+  function handleTap(e) {
+    if (scanResult) return;
+    if (scale === 1) onClose();
+    else { setScale(1); setOffset({ x:0, y:0 }); lastOffset.current = { x:0, y:0 }; }
+  }
+
+  async function doScan(e) {
+    e.stopPropagation();
+    setScanning(true); setScanResult(null); setScanError(null);
+    try {
+      const result = await scanNameplateFromUrl(url);
+      const found = Object.entries(result).filter(([,v]) => v != null);
+      if (found.length === 0) setScanError('No equipment data found in this photo.');
+      else setScanResult(result);
+    } catch(err) {
+      setScanError(err.message);
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  return (
+    <div
+      onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}
+      onClick={handleTap}
+      style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.95)", zIndex:200,
+        display:"flex", alignItems:"center", justifyContent:"center", overflow:"hidden",
+        touchAction:"none", cursor: scale > 1 ? "zoom-out" : "zoom-in" }}>
+      <img src={url} alt=""
+        style={{ maxWidth:"100%", maxHeight:"100%", objectFit:"contain",
+          transform:`scale(${scale}) translate(${offset.x/scale}px,${offset.y/scale}px)`,
+          transformOrigin:"center", transition: scale === 1 ? "transform 0.2s" : "none",
+          userSelect:"none", pointerEvents:"none" }} />
+      <button onClick={e => { e.stopPropagation(); onClose(); }}
+        style={{ position:"absolute", top:16, right:16, width:36, height:36, borderRadius:"50%",
+          background:"rgba(0,0,0,0.6)", color:"#fff", fontSize:20, lineHeight:"36px", textAlign:"center",
+          border:"1px solid rgba(255,255,255,0.2)" }}>✕</button>
+
+      {/* Bottom bar */}
+      <div onClick={e => e.stopPropagation()}
+        style={{ position:"absolute", bottom:0, left:0, right:0, padding:"12px 16px 28px",
+          background:"linear-gradient(transparent, rgba(0,0,0,0.85))" }}>
+        {!scanResult && !scanError && (
+          <button onClick={doScan} disabled={scanning} className="head"
+            style={{ display:"block", width:"100%", padding:"12px", borderRadius:9, fontSize:14, fontWeight:700,
+              background: scanning ? "rgba(255,255,255,0.1)" : "rgba(180,150,60,0.85)",
+              color: scanning ? "rgba(255,255,255,0.5)" : "#000",
+              border:"none", marginBottom:8 }}>
+            {scanning ? '🔍 SCANNING…' : '🔍 SCAN FOR EQUIPMENT'}
+          </button>
+        )}
+        {scanError && (
+          <div className="mono" style={{ fontSize:12, color:"#f87171", textAlign:"center", marginBottom:8 }}>{scanError}</div>
+        )}
+        {scanResult && (
+          <div style={{ background:"rgba(0,0,0,0.8)", border:"1px solid rgba(180,150,60,0.5)", borderRadius:10, padding:12, marginBottom:8 }}>
+            <div className="mono" style={{ fontSize:11, color:"rgba(180,150,60,0.9)", marginBottom:8 }}>FOUND ON NAMEPLATE</div>
+            {Object.entries(scanResult).filter(([,v]) => v != null).map(([k,v]) => (
+              <div key={k} style={{ display:"flex", gap:8, marginBottom:4 }}>
+                <span className="mono" style={{ fontSize:11, color:"rgba(255,255,255,0.5)", minWidth:80 }}>{k.replace(/_/g,' ').toUpperCase()}</span>
+                <span style={{ fontSize:12, color:"#fff" }}>{v}</span>
+              </div>
+            ))}
+            <div style={{ display:"flex", gap:8, marginTop:12 }}>
+              <button onClick={() => { onScanResult(scanResult); onClose(); }} className="head"
+                style={{ flex:1, padding:"10px", borderRadius:8, fontSize:13, fontWeight:700,
+                  background:"rgba(180,150,60,0.9)", color:"#000" }}>
+                IMPORT TO JOB
+              </button>
+              <button onClick={() => setScanResult(null)} className="head"
+                style={{ padding:"10px 16px", borderRadius:8, fontSize:13,
+                  background:"rgba(255,255,255,0.1)", color:"#fff" }}>
+                DISMISS
+              </button>
+            </div>
+          </div>
+        )}
+        {!scanResult && scale === 1 && (
+          <div className="mono" style={{ textAlign:"center", fontSize:11, color:"rgba(255,255,255,0.3)" }}>
+            PINCH TO ZOOM · TAP TO CLOSE
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── LabelPromptSheet ──────────────────────────────────────────────────────── */
+function LabelPromptSheet({ scan, onSave, onCancel }) {
+  const [label, setLabel] = useState('');
+  const suggestions = getLabelSuggestions(scan.equipment_type);
+  const found = Object.entries(scan).filter(([,v]) => v != null);
+  return (
+    <div onClick={onCancel} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="fade-in"
+        style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+          borderRadius:"16px 16px 0 0", padding:"20px 16px 36px", maxHeight:"80vh", overflowY:"auto" }}>
+        <div className="head" style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>WHAT IS THIS UNIT?</div>
+        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:12 }}>
+          {found.map(([k,v]) => `${k.replace(/_/g,' ')}: ${v}`).join(' · ')}
+        </div>
+        <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:12 }}>
+          {suggestions.map(s => (
+            <button key={s} onClick={() => setLabel(s)} className="head"
+              style={{ padding:"7px 14px", borderRadius:20, fontSize:13, fontWeight:600,
+                background: label === s ? "var(--brass-bright)" : "var(--panel)",
+                color: label === s ? "var(--bg)" : "var(--text)",
+                border: label === s ? "none" : "1px solid var(--line)" }}>
+              {s}
+            </button>
+          ))}
+        </div>
+        <input value={label} onChange={e => setLabel(e.target.value)}
+          placeholder="Or type a custom name…"
+          style={{ marginBottom:14 }} autoFocus />
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={() => { if (label.trim()) onSave(label.trim()); }} className="head"
+            disabled={!label.trim()}
+            style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+              background: label.trim() ? "var(--brass-bright)" : "var(--line)",
+              color: label.trim() ? "var(--bg)" : "var(--muted)" }}>
+            SAVE EQUIPMENT
+          </button>
+          <button onClick={onCancel} className="head"
+            style={{ padding:"14px 18px", borderRadius:9, fontSize:14,
+              background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+            CANCEL
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ── JobDetail ─────────────────────────────────────────────────────────────── */
+function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
+  const [showStatus, setShowStatus] = useState(false);
+  const [showResched, setShowResched] = useState(false);
+  const [date, setDate] = useState(job.scheduled_date);
+  const [time, setTime] = useState(job.scheduled_time);
+  const [notes, setNotes] = useState(job.notes || '');
+  const [photos, setPhotos] = useState([]);
+  const [uploading, setUploading] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+  const [equipmentList, setEquipmentList] = useState([]);
+  const [pendingScan, setPendingScan] = useState(null);
+  const [expandedEquipId, setExpandedEquipId] = useState(null);
+  const [showWarrantySheet, setShowWarrantySheet] = useState(null);
+  const [editEquipItem, setEditEquipItem] = useState(null);
+  const [scanning, setScanning] = useState(false);
+  const [pendingOtherScan, setPendingOtherScan] = useState(null);
+  const [scanningOther, setScanningOther] = useState(false);
+  const [deletingPhoto, setDeletingPhoto] = useState(null);
+  const [history, setHistory] = useState(job.history || []);
+  const [editingNote, setEditingNote] = useState(null); // { id, content } or null
+  const fileRef = useRef();
+  const cameraRef = useRef();
+  const scanRef = useRef();
+  const scanGalleryRef = useRef();
+  const otherScanRef = useRef();
+  const otherScanGalleryRef = useRef();
+  const photoRef = useRef();
+
+  // Keep history in sync when parent refreshes job data (e.g. after voice note)
+  useEffect(() => {
+    setHistory(job.history || []);
+  }, [job.history]);
+
+  useEffect(() => {
+    fetchPhotos(job.id).then(setPhotos);
+  }, [job.id]);
+
+  useEffect(() => {
+    fetchEquipment(job._customer_id).then(setEquipmentList);
+  }, [job._customer_id]);
+
+  useEffect(() => {
+    if (focusPhotos && photoRef.current) {
+      setTimeout(() => photoRef.current.scrollIntoView({ behavior:'smooth', block:'center' }), 150);
+    }
+  }, [focusPhotos]);
+
+  async function handlePhotoInput(e) {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    setUploading(true);
+    let errors = [];
+    for (const file of files) {
+      const photo = await uploadPhoto(job.id, file);
+      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
+      else if (photo && photo.error) errors.push(photo.error);
+      else errors.push('unknown error');
+    }
+    setUploading(false);
+    e.target.value = '';
+    if (errors.length > 0) alert(`Upload failed:\n${errors.join('\n')}`);
+  }
+
+  async function confirmDeletePhoto(photo, idx) {
+    await deletePhoto(photo.id, photo.storage_path);
+    setPhotos(prev => prev.filter((_,i) => i !== idx));
+    setDeletingPhoto(null);
+  }
+
+  async function saveNoteEdit(id, content) {
+    const { error } = await sb.from('job_notes').update({ content }).eq('id', id);
+    if (error) { alert(`Save failed: ${error.message}`); return; }
+    setHistory(prev => prev.map(h => h.id === id ? { ...h, note: content } : h));
+    setEditingNote(null);
+  }
+
+  async function deleteNote(id) {
+    const { error } = await sb.from('job_notes').delete().eq('id', id);
+    if (error) { alert(`Delete failed: ${error.message}`); return; }
+    setHistory(prev => prev.filter(h => h.id !== id));
+    setEditingNote(null);
+  }
+
+  async function runScan(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanning(true);
+    e.target.value = '';
+    try {
+      const [result, photo] = await Promise.all([scanNameplate(file), uploadPhoto(job.id, file, 'equipment')]);
+      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
+      const hasData = Object.values(result).some(v => v != null);
+      if (!hasData) { alert('No equipment data found in this photo.'); return; }
+      setPendingScan(result);
+    } catch(err) {
+      alert(`Scan failed: ${err.message}`);
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  async function runOtherScan(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    setScanningOther(true);
+    e.target.value = '';
+    try {
+      const [result, photo] = await Promise.all([scanNameplate(file), uploadPhoto(job.id, file, 'equipment')]);
+      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
+      const hasData = Object.values(result).some(v => v != null);
+      if (!hasData) { alert('No equipment data found in this photo.'); return; }
+      setPendingOtherScan(result);
+    } catch(err) {
+      alert(`Scan failed: ${err.message}`);
+    } finally {
+      setScanningOther(false);
+    }
+  }
+
+  async function saveNewEquipment(label) {
+    if (!job._customer_id) { alert('No customer linked to this job.'); return; }
+    const installDate = job.scheduled_date || todayISO();
+    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {}, installDate, job.id);
+    if (error) { alert(`Save failed: ${error.message}`); return; }
+    setEquipmentList(prev => [...prev, data]);
+    setPendingScan(null);
+  }
+
+  async function saveOtherEquipment(label) {
+    if (!job._customer_id) { alert('No customer linked to this job.'); return; }
+    const { data, error } = await saveEquipment(job._customer_id, label, pendingOtherScan || {}, null, null);
+    if (error) { alert(`Save failed: ${error.message}`); return; }
+    setEquipmentList(prev => [...prev, data]);
+    setPendingOtherScan(null);
+  }
+
+  function renderEquipCard(eq) {
+    const ws = warrantyStatus(eq);
+    const wBorder = ws.type === 'urgent' ? 'var(--brass)' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? '#5d8a3a' : 'var(--line)';
+    return (
+      <div key={eq.id} style={{ border:`1px solid ${wBorder}`, borderRadius:9, padding:12, marginBottom:8 }}>
+        <div style={{ display:"flex", alignItems:"flex-start", gap:8 }}>
+          <div style={{ flex:1 }}>
+            <div className="head" style={{ fontSize:17, fontWeight:700 }}>{eq.label}</div>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginTop:2 }}>
+              {[eq.brand, eq.model_number].filter(Boolean).join(' · ') || eq.equipment_type || '—'}
+            </div>
+            {eq.serial_number && (
+              <div className="mono" style={{ fontSize:13, color:"var(--brass)", marginTop:1 }}>S/N {eq.serial_number}</div>
+            )}
+            {ws.type === 'registered' && (
+              <div className="mono" style={{ fontSize:11, color:'#5d8a3a', marginTop:4 }}>
+                ✓ WARRANTY REGISTERED{ws.expires ? ` · exp ${fmtDate(ws.expires)}` : ''}
+              </div>
+            )}
+            {ws.type === 'pending' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                📋 register warranty ({ws.daysLeft}d left)
+              </button>
+            )}
+            {ws.type === 'urgent' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--brass-bright)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                ⚠ REGISTER NOW — {ws.daysLeft}d LEFT
+              </button>
+            )}
+            {ws.type === 'lapsed' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--danger)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                ⚠ 60-DAY WINDOW EXPIRED
+              </button>
+            )}
+            {ws.type === 'untracked' && (
+              <button onClick={() => setShowWarrantySheet(eq)}
+                className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
+                📋 register warranty
+              </button>
+            )}
+          </div>
+          <div style={{ display:"flex", gap:6 }}>
+            <button onClick={() => setExpandedEquipId(expandedEquipId === eq.id ? null : eq.id)}
+              className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>
+              {expandedEquipId === eq.id ? '▲' : '▼'}
+            </button>
+            <button onClick={() => setEditEquipItem(eq)}
+              className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>✎</button>
+            <button onClick={async () => { if (confirm(`Remove "${eq.label}"?`)) { await deleteEquipmentItem(eq.id); setEquipmentList(p => p.filter(e => e.id !== eq.id)); } }}
+              className="mono" style={{ fontSize:14, color:"var(--line)", padding:"2px 6px" }}>✕</button>
+          </div>
+        </div>
+        {expandedEquipId === eq.id && (
+          <div style={{ marginTop:10, display:"grid", gridTemplateColumns:"1fr 1fr", gap:6, borderTop:"1px solid var(--line)", paddingTop:10 }}>
+            {EQUIP_FIELDS.filter(f => eq[f.key]).map(f => (
+              <div key={f.key}>
+                <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>{f.label}</div>
+                <div style={{ fontSize:15 }}>{eq[f.key]}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const jobEquip = equipmentList.filter(eq => eq.job_id === job.id);
+  const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
+
+  return (
+    <div className="fade-in" style={{ paddingBottom:40 }}>
+      <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12 }}>
+        <button onClick={onBack} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
+        <div className="head" style={{ fontSize:18, fontWeight:600 }}>JOB DETAIL</div>
+        <button onClick={onEdit} className="head"
+          style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
+            border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>EDIT</button>
+      </div>
+      <div style={{ padding:16 }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
+          <div className="head" style={{ fontSize:24, fontWeight:700, lineHeight:1.1 }}>{job.customer}</div>
+          <StatusPill status={job.status} />
+        </div>
+        <div style={{ fontSize:14, color:"var(--muted)", marginTop:6 }}>{job.type}</div>
+        {(job.location && siteAddr(job).trim() === custAddr(job).trim()) ? (
+          <div className="head" style={{ fontSize:15, fontWeight:600, color:"var(--brass-bright)", marginTop:6 }}>📍 {job.location}</div>
+        ) : null}
+
+        <div style={{ marginTop:14, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>JOB VALUE</span>
+          <span className="head" style={{ fontSize:24, fontWeight:700, color:"var(--olive-bright)" }}>{money(job.value)}</span>
+        </div>
+
+        <button onClick={() => setShowResched(true)} style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+          <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>SCHEDULED</span>
+          <span className="head" style={{ fontSize:17, fontWeight:600, color:"var(--brass-bright)" }}>
+            {fmtDate(job.scheduled_date)} · {fmtTime(job.scheduled_time)} ✎
+          </span>
+        </button>
+
+        <div style={{ marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
+          <a href={`tel:${(job.phone||"").replace(/[^0-9]/g,"")}`} style={{ color:"var(--olive-bright)", textDecoration:"none", fontSize:16, fontWeight:600 }} className="head">{job.phone||"—"}</a>
+          {job.email && (
+            <a href={`mailto:${job.email}`} style={{ display:"block", color:"var(--muted)", textDecoration:"none", fontSize:14, marginTop:4 }}>{job.email}</a>
+          )}
+          <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", marginTop:12 }}>SITE ADDRESS</div>
+          <a href={`https://maps.google.com/?q=${encodeURIComponent(siteAddr(job))}`} target="_blank" rel="noreferrer"
+            style={{ display:"block", color:"var(--text)", textDecoration:"none", fontSize:15, marginTop:3, lineHeight:1.4 }}>{siteAddr(job)}</a>
+          {custAddr(job) && custAddr(job) !== siteAddr(job) && (
+            <React.Fragment>
+              <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:12 }}>CUSTOMER ADDRESS</div>
+              <div style={{ fontSize:15, color:"var(--muted)", marginTop:3, lineHeight:1.4 }}>{custAddr(job)}</div>
+            </React.Fragment>
+          )}
+        </div>
+
+        <div style={{ marginTop:10 }}>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
+          <textarea value={notes} onChange={e => setNotes(e.target.value)}
+            onBlur={() => { if (notes !== (job.notes||'')) onUpdate({ notes }); }}
+            rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
+        </div>
+
+        {/* Photo strip */}
+        <div ref={photoRef} style={{ marginTop:16 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>PHOTOS</div>
+            {uploading ? (
+              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>UPLOADING…</span>
+            ) : (
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => cameraRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 12px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
+                  📷 CAMERA
+                </button>
+                <button onClick={() => fileRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 12px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  🖼 GALLERY
+                </button>
+              </div>
+            )}
+          </div>
+          <input ref={cameraRef} type="file" accept="image/*" capture="environment"
+            style={{ display:'none' }} onChange={handlePhotoInput} />
+          <input ref={fileRef} type="file" accept="image/*" multiple
+            style={{ display:'none' }} onChange={handlePhotoInput} />
+          {photos.length === 0 && !uploading && (
+            <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"14px 0" }}>No photos yet</div>
+          )}
+          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+            {photos.map((p,i) => (
+              <div key={p.id} style={{ position:"relative" }}>
+                <img src={p.url} alt="" onClick={() => setLightbox(p.url)}
+                  style={{ width:90, height:90, objectFit:"cover", borderRadius:8, border:"1px solid var(--line)", cursor:"pointer" }} />
+                <button onClick={() => setDeletingPhoto({ photo: p, idx: i })}
+                  style={{ position:"absolute", top:2, right:2, width:24, height:24, borderRadius:"50%",
+                    background:"rgba(0,0,0,0.75)", color:"#fff", fontSize:13, lineHeight:"24px", textAlign:"center" }}>✕</button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {lightbox && (
+          <Lightbox url={lightbox} onClose={() => setLightbox(null)}
+            onScanResult={(result) => { setPendingScan(result); }} />
+        )}
+
+        {deletingPhoto && (
+          <div onClick={() => setDeletingPhoto(null)}
+            style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+            <div onClick={e => e.stopPropagation()} className="fade-in"
+              style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+                borderRadius:"16px 16px 0 0", padding:"20px 16px 32px" }}>
+              {deletingPhoto.photo.photo_type === 'equipment' ? (
+                <>
+                  <div className="head" style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>⚠ EQUIPMENT PHOTO</div>
+                  <div className="mono" style={{ fontSize:13, color:"var(--muted)", lineHeight:1.5, marginBottom:18 }}>
+                    This photo was used to scan equipment data. Removing it won't delete the equipment record,
+                    but you'll lose the reference image. Are you sure?
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="head" style={{ fontSize:16, fontWeight:700, marginBottom:6 }}>REMOVE PHOTO?</div>
+                  <div className="mono" style={{ fontSize:13, color:"var(--muted)", lineHeight:1.5, marginBottom:18 }}>
+                    This photo will be permanently deleted.
+                  </div>
+                </>
+              )}
+              <div style={{ display:"flex", gap:10 }}>
+                <button onClick={() => confirmDeletePhoto(deletingPhoto.photo, deletingPhoto.idx)} className="head"
+                  style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+                    background:"var(--error,#c0392b)", color:"#fff", border:"none" }}>
+                  DELETE
+                </button>
+                <button onClick={() => setDeletingPhoto(null)} className="head"
+                  style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Equipment */}
+        <div style={{ marginTop:20 }}>
+          {/* THIS JOB section */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
+              THIS JOB{jobEquip.length > 0 ? ` (${jobEquip.length})` : ''}
+            </div>
+            {scanning ? (
+              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
+            ) : (
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => scanRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
+                  📷 SCAN
+                </button>
+                <button onClick={() => scanGalleryRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  🖼 UPLOAD
+                </button>
+              </div>
+            )}
+          </div>
+          <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
+          <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
+          {jobEquip.length === 0 && !scanning && (
+            <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No equipment scanned for this job</div>
+          )}
+          {jobEquip.map(renderEquipCard)}
+
+          {/* OTHER AT THIS ADDRESS section */}
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, marginBottom:10, borderTop:"1px solid var(--line)", paddingTop:14 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
+              OTHER AT THIS ADDRESS{otherEquip.length > 0 ? ` (${otherEquip.length})` : ''}
+            </div>
+            {scanningOther ? (
+              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
+            ) : (
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => otherScanRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  📷 SCAN
+                </button>
+                <button onClick={() => otherScanGalleryRef.current.click()} className="head"
+                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  🖼 UPLOAD
+                </button>
+              </div>
+            )}
+          </div>
+          <input ref={otherScanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runOtherScan} />
+          <input ref={otherScanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runOtherScan} />
+          {otherEquip.length === 0 && !scanningOther && (
+            <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No other equipment logged</div>
+          )}
+          {otherEquip.map(renderEquipCard)}
+        </div>
+
+        {pendingScan && (
+          <LabelPromptSheet
+            scan={pendingScan}
+            onSave={saveNewEquipment}
+            onCancel={() => setPendingScan(null)}
+          />
+        )}
+
+        {pendingOtherScan && (
+          <LabelPromptSheet
+            scan={pendingOtherScan}
+            onSave={saveOtherEquipment}
+            onCancel={() => setPendingOtherScan(null)}
+          />
+        )}
+
+        {showWarrantySheet && (
+          <WarrantySheet
+            eq={showWarrantySheet}
+            job={job}
+            onRegistered={(updated) => setEquipmentList(prev => prev.map(e => e.id === updated.id ? updated : e))}
+            onClose={() => setShowWarrantySheet(null)}
+          />
+        )}
+
+        {editEquipItem && (
+          <EquipEditSheet
+            eq={editEquipItem}
+            onSave={(updated) => { setEquipmentList(prev => prev.map(e => e.id === updated.id ? updated : e)); setEditEquipItem(null); }}
+            onClose={() => setEditEquipItem(null)}
+          />
+        )}
+
+        {history.length > 0 && (
+          <div style={{ marginTop:16 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>SERVICE HISTORY</div>
+            {history.map((h,i) => (
+              <div key={h.id||i} style={{ padding:"10px 0", borderTop:"1px solid var(--line)" }}>
+                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                  <div className="mono" style={{ fontSize:13, color:"var(--brass)" }}>{fmtDate(h.date)}</div>
+                  {h.id && editingNote?.id !== h.id && (
+                    <button onClick={() => setEditingNote({ id: h.id, content: h.note })}
+                      style={{ background:"none", border:"none", color:"var(--muted)", fontSize:16, padding:"0 4px", cursor:"pointer" }}>✎</button>
+                  )}
+                </div>
+                {editingNote && editingNote.id === h.id ? (
+                  <div style={{ marginTop:6 }}>
+                    <textarea value={editingNote.content}
+                      onChange={e => setEditingNote(n => ({...n, content: e.target.value}))}
+                      style={{ width:"100%", minHeight:70, fontSize:15, resize:"vertical" }} />
+                    <div style={{ display:"flex", gap:8, marginTop:6 }}>
+                      <button onClick={() => saveNoteEdit(h.id, editingNote.content)} className="head"
+                        style={{ flex:1, padding:"9px 0", borderRadius:8, background:"var(--olive-bright)", color:"var(--bg)", fontWeight:700, fontSize:14 }}>SAVE</button>
+                      <button onClick={() => deleteNote(h.id)} className="head"
+                        style={{ padding:"9px 14px", borderRadius:8, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)", fontSize:14 }}>DELETE</button>
+                      <button onClick={() => setEditingNote(null)} className="head"
+                        style={{ padding:"9px 14px", borderRadius:8, background:"var(--panel)", border:"1px solid var(--line)", fontSize:14 }}>CANCEL</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ fontSize:15, marginTop:2, lineHeight:1.4 }}>{h.note}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <button onClick={() => setShowStatus(true)} className="head"
+          style={{ width:"100%", marginTop:20, padding:16, borderRadius:10, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
+          UPDATE STATUS →
+        </button>
+        <button onClick={() => { if (confirm("Delete this job?")) onDelete(); }} className="head"
+          style={{ width:"100%", marginTop:10, padding:13, borderRadius:10, fontSize:14, fontWeight:600, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)" }}>
+          DELETE JOB
+        </button>
+      </div>
+
+      {showStatus && (
+        <Sheet onClose={() => setShowStatus(false)} title="UPDATE STATUS">
+          {STATUSES.map(s => (
+            <button key={s} onClick={() => { onUpdate({ status:s }); setShowStatus(false); }}
+              style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", padding:"14px 4px", borderBottom:"1px solid var(--line)", textAlign:"left" }}>
+              <StatusPill status={s} />
+              {job.status === s && <span style={{ color:"var(--olive-bright)" }}>✓</span>}
+            </button>
+          ))}
+        </Sheet>
+      )}
+
+      {showResched && (
+        <Sheet onClose={() => setShowResched(false)} title="RESCHEDULE">
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, marginTop:4 }}>DATE</div>
+          <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"14px 0 6px" }}>TIME</div>
+          <input type="time" value={time} onChange={e => setTime(e.target.value)} />
+          <button onClick={() => { onUpdate({ scheduled_date:date, scheduled_time:time }); setShowResched(false); }} className="head"
+            style={{ width:"100%", marginTop:18, padding:15, borderRadius:9, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
+            SAVE
+          </button>
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
+/* ── LocationPickerSheet ───────────────────────────────────────────────────── */
+function LocationPickerSheet({ lat, lng, onConfirm, onCancel }) {
+  const mapDivRef = useRef(null);
+  const mapRef = useRef(null);
+  const [geocoding, setGeocoding] = useState(false);
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [showResults, setShowResults] = useState(false);
+  // When user selects a search result we store the address to skip reverse geocode on confirm
+  const pinnedAddrRef = useRef(null);
+  const searchTimerRef = useRef(null);
+
+  useEffect(() => {
+    if (!mapDivRef.current || mapRef.current) return;
+    const map = L.map(mapDivRef.current, { center: [lat, lng], zoom: 18, zoomControl: false });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap', maxZoom: 19,
+    }).addTo(map);
+    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    mapRef.current = map;
+    setTimeout(() => map.invalidateSize(), 120);
+    return () => { map.remove(); mapRef.current = null; };
+  }, []);
+
+  function addrFromNominatim(data) {
+    const a = data.address || {};
+    const street = a.house_number && a.road ? `${a.house_number} ${a.road}` : (a.road || '');
+    const city = a.city || a.town || a.village || a.hamlet || '';
+    return [street, city, a.state, a.postcode].filter(Boolean).join(', ') || data.display_name || '';
+  }
+
+  async function runSearch(q) {
+    if (!q.trim()) { setSearchResults([]); setShowResults(false); return; }
+    setSearching(true);
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1&countrycodes=us`,
+        { headers: { 'Accept-Language': 'en-US,en' } }
+      );
+      const results = await r.json();
+      setSearchResults(results);
+      setShowResults(true);
+    } catch(e) {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  function handleQueryChange(v) {
+    setQuery(v);
+    pinnedAddrRef.current = null;
+    clearTimeout(searchTimerRef.current);
+    if (v.trim().length >= 3) {
+      searchTimerRef.current = setTimeout(() => runSearch(v), 500);
+    } else {
+      setSearchResults([]);
+      setShowResults(false);
+    }
+  }
+
+  function selectResult(result) {
+    const addr = addrFromNominatim(result);
+    const name = result.name || null;
+    pinnedAddrRef.current = { addr, name };
+    setQuery(name || addr);
+    setShowResults(false);
+    if (mapRef.current) {
+      mapRef.current.setView([parseFloat(result.lat), parseFloat(result.lon)], 18);
+    }
+  }
+
+  async function confirm() {
+    if (!mapRef.current || geocoding) return;
+    // If user picked a search result, use that address directly
+    if (pinnedAddrRef.current) {
+      onConfirm(pinnedAddrRef.current);
+      return;
+    }
+    setGeocoding(true);
+    const c = mapRef.current.getCenter();
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${c.lat}&lon=${c.lng}&format=json`,
+        { headers: { 'Accept-Language': 'en-US,en' } }
+      );
+      const data = await r.json();
+      onConfirm({ addr: addrFromNominatim(data), name: data.name || null });
+    } catch(e) {
+      alert('Could not look up address. Try again.');
+    } finally {
+      setGeocoding(false);
+    }
+  }
+
+  return (
+    <div style={{ position:'fixed', inset:0, zIndex:400, display:'flex', flexDirection:'column', background:'var(--bg)' }}>
+      {/* Header */}
+      <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', borderBottom:'1px solid var(--line)', flexShrink:0 }}>
+        <button onClick={onCancel} style={{ background:'none', border:'none', color:'var(--muted)', fontSize:22, lineHeight:1, padding:4 }}>✕</button>
+        <div style={{ flex:1, position:'relative' }}>
+          <input
+            type="text"
+            placeholder="Search address or business…"
+            value={query}
+            onChange={e => handleQueryChange(e.target.value)}
+            onFocus={() => { if (searchResults.length) setShowResults(true); }}
+            style={{ width:'100%', padding:'9px 12px', borderRadius:8, border:'1px solid var(--line)',
+              background:'var(--panel)', color:'var(--text)', fontSize:15, boxSizing:'border-box' }}
+          />
+          {searching && (
+            <div style={{ position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', color:'var(--muted)', fontSize:12 }}>…</div>
+          )}
+          {showResults && searchResults.length > 0 && (
+            <div style={{ position:'absolute', top:'100%', left:0, right:0, zIndex:500,
+              background:'var(--panel)', border:'1px solid var(--line)', borderRadius:8,
+              boxShadow:'0 4px 16px rgba(0,0,0,0.5)', marginTop:4, maxHeight:260, overflowY:'auto' }}>
+              {searchResults.map((res, i) => (
+                <div key={i} onClick={() => selectResult(res)}
+                  style={{ padding:'10px 14px', borderBottom: i < searchResults.length-1 ? '1px solid var(--line)' : 'none',
+                    cursor:'pointer', lineHeight:1.3 }}>
+                  {res.name && <div style={{ fontWeight:700, fontSize:14, color:'var(--text)' }}>{res.name}</div>}
+                  <div style={{ fontSize:12, color:'var(--muted)', marginTop: res.name ? 2 : 0 }}>{res.display_name}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {/* Map */}
+      <div style={{ flex:1, position:'relative', minHeight:0 }}>
+        <div ref={mapDivRef} style={{ width:'100%', height:'100%' }} />
+        <div style={{ position:'absolute', top:'50%', left:'50%',
+          transform:'translate(-50%, -100%)', zIndex:1000, pointerEvents:'none',
+          fontSize:36, lineHeight:1, filter:'drop-shadow(0 2px 4px rgba(0,0,0,0.6))' }}>
+          📍
+        </div>
+        <div style={{ position:'absolute', bottom:8, left:'50%', transform:'translateX(-50%)',
+          background:'rgba(0,0,0,0.55)', color:'#ccc', fontSize:11, padding:'4px 10px',
+          borderRadius:20, pointerEvents:'none', whiteSpace:'nowrap' }}>
+          DRAG MAP · PIN STAYS CENTERED
+        </div>
+      </div>
+      {/* Footer */}
+      <div style={{ display:'flex', gap:10, padding:'12px 16px', flexShrink:0, borderTop:'1px solid var(--line)' }}>
+        <button onClick={confirm} disabled={geocoding} className="head"
+          style={{ flex:1, padding:15, borderRadius:9, fontSize:16, fontWeight:700,
+            background:'var(--olive-bright)', color:'var(--bg)',
+            opacity: geocoding ? 0.6 : 1 }}>
+          {geocoding ? 'LOCATING…' : 'USE THIS LOCATION'}
+        </button>
+        <button onClick={onCancel} className="head"
+          style={{ padding:'15px 18px', borderRadius:9, fontSize:15,
+            background:'var(--panel)', border:'1px solid var(--line)', color:'var(--text)' }}>
+          CANCEL
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ── JobForm ───────────────────────────────────────────────────────────────── */
+function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
+  const editing = !!(initial && initial.id);
+  const customers = React.useMemo(() => deriveCustomers(allJobs||[]), [allJobs]);
+  const [locating, setLocating] = useState(false);
+  const [f, setF] = useState(initial ? {
+    ...initial,
+    customer_address: initial.customer_address||initial.address||"",
+    site_address: initial.site_address||initial.address||"",
+    same_address: initial.same_address !== undefined
+      ? initial.same_address
+      : ((initial.customer_address||initial.address||"") === (initial.site_address||initial.address||"")),
+    value: initial.value===0||initial.value ? String(initial.value) : "",
+  } : {
+    customer:"", location:"", customer_address:"", site_address:"",
+    same_address: loadSameAddrPref(),
+    phone:"", email:"", type:"Service Call",
+    status:"New", scheduled_date: todayISO(), scheduled_time:"09:00",
+    value:"", notes:"", history:[],
+    ...(prefill || {}),
+  });
+  const set = (k,v) => setF(s => ({...s,[k]:v}));
+  const [pendingLocation, setPendingLocation] = useState(null); // { field, addr, name }
+  const [mapPicker, setMapPicker] = useState(null); // { field, lat, lng }
+
+  async function useCurrentLocation(field) {
+    if (!navigator.geolocation) { alert('Geolocation not supported by this browser.'); return; }
+    setLocating(true);
+    try {
+      const pos = await new Promise((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 10000, enableHighAccuracy: true })
+      );
+      setMapPicker({ field, lat: pos.coords.latitude, lng: pos.coords.longitude });
+    } catch(err) {
+      alert(err.code === 1 ? 'Location permission denied — enable it in browser settings.' : 'Could not get location. Try again.');
+    } finally {
+      setLocating(false);
+    }
+  }
+
+  function confirmLocation() {
+    if (!pendingLocation) return;
+    if (pendingLocation.field === 'customer_address') setCustomerAddr(pendingLocation.addr);
+    else set('site_address', pendingLocation.addr);
+    setPendingLocation(null);
+  }
+
+  const [showCustList, setShowCustList] = useState(false);
+  const [pickedSites, setPickedSites] = useState(null);
+  const [addingNewSite, setAddingNewSite] = useState(false);
+
+  const custNames = Object.keys(customers);
+  const typed = (f.customer||"").trim().toLowerCase();
+  const matches = typed.length > 0
+    ? custNames.filter(n => n.toLowerCase().includes(typed) && n.toLowerCase() !== typed)
+    : [];
+
+  function onCustomerType(v) { setF(s=>({...s,customer:v})); setShowCustList(true); setPickedSites(null); setAddingNewSite(false); }
+  function pickCustomer(name) {
+    const rec = customers[name]; setShowCustList(false);
+    const hasSites = rec.sites && rec.sites.length > 0;
+    setF(s => ({ ...s, customer:name, customer_address:rec.customer_address||"", phone:rec.phone||"", email:rec.email||"",
+      same_address: hasSites ? false : s.same_address,
+      location: hasSites ? "" : s.location,
+      site_address: hasSites ? "" : (s.same_address ? rec.customer_address||"" : s.site_address) }));
+    setPickedSites(hasSites ? rec.sites : null); setAddingNewSite(false);
+  }
+  function pickSite(site) { setF(s=>({...s,site_address:site.site_address,same_address:false})); setAddingNewSite(false); }
+  function toggleSameAddr() {
+    setF(s => { const next=!s.same_address; saveSameAddrPref(next);
+      return next ? {...s,same_address:true,site_address:s.customer_address} : {...s,same_address:false}; });
+  }
+  function setCustomerAddr(v) { setF(s => s.same_address ? {...s,customer_address:v,site_address:v} : {...s,customer_address:v}); }
+
+  const valid = f.customer.trim().length > 0;
+
+  return (
+    <div className="fade-in" style={{ paddingBottom:40 }}>
+      <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12 }}>
+        <button onClick={onCancel} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
+        <div className="head" style={{ fontSize:18, fontWeight:600 }}>{editing?"EDIT JOB":"NEW JOB"}</div>
+      </div>
+      <div style={{ padding:16, display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ position:"relative" }}>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>CUSTOMER</div>
+          <input type="text" placeholder="Name or business" value={f.customer}
+            onChange={e => editing ? set("customer",e.target.value) : onCustomerType(e.target.value)}
+            onFocus={() => !editing && setShowCustList(true)} />
+          {!editing && showCustList && matches.length > 0 && (
+            <div className="fade-in" style={{ position:"absolute", top:"100%", left:0, right:0, zIndex:20,
+              background:"var(--panel-2)", border:"1px solid var(--olive)", borderRadius:8, marginTop:4, overflow:"hidden" }}>
+              {matches.slice(0,6).map(name => (
+                <button key={name} onClick={() => pickCustomer(name)}
+                  style={{ display:"block", width:"100%", textAlign:"left", padding:"12px 14px", borderBottom:"1px solid var(--line)" }}>
+                  <span className="head" style={{ fontSize:15, fontWeight:600 }}>{name}</span>
+                  {customers[name].sites.length > 0 && (
+                    <span className="mono" style={{ fontSize:11, color:"var(--brass)", marginLeft:8 }}>
+                      {customers[name].sites.length} site{customers[name].sites.length>1?"s":""}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>CUSTOMER ADDRESS</div>
+          <div style={{ display:"flex", gap:8 }}>
+            <input type="text" placeholder="Main / billing address"
+              value={f.customer_address} onChange={e => setCustomerAddr(e.target.value)}
+              style={{ flex:1, minWidth:0 }} />
+            {!f.customer_address.trim() && (
+            <button type="button" onClick={() => useCurrentLocation('customer_address')} disabled={locating}
+              title="Use my current location"
+              style={{ flexShrink:0, width:44, borderRadius:8, border:"1px solid var(--brass)",
+                background:"var(--panel)", color:locating?"var(--muted)":"var(--brass-bright)",
+                fontSize:20, cursor:locating?"default":"pointer" }}>
+              {locating ? '⏳' : '📍'}
+            </button>
+            )}
+          </div>
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>PHONE</div>
+          <input type="tel" placeholder="(610) 555-0000" value={f.phone} onChange={e => set("phone",e.target.value)} />
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>EMAIL</div>
+          <input type="email" placeholder="customer@email.com" value={f.email||""} onChange={e => set("email",e.target.value)} />
+        </div>
+        <button onClick={toggleSameAddr} style={{ display:"flex", alignItems:"center", gap:10, padding:"10px 2px", textAlign:"left" }}>
+          <span style={{ width:44, height:26, borderRadius:13, flexShrink:0, position:"relative",
+            background: f.same_address ? "var(--olive-bright)" : "var(--line)", transition:"background 0.15s" }}>
+            <span style={{ position:"absolute", top:3, left: f.same_address ? 21 : 3,
+              width:20, height:20, borderRadius:"50%", background:"var(--bg)", transition:"left 0.15s" }}></span>
+          </span>
+          <span style={{ fontSize:14, color:"var(--text)" }}>Site same as customer address</span>
+        </button>
+        {!f.same_address && (
+          <div className="fade-in" style={{ display:"flex", flexDirection:"column", gap:14 }}>
+            {!editing && pickedSites && pickedSites.length>0 && !addingNewSite && (
+              <div style={{ padding:12, background:"var(--panel-2)", border:"1px solid var(--brass)", borderRadius:10 }}>
+                <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginBottom:8, letterSpacing:"0.08em" }}>SAVED SITES FOR THIS CUSTOMER</div>
+                {pickedSites.map((site,i) => {
+                  const chosen = f.site_address === site.site_address;
+                  return (
+                    <button key={i} onClick={() => pickSite(site)}
+                      style={{ display:"block", width:"100%", textAlign:"left", padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
+                      <div className="head" style={{ fontSize:15, fontWeight:600, color:chosen?"var(--olive-bright)":"var(--text)" }}>
+                        {site.site_address} {chosen?"✓":""}
+                      </div>
+                    </button>
+                  );
+                })}
+                <button onClick={() => { setAddingNewSite(true); setF(s=>({...s,site_address:""})); }}
+                  className="head" style={{ marginTop:10, fontSize:13, fontWeight:600, color:"var(--brass-bright)" }}>
+                  + NEW SITE
+                </button>
+              </div>
+            )}
+            <div>
+              <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginBottom:6 }}>SITE</div>
+              <div style={{ display:"flex", gap:8 }}>
+                <input type="text" placeholder="Where the job is (name and/or address)"
+                  value={f.site_address} onChange={e => set("site_address",e.target.value)}
+                  style={{ flex:1, minWidth:0 }} />
+                {!f.site_address.trim() && (
+                <button type="button" onClick={() => useCurrentLocation('site_address')} disabled={locating}
+                  title="Use my current location"
+                  style={{ flexShrink:0, width:44, borderRadius:8, border:"1px solid var(--brass)",
+                    background:"var(--panel)", color:locating?"var(--muted)":"var(--brass-bright)",
+                    fontSize:20, cursor:locating?"default":"pointer" }}>
+                  {locating ? '⏳' : '📍'}
+                </button>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+        <div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>JOB TYPE</div>
+          <select value={f.type} onChange={e => set("type",e.target.value)}>
+            {JOB_TYPES.map(t => <option key={t}>{t}</option>)}
+          </select>
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          <div style={{ flex:1 }}>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>DATE</div>
+            <input type="date" value={f.scheduled_date} onChange={e => set("scheduled_date",e.target.value)} />
+          </div>
+          <div style={{ flex:1 }}>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>TIME</div>
+            <input type="time" value={f.scheduled_time} onChange={e => set("scheduled_time",e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>STATUS</div>
+          <select value={f.status} onChange={e => set("status",e.target.value)}>
+            {STATUSES.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>JOB VALUE ($)</div>
+          <input type="number" inputMode="decimal" placeholder="0" value={f.value} onChange={e => set("value",e.target.value)} />
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
+          <textarea rows={3} placeholder="Equipment, parts, scope..." value={f.notes} onChange={e => set("notes",e.target.value)} style={{ resize:"vertical", lineHeight:1.4 }} />
+        </div>
+        <button onClick={() => {
+            if (!valid) return;
+            const site = f.same_address ? f.customer_address : f.site_address;
+            onSave({ ...f, site_address:site, address:site, value:Number(f.value)||0 });
+          }}
+          disabled={!valid} className="head"
+          style={{ marginTop:6, padding:16, borderRadius:10, fontSize:16, fontWeight:700,
+            background:valid?"var(--olive-bright)":"var(--line)", color:valid?"var(--bg)":"var(--muted)" }}>
+          {editing?"SAVE CHANGES":"SAVE JOB"}
+        </button>
+      </div>
+
+      {mapPicker && (
+        <LocationPickerSheet
+          lat={mapPicker.lat} lng={mapPicker.lng}
+          onConfirm={({ addr, name }) => { setMapPicker(null); setPendingLocation({ field: mapPicker.field, addr, name }); }}
+          onCancel={() => setMapPicker(null)}
+        />
+      )}
+
+      {pendingLocation && (
+        <div onClick={() => setPendingLocation(null)}
+          style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:300, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+          <div onClick={e => e.stopPropagation()} className="fade-in"
+            style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+              borderRadius:"16px 16px 0 0", padding:"20px 16px 36px" }}>
+            <div className="head" style={{ fontSize:15, fontWeight:700, marginBottom:14 }}>IS THIS WHERE YOU ARE?</div>
+            {pendingLocation.name && (
+              <div style={{ fontSize:18, fontWeight:600, marginBottom:4 }}>{pendingLocation.name}</div>
+            )}
+            <div className="mono" style={{ fontSize:15, color:"var(--brass-bright)", marginBottom:20 }}>{pendingLocation.addr}</div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={confirmLocation} className="head"
+                style={{ flex:1, padding:15, borderRadius:9, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
+                YES, USE THIS
+              </button>
+              <button onClick={() => setPendingLocation(null)} className="head"
+                style={{ padding:"15px 18px", borderRadius:9, fontSize:15, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                CANCEL
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── VoiceButton ───────────────────────────────────────────────────────────── */
+function VoiceButton({ onCommand }) {
+  const [state, setState] = useState('idle'); // idle | listening | processing
+  const [pos, setPos] = useState(() => {
+    try { const s = localStorage.getItem('tmc_mic_pos'); if (s) return JSON.parse(s); } catch(e){}
+    return { x: window.innerWidth - 76, y: window.innerHeight - 180 };
+  });
+  const drag = useRef(null);
+  const recognitionRef = useRef(null);
+  const stateRef = useRef('idle');
+
+  function setS(s) { stateRef.current = s; setState(s); }
+
+  function spawnRec() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) return null;
+    const rec = new SR();
+    rec.lang = 'en-US';
+    rec.continuous = false;
+    rec.interimResults = false;
+    rec.maxAlternatives = 1;
+    rec.onresult = async (e) => {
+      const transcript = e.results[0][0].transcript;
+      recognitionRef.current = null;
+      setS('processing');
+      await onCommand(transcript);
+      if (stateRef.current === 'processing') {
+        setS('listening');
+        const next = spawnRec();
+        if (next) { recognitionRef.current = next; try { next.start(); } catch(err) { setS('idle'); } }
+      }
+    };
+    rec.onerror = (e) => {
+      if (e.error === 'aborted') return;
+      if (e.error === 'no-speech' && stateRef.current === 'listening') {
+        const next = spawnRec();
+        if (next) { recognitionRef.current = next; try { next.start(); } catch(err) { setS('idle'); } }
+      } else {
+        setS('idle');
+      }
+    };
+    rec.onend = () => {
+      if (stateRef.current === 'listening') {
+        const next = spawnRec();
+        if (next) { recognitionRef.current = next; try { next.start(); } catch(err) { setS('idle'); } }
+      }
+    };
+    return rec;
+  }
+
+  function startListening() {
+    if (stateRef.current !== 'idle') return;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert('Speech recognition not supported in this browser. Try Chrome.'); return; }
+    setS('listening');
+    const rec = spawnRec();
+    if (rec) { recognitionRef.current = rec; try { rec.start(); } catch(err) { setS('idle'); } }
+  }
+
+  function stopListening() {
+    setS('idle');
+    if (recognitionRef.current) { try { recognitionRef.current.abort(); } catch(e){} recognitionRef.current = null; }
+  }
+
+  function toggle() {
+    if (stateRef.current === 'idle') startListening();
+    else stopListening();
+  }
+
+  function onTouchStart(e) {
+    drag.current = {
+      sx: e.touches[0].clientX, sy: e.touches[0].clientY,
+      px: pos.x, py: pos.y, moved: false,
+    };
+  }
+  function onTouchMove(e) {
+    if (!drag.current) return;
+    const dx = e.touches[0].clientX - drag.current.sx;
+    const dy = e.touches[0].clientY - drag.current.sy;
+    if (Math.abs(dx) > 6 || Math.abs(dy) > 6) drag.current.moved = true;
+    if (!drag.current.moved) return;
+    e.preventDefault();
+    const nx = Math.max(20, Math.min(window.innerWidth - 64, drag.current.px + dx));
+    const ny = Math.max(60, Math.min(window.innerHeight - 64, drag.current.py + dy));
+    setPos({ x: nx, y: ny });
+  }
+  function onTouchEnd() {
+    if (!drag.current) return;
+    if (!drag.current.moved) toggle();
+    else { try { localStorage.setItem('tmc_mic_pos', JSON.stringify(pos)); } catch(e){} }
+    drag.current = null;
+  }
+
+  const bg = state === 'listening' ? '#b5432f' : state === 'processing' ? '#b8923f' : 'var(--olive-bright)';
+  const icon = state === 'processing' ? '⏳' : state === 'listening' ? '⏹' : '🎙';
+
+  return (
+    <div
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onClick={() => { if (!('ontouchstart' in window)) toggle(); }}
+      style={{
+        position:'fixed', left:pos.x, top:pos.y, width:56, height:56,
+        borderRadius:'50%', background:bg, display:'flex', alignItems:'center',
+        justifyContent:'center', fontSize:22, cursor:'pointer', zIndex:999,
+        boxShadow:'0 3px 14px rgba(0,0,0,0.5)', userSelect:'none', touchAction:'none',
+        animation: state === 'listening' ? 'micPulse 1.2s ease-out infinite' : 'none',
+        transition: state === 'idle' ? 'background 0.2s' : 'none',
+      }}
+    >
+      {icon}
+    </div>
+  );
+}
+
+/* ── Sheet ─────────────────────────────────────────────────────────────────── */
+function WarrantySheet({ eq, job, onRegistered, onClose }) {
+  const [copied, setCopied] = useState(false);
+  const [marking, setMarking] = useState(false);
+  const ws = warrantyStatus(eq);
+
+  const installDisplay = eq.install_date ? fmtDate(eq.install_date) : '—';
+  const lines = [
+    `CUSTOMER: ${job.customer}`,
+    `ADDRESS: ${siteAddr(job) || custAddr(job) || ''}`,
+    `PHONE: ${job.phone || ''}`,
+    ``,
+    `EQUIPMENT: ${eq.label}`,
+    `BRAND: ${eq.brand || ''}`,
+    `MODEL #: ${eq.model_number || ''}`,
+    `SERIAL #: ${eq.serial_number || ''}`,
+    `INSTALL DATE: ${installDisplay}`,
+  ].join('\n');
+
+  function copyAll() {
+    navigator.clipboard.writeText(lines).catch(() => {});
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2500);
+  }
+
+  async function markRegistered() {
+    setMarking(true);
+    const today = todayISO();
+    const err = await updateEquipment(eq.id, { warranty_registered: true, warranty_registered_date: today });
+    setMarking(false);
+    if (err) { alert(`Failed: ${err.message}`); return; }
+    onRegistered({ ...eq, warranty_registered: true, warranty_registered_date: today });
+    onClose();
+  }
+
+  const bannerColor = ws.type === 'urgent' ? '#b8923f' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? '#5d8a3a' : 'var(--muted)';
+  const bannerText = ws.type === 'registered'
+    ? `✓ Registered${ws.expires ? ' · expires ' + fmtDate(ws.expires) : ''}`
+    : ws.type === 'urgent' ? `⚠ ${ws.daysLeft} days left — register by ${fmtDate(ws.deadline)}`
+    : ws.type === 'lapsed' ? `⚠ 60-day window closed — standard 10yr warranty applies`
+    : ws.type === 'pending' ? `📋 ${ws.daysLeft} days left to register for 12yr warranty`
+    : `📋 Register to lock in 12yr warranty`;
+
+  return (
+    <Sheet onClose={onClose} title="REGISTER WARRANTY">
+      {/* countdown banner */}
+      <div className="mono" style={{ fontSize:12, color: bannerColor, padding:"8px 10px", borderRadius:6, background:"rgba(255,255,255,0.04)", marginBottom:14 }}>
+        {bannerText}
+      </div>
+
+      {/* data block */}
+      <div style={{ background:"var(--bg)", borderRadius:8, padding:12, marginBottom:12, border:"1px solid var(--line)" }}>
+        {[
+          ['CUSTOMER', job.customer],
+          ['ADDRESS', siteAddr(job) || custAddr(job)],
+          ['PHONE', job.phone],
+          ['EQUIPMENT', eq.label],
+          ['BRAND', eq.brand],
+          ['MODEL #', eq.model_number],
+          ['SERIAL #', eq.serial_number],
+          ['INSTALL DATE', installDisplay],
+        ].filter(([,v]) => v).map(([k,v]) => (
+          <div key={k} style={{ display:"flex", gap:8, marginBottom:5 }}>
+            <span className="mono" style={{ fontSize:11, color:"var(--muted)", minWidth:90, flexShrink:0 }}>{k}</span>
+            <span style={{ fontSize:13, wordBreak:"break-all" }}>{v}</span>
+          </div>
+        ))}
+      </div>
+
+      <button onClick={copyAll} className="head"
+        style={{ width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10,
+          background: copied ? '#5d8a3a' : 'var(--panel)', border:`1px solid ${copied ? '#5d8a3a' : 'var(--line)'}`, color: copied ? '#fff' : 'var(--text)' }}>
+        {copied ? '✓ COPIED TO CLIPBOARD' : '📋 COPY ALL'}
+      </button>
+
+      <a href="https://my.daikincomfort.com/product-registration" target="_blank" rel="noreferrer"
+        style={{ display:"block", width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10,
+          background:"var(--olive-bright)", color:"var(--bg)", textAlign:"center", textDecoration:"none", boxSizing:"border-box" }}
+        className="head">
+        🌐 OPEN DAIKIN REGISTRATION →
+      </a>
+
+      {!eq.warranty_registered && (
+        <button onClick={markRegistered} disabled={marking} className="head"
+          style={{ width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:600,
+            background:"transparent", border:"1px solid #5d8a3a", color:"#5d8a3a", opacity: marking ? 0.6 : 1 }}>
+          {marking ? 'SAVING…' : '✓ MARK AS REGISTERED'}
+        </button>
+      )}
+    </Sheet>
+  );
+}
+
+/* ── EquipEditSheet ─────────────────────────────────────────────────────────── */
+function EquipEditSheet({ eq, onSave, onClose }) {
+  const [label, setLabel] = useState(eq.label || '');
+  const [fields, setFields] = useState(() => {
+    const f = {};
+    EQUIP_KEYS.forEach(k => { f[k] = eq[k] || ''; });
+    return f;
+  });
+  const [installDate, setInstallDate] = useState(eq.install_date || '');
+  const [warrantyReg, setWarrantyReg] = useState(!!eq.warranty_registered);
+  const [saving, setSaving] = useState(false);
+
+  async function doSave() {
+    if (!label.trim()) return;
+    setSaving(true);
+    const updates = { label: label.trim(), install_date: installDate || null, warranty_registered: warrantyReg };
+    if (!warrantyReg) updates.warranty_registered_date = null;
+    EQUIP_KEYS.forEach(k => { updates[k] = fields[k] || null; });
+    const error = await updateEquipment(eq.id, updates);
+    setSaving(false);
+    if (error) { alert('Save failed: ' + error.message); return; }
+    onSave({ ...eq, ...updates });
+  }
+
+  return (
+    <Sheet title="EDIT EQUIPMENT" onClose={onClose}>
+      <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, marginTop:4 }}>LABEL / LOCATION</div>
+      <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. Living Room, Outdoor Unit" />
+      {EQUIP_FIELDS.map(f => (
+        <div key={f.key}>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"12px 0 6px" }}>{f.label}</div>
+          <input value={fields[f.key] || ''} onChange={e => setFields(s => ({...s,[f.key]:e.target.value}))} />
+        </div>
+      ))}
+      <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"12px 0 6px" }}>INSTALL DATE</div>
+      <input type="date" value={installDate} onChange={e => setInstallDate(e.target.value)} />
+      <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:16, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
+        <input type="checkbox" id="edit-wreg" checked={warrantyReg} onChange={e => setWarrantyReg(e.target.checked)}
+          style={{ width:20, height:20, accentColor:"var(--green)", cursor:"pointer" }} />
+        <label htmlFor="edit-wreg" className="mono"
+          style={{ fontSize:13, color: warrantyReg ? "var(--green)" : "var(--muted)", cursor:"pointer" }}>
+          {warrantyReg ? '✓ WARRANTY REGISTERED' : 'WARRANTY NOT REGISTERED'}
+        </label>
+      </div>
+      <button onClick={doSave} disabled={saving} className="head"
+        style={{ width:"100%", marginTop:18, padding:15, borderRadius:9, fontSize:16, fontWeight:700,
+          background: saving ? "var(--muted)" : "var(--olive-bright)", color:"var(--bg)" }}>
+        {saving ? 'SAVING…' : 'SAVE CHANGES'}
+      </button>
+    </Sheet>
+  );
+}
+
+function Sheet({ title, onClose, children }) {
+  return (
+    <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.6)", zIndex:50, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="fade-in"
+        style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--olive)",
+          borderRadius:"16px 16px 0 0", padding:"18px 16px 28px", maxHeight:"80vh", overflowY:"auto" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+          <div className="head" style={{ fontSize:16, fontWeight:700 }}>{title}</div>
+          <button onClick={onClose} className="mono" style={{ color:"var(--muted)", fontSize:18 }}>✕</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>

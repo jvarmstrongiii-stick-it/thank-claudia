@@ -1,0 +1,30 @@
+name: Deploy Claudia to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - claude/hvac-supabase-integration-Di5df
+    paths:
+      - 'claudia.html'
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare pages output
+        run: |
+          mkdir -p dist
+          cp claudia.html dist/index.html
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./dist
+          force_orphan: true
