@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - claude/hvac-supabase-integration-Di5df
     paths:
       - 'claudia.html'
 
