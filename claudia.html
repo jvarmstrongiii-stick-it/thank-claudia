@@ -2210,7 +2210,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
       {showStatus && (
         <Sheet onClose={() => setShowStatus(false)} title="UPDATE STATUS">
           {STATUSES.map(s => (
-            <button key={s} onClick={() => { onUpdate({ status:s }); setShowStatus(false); }}
+            <button key={s} onClick={() => { onUpdate({ status:s }); setShowStatus(false); if (s === "Closed") onBack(); }}
               style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", padding:"14px 4px", borderBottom:"1px solid var(--line)", textAlign:"left" }}>
               <StatusPill status={s} />
               {job.status === s && <span style={{ color:"var(--olive-bright)" }}>✓</span>}
