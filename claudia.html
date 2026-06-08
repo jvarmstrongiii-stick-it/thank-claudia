@@ -2199,7 +2199,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           </div>
         )}
 
-        <div style={{ marginTop:20, display:"flex", justifyContent:"center" }}>
+        <div style={{ marginTop:20, display:"flex", flexDirection:"column", alignItems:"center", gap:6 }}>
+          <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>CURRENT STATUS</div>
           <StatusPill status={job.status} />
         </div>
         <button onClick={() => setShowStatus(true)} className="head"
