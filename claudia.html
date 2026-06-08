@@ -91,14 +91,14 @@ const DEVICE_PASSPHRASE = "TMCmech";
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
-  "On Site","In Route","Scheduled",
+  "On Site","In Route","Scheduled","Ready to Schedule",
   "New","Evaluation Needed","Write Estimate","Waiting on Approval",
   "In Progress","On Hold",
   "Completed/Needs Billing","Billed/Waiting for Payment","Completed/Paid","Closed",
 ];
 const STATUS_COLOR = {
   "New":"#d9af52","Evaluation Needed":"#8a8c7e","Write Estimate":"#b8923f",
-  "Waiting on Approval":"#c98a3f","Scheduled":"#6b7338","In Route":"#d9af52",
+  "Waiting on Approval":"#c98a3f","Ready to Schedule":"#6b7338","Scheduled":"#6b7338","In Route":"#d9af52",
   "On Site":"#93a046","In Progress":"#93a046","On Hold":"#b5432f",
   "Completed/Needs Billing":"#d9af52","Billed/Waiting for Payment":"#c98a3f","Completed/Paid":"#5d8a3a","Closed":"#8a8c7e",
 };
@@ -427,12 +427,12 @@ async function fetchUsers() {
 }
 
 /* ── Components ────────────────────────────────────────────────────────────── */
-function StatusPill({ status }) {
-  const c = STATUS_COLOR[status] || "#8a8c7e";
+function StatusPill({ status, overdue }) {
+  const c = overdue ? "#b5432f" : "var(--muted)";
   return (
     <span className="head" style={{
       fontSize:11, fontWeight:600, padding:"4px 9px", borderRadius:5,
-      border:`1px solid ${c}`, color:c, background:c+"18", whiteSpace:"nowrap",
+      border:`1px solid ${c}`, color:c, background: overdue ? "#b5432f18" : "transparent", whiteSpace:"nowrap",
     }}>{status}</span>
   );
 }
@@ -1161,15 +1161,16 @@ Command: "${transcript}"`
               }
 
               function JobCard({ j }) {
+                const overdue = j.status === "Scheduled" && j.scheduled_date && j.scheduled_date < todayISO();
                 return (
                   <button key={j.id} onClick={() => setSelectedId(j.id)} className="fade-in"
                     style={{ display:"block", width:"100%", textAlign:"left", marginBottom:8,
                       background:"var(--panel)", border:"1px solid var(--line)",
-                      borderLeft:`3px solid ${STATUS_COLOR[j.status]||"var(--line)"}`,
+                      borderLeft:`3px solid ${overdue ? "#b5432f" : "var(--line)"}`,
                       borderRadius:10, padding:14 }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                       <div className="head" style={{ fontSize:18, fontWeight:600 }}>{j.customer}</div>
-                      <StatusPill status={j.status} />
+                      <StatusPill status={j.status} overdue={overdue} />
                     </div>
                     {(siteAddr(j)||custAddr(j)||j.location) ? (
                       <div className="head" style={{ fontSize:14, fontWeight:600, color:"var(--brass-bright)", marginTop:2 }}>
