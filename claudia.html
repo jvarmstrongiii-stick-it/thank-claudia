@@ -427,12 +427,12 @@ async function fetchUsers() {
 }
 
 /* ── Components ────────────────────────────────────────────────────────────── */
-function StatusPill({ status, overdue }) {
-  const c = overdue ? "#b5432f" : "var(--muted)";
+function StatusPill({ status, overdue, scheduled }) {
+  const c = overdue ? "#b5432f" : scheduled ? "#5d8a3a" : "var(--muted)";
   return (
     <span className="head" style={{
       fontSize:11, fontWeight:600, padding:"4px 9px", borderRadius:5,
-      border:`1px solid ${c}`, color:c, background: overdue ? "#b5432f18" : "transparent", whiteSpace:"nowrap",
+      border:`1px solid ${c}`, color:c, background: (overdue || scheduled) ? c+"18" : "transparent", whiteSpace:"nowrap",
     }}>{status}</span>
   );
 }
@@ -1162,15 +1162,17 @@ Command: "${transcript}"`
 
               function JobCard({ j }) {
                 const overdue = j.status === "Scheduled" && j.scheduled_date && j.scheduled_date < todayISO();
+                const scheduled = j.status === "Scheduled" && !overdue;
+                const accentColor = overdue ? "#b5432f" : scheduled ? "#5d8a3a" : null;
                 return (
                   <button key={j.id} onClick={() => setSelectedId(j.id)} className="fade-in"
                     style={{ display:"block", width:"100%", textAlign:"left", marginBottom:8,
                       background:"var(--panel)", border:"1px solid var(--line)",
-                      borderLeft:`3px solid ${overdue ? "#b5432f" : "var(--line)"}`,
+                      borderLeft:`3px solid ${accentColor || "var(--line)"}`,
                       borderRadius:10, padding:14 }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:8 }}>
                       <div className="head" style={{ fontSize:18, fontWeight:600 }}>{j.customer}</div>
-                      <StatusPill status={j.status} overdue={overdue} />
+                      <StatusPill status={j.status} overdue={overdue} scheduled={scheduled} />
                     </div>
                     {(siteAddr(j)||custAddr(j)||j.location) ? (
                       <div className="head" style={{ fontSize:14, fontWeight:600, color:"var(--brass-bright)", marginTop:2 }}>
