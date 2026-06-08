@@ -173,6 +173,7 @@ function fromRow(row, notes=[]) {
     scheduled_date: scheduledAt ? scheduledAt.slice(0,10) : todayISO(),
     scheduled_time: scheduledAt ? scheduledAt.slice(11,16) : '09:00',
     value: Number(row.value) || 0,
+    original_ask: row.original_ask || '',
     notes: row.notes || '',
     history: notes.filter(n => n.source !== 'system').map(n => ({
       id: n.id,
@@ -200,6 +201,7 @@ function toRow(job, customerId, userId) {
     current_status: job.status,
     value: Number(job.value) || null,
     scheduled_at,
+    original_ask: job.original_ask || null,
     notes: job.notes || null,
     site_address: job.site_address || null,
     address: null,
@@ -777,6 +779,7 @@ Command: "${transcript}"`
     const updateData = { updated_at: new Date().toISOString() };
     if ('status' in patch)        updateData.current_status = patch.status;
     if ('type' in patch)          updateData.flow_type = patch.type;
+    if ('original_ask' in patch)  updateData.original_ask = patch.original_ask||null;
     if ('notes' in patch)         updateData.notes = patch.notes||null;
     if ('value' in patch)         updateData.value = Number(patch.value)||null;
     if ('scheduled_date' in patch || 'scheduled_time' in patch) {
@@ -1717,6 +1720,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [showResched, setShowResched] = useState(false);
   const [date, setDate] = useState(job.scheduled_date);
   const [time, setTime] = useState(job.scheduled_time);
+  const [originalAsk, setOriginalAsk] = useState(job.original_ask || '');
   const [notes, setNotes] = useState(job.notes || '');
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
@@ -1965,6 +1969,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
               <div style={{ fontSize:15, color:"var(--muted)", marginTop:3, lineHeight:1.4 }}>{custAddr(job)}</div>
             </React.Fragment>
           )}
+        </div>
+
+        <div style={{ marginTop:10 }}>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>ORIGINAL ASK</div>
+          <textarea value={originalAsk} onChange={e => setOriginalAsk(e.target.value)}
+            onBlur={() => { if (originalAsk !== (job.original_ask||'')) onUpdate({ original_ask: originalAsk }); }}
+            placeholder="What did the customer ask for?"
+            rows={2} style={{ resize:"vertical", lineHeight:1.4 }} />
         </div>
 
         <div style={{ marginTop:10 }}>
@@ -2404,7 +2416,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
     same_address: loadSameAddrPref(),
     phone:"", email:"", type:"Service Call",
     status:"New", scheduled_date: todayISO(), scheduled_time:"09:00",
-    value:"", notes:"", history:[],
+    value:"", original_ask:"", notes:"", history:[],
     ...(prefill || {}),
   });
   const set = (k,v) => setF(s => ({...s,[k]:v}));
@@ -2590,6 +2602,10 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
         <div>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>JOB VALUE ($)</div>
           <input type="number" inputMode="decimal" placeholder="0" value={f.value} onChange={e => set("value",e.target.value)} />
+        </div>
+        <div>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>ORIGINAL ASK</div>
+          <textarea rows={2} placeholder="What did the customer ask for?" value={f.original_ask} onChange={e => set("original_ask",e.target.value)} style={{ resize:"vertical", lineHeight:1.4 }} />
         </div>
         <div>
           <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>NOTES</div>

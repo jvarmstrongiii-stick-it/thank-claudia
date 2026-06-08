@@ -7,7 +7,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, router } from 'expo-router';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { fetchJob, updateJobStatus, updateJobTime, updateJobAddress, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob, fetchChores, insertChore, toggleChore } from '../../lib/queries';
+import { fetchJob, updateJobStatus, updateJobTime, updateJobAddress, updateJobNotes, fetchCustomerHistory, fetchJobPhotos, fetchEquipmentForJob, fetchChores, insertChore, toggleChore } from '../../lib/queries';
 import { STATUS_LABELS, STATUS_COLORS, statusesForJobType, formatTime, formatDate } from '../../lib/status';
 import { fs, colors } from '../../lib/platform';
 import type { Job, JobStatus, Equipment, JobPhoto, Chore } from '../../lib/types';
@@ -28,6 +28,9 @@ export default function JobDetail() {
   const [rescheduleModal, setRescheduleModal] = useState(false);
   const [addressModal, setAddressModal] = useState(false);
   const [editAddress, setEditAddress] = useState('');
+  const [notesModal, setNotesModal] = useState(false);
+  const [editOriginalAsk, setEditOriginalAsk] = useState('');
+  const [editNotes, setEditNotes] = useState('');
   const [locating, setLocating] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<Array<{
@@ -164,6 +167,22 @@ export default function JobDetail() {
     setJob({ ...job, address: addr });
   }
 
+  function openNotesEdit() {
+    if (!job) return;
+    setEditOriginalAsk(job.original_ask ?? '');
+    setEditNotes(job.notes ?? '');
+    setNotesModal(true);
+  }
+
+  async function handleSaveNotes() {
+    if (!job) return;
+    const ask = editOriginalAsk.trim() || null;
+    const notes = editNotes.trim() || null;
+    setNotesModal(false);
+    await updateJobNotes(job.id, ask, notes);
+    setJob({ ...job, original_ask: ask, notes });
+  }
+
   function openReschedule() {
     const base = job?.scheduled_time ? new Date(job.scheduled_time) : new Date();
     setPickedDate(base);
@@ -279,23 +298,22 @@ export default function JobDetail() {
           </Row>
         )}
 
-        {(originalAsk || additionalComments) && (
-          <>
-            <View style={styles.divider} />
-            {!!originalAsk && (
-              <>
-                <Text style={styles.sectionLabel}>ORIGINAL ASK</Text>
-                <Text style={styles.notes}>{originalAsk}</Text>
-              </>
-            )}
-            {!!additionalComments && (
-              <>
-                <Text style={[styles.sectionLabel, { marginTop: 12 }]}>ADDITIONAL COMMENTS</Text>
-                <Text style={styles.notes}>{additionalComments}</Text>
-              </>
-            )}
-          </>
-        )}
+        <View style={styles.divider} />
+        <TouchableOpacity onPress={openNotesEdit} activeOpacity={0.7}>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionLabel}>ORIGINAL ASK</Text>
+            <Text style={[styles.value, styles.link]}>EDIT</Text>
+          </View>
+          {originalAsk
+            ? <Text style={styles.notes}>{originalAsk}</Text>
+            : <Text style={[styles.notes, { color: colors.muted }]}>// TAP TO ADD</Text>
+          }
+          <Text style={[styles.sectionLabel, { marginTop: 12 }]}>ADDITIONAL COMMENTS</Text>
+          {additionalComments
+            ? <Text style={styles.notes}>{additionalComments}</Text>
+            : <Text style={[styles.notes, { color: colors.muted }]}>// TAP TO ADD</Text>
+          }
+        </TouchableOpacity>
 
         <View style={styles.divider} />
         <Text style={styles.sectionLabel}>CHORES</Text>
@@ -529,6 +547,37 @@ export default function JobDetail() {
         </View>
       </Modal>
 
+      <Modal visible={notesModal} transparent animationType="slide">
+        <TouchableOpacity style={styles.overlay} onPress={() => setNotesModal(false)} />
+        <View style={styles.sheet}>
+          <Text style={styles.sheetTitle}>ORIGINAL ASK & NOTES</Text>
+
+          <Text style={[styles.addrConfirmLabel, { marginTop: 4 }]}>ORIGINAL ASK</Text>
+          <TextInput
+            style={[styles.webInput, { minHeight: 80, textAlignVertical: 'top', marginBottom: 14 }]}
+            value={editOriginalAsk}
+            onChangeText={setEditOriginalAsk}
+            placeholder="What did the customer ask for?"
+            placeholderTextColor={colors.muted}
+            multiline
+          />
+
+          <Text style={styles.addrConfirmLabel}>ADDITIONAL COMMENTS</Text>
+          <TextInput
+            style={[styles.webInput, { minHeight: 80, textAlignVertical: 'top', marginBottom: 14 }]}
+            value={editNotes}
+            onChangeText={setEditNotes}
+            placeholder="—"
+            placeholderTextColor={colors.muted}
+            multiline
+          />
+
+          <TouchableOpacity style={styles.saveBtn} onPress={handleSaveNotes}>
+            <Text style={styles.saveBtnText}>SAVE</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
       <Modal visible={statusModal} transparent animationType="slide">
         <TouchableOpacity style={styles.overlay} onPress={() => setStatusModal(false)} />
         <View style={styles.sheet}>
@@ -591,6 +640,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   sectionLabel: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(12), color: colors.muted, letterSpacing: 2, marginBottom: 8 },
+  sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   notes: { fontFamily: 'Barlow_400Regular', fontSize: fs(15), color: colors.text, lineHeight: fs(22) },
   empty: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(13), color: colors.muted },
   errorText: { fontFamily: 'ShareTechMono_400Regular', fontSize: fs(13), color: colors.muted },
