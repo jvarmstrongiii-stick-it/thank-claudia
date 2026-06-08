@@ -25,7 +25,7 @@
 
 ## Database Schema
 
-Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard screenshots, and `PROJECT_SPEC.md`. No migration files are committed — Supabase was configured via the dashboard.
+Schema verified against live Supabase instance (column list queried June 2026). No migration files are committed — Supabase was configured via the dashboard. **claudia.html is the source of truth for column names** — they differ from the Expo app's `lib/types.ts` in several cases (see Gotchas).
 
 **Full table list:** `chores`, `components`, `customers`, `equipment`, `job_components`, `job_equipment`, `job_notes`, `job_photos`, `job_status_history`, `jobs`, `line_items`, `notifications`, `photos`, `receipts`, `sync_queue`, `users`
 
@@ -34,48 +34,62 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard scr
 |--------|------|-------|
 | id | uuid PK | |
 | name | text | |
-| address | text | nullable |
+| address | text | nullable — billing/main address |
 | phone | text | nullable |
+| email | text | nullable |
 
 ### `jobs`
+Verified column list (June 2026). **claudia.html column names differ from Expo app** — use these exact names when writing queries for claudia.html.
+
 | Column | Type | Notes |
 |--------|------|-------|
 | id | uuid PK | |
 | customer_id | uuid FK → customers | |
-| job_type | text | enum: `Service Call`, `New Install`, `Maintenance`, `Estimate`, `Emergency`, `Custom` |
-| status | text | 13-value enum — see `lib/types.ts` and `lib/status.ts` |
-| scheduled_time | timestamptz | nullable |
-| address | text | nullable — job-site address, may differ from customer address |
+| flow_type | text | job type — `Service Call`, `New Install`, `Maintenance`, `Replacement`, `Warranty`, `Estimate` |
+| current_status | text | job status — see status values below |
+| assigned_to | uuid FK → users | nullable |
 | value | numeric | nullable — job revenue |
-| original_ask | text | nullable — what the customer originally asked for, captured separately from notes |
-| notes | text | nullable — additional comments/notes, distinct from original_ask |
-| priority | int4 | sort order |
-| assigned_to | text | nullable — free-text technician name, not validated against users table |
+| scheduled_at | timestamptz | nullable |
+| site_address | text | nullable — where the job is; may differ from customer address. **Must be added if missing:** `ALTER TABLE jobs ADD COLUMN site_address text;` |
+| original_ask | text | nullable — what the customer originally requested |
+| notes | text | nullable — tech/office notes, separate from original_ask |
+| recommendations | text | nullable — tech recommendations (column exists, no UI yet) |
+| recommendation_acknowledged | boolean | nullable — customer ack of tech recommendations (no UI yet) |
+| equipment_type | text | nullable — denormalized from OCR scan on job |
+| brand | text | nullable — denormalized from OCR scan |
+| model_number | text | nullable — denormalized from OCR scan |
+| serial_number | text | nullable — denormalized from OCR scan |
+| tonnage | text | nullable — denormalized from OCR scan |
+| refrigerant | text | nullable — denormalized from OCR scan |
+| voltage | text | nullable — denormalized from OCR scan |
+| seer | text | nullable — denormalized from OCR scan |
+| mca | text | nullable — denormalized from OCR scan |
+| mop | text | nullable — denormalized from OCR scan |
+| year_manufactured | text | nullable — denormalized from OCR scan |
 | created_at | timestamptz | |
 | updated_at | timestamptz | |
 
-**Job status values** (from `lib/types.ts` — use these exact strings):
+**Note:** `address`, `job_type`, `status`, `scheduled_time`, `priority` do NOT exist on the live jobs table — these are Expo app names only. The live columns are `site_address`, `flow_type`, `current_status`, `scheduled_at` (no priority column).
 
-| Status | Display label | Color |
-|--------|--------------|-------|
-| `Estimate Scheduled` | NEXT UP | #8fba3c (accent green) |
-| `Estimate Given` | NEXT UP | #8fba3c |
-| `Approved` | NEXT UP | #8fba3c |
-| `Parts Ordered` | STANDING BY | #2a2b22 (border) |
-| `Scheduled` | NEXT UP | #8fba3c |
-| `In Route` | IN FIELD | #e8a020 (orange) |
-| `In Progress` | IN FIELD | #c8b97a (gold) |
-| `Complete` | COMPLETE | #2a2b22 |
-| `Needs Billing` | STANDING BY | #2a2b22 |
-| `Invoiced` | STANDING BY | #2a2b22 |
-| `Paid` | COMPLETE | #2a2b22 |
-| `On Hold` | ON HOLD | #555 |
-| `Cancelled` | ON HOLD | #555 |
+**Job status values** (claudia.html `STATUSES` array — use these exact strings):
 
-**Valid statuses by job type** (from `lib/status.ts`):
-- **Estimate:** `Estimate Scheduled`, `Estimate Given`, `Approved`, `On Hold`, `Cancelled`
-- **New Install:** all 13 statuses
-- **Service Call, Maintenance, Emergency, Custom:** `Scheduled`, `In Route`, `In Progress`, `Complete`, `Needs Billing`, `Invoiced`, `Paid`, `On Hold`, `Cancelled`
+| Status | Color |
+|--------|-------|
+| `New` | #d9af52 |
+| `Evaluation Needed` | #8a8c7e |
+| `Write Estimate` | #b8923f |
+| `Waiting on Approval` | #c98a3f |
+| `Scheduled` | #6b7338 |
+| `In Route` | #d9af52 |
+| `On Site` | #93a046 |
+| `In Progress` | #93a046 |
+| `On Hold` | #b5432f |
+| `Completed/Needs Billing` | #d9af52 |
+| `Billed/Waiting for Payment` | #c98a3f |
+| `Completed/Paid` | #5d8a3a |
+| `Closed` | #8a8c7e |
+
+**Job types** (claudia.html `JOB_TYPES`): `Service Call`, `New Install`, `Maintenance`, `Replacement`, `Warranty`, `Estimate`
 
 ### `job_photos`
 | Column | Type | Notes |
@@ -155,8 +169,8 @@ Schema is inferred from `lib/queries.ts`, `lib/types.ts`, Supabase dashboard scr
 | job_id | uuid FK → jobs | |
 | user_id | uuid FK → users | nullable — who wrote the note |
 | content | text | |
+| source | text | CHECK constraint: `('voice', 'text', 'system', 'user')` — use one of these exact strings |
 | created_at | timestamptz | |
-| *(schema needs verification)* | | |
 
 ### `job_status_history`
 | Column | Type | Notes |
@@ -374,32 +388,28 @@ Fonts (loaded in `app/_layout.tsx`):
 
 ## Build & Deploy
 
-### Active target: browser (HTML/web)
-The EAS native build was paused mid-build. **The current working deployment is the HTML browser version**, which is fully functional. React Native Web handles rendering; Expo Router's web output is what's in active use.
+### Active deployment: `claudia.html` → GitHub Pages
+**`claudia.html` is the only deployed app.** It is a single-file React 18 app using Babel Standalone for in-browser JSX transpilation (no build step). It is what users actually use.
 
-When making changes, prioritize web compatibility. Test in the browser. Native-only APIs (e.g. `expo-speech-recognition`, native camera dialogs) will not work in the web build — see Gotchas below.
+The Expo/React Native app (`app/`, `components/`, `lib/`) is **not deployed** and not the active product. Changes intended for users must go into `claudia.html`.
 
-### Build config notes
-- **`babel.config.js`:** Uses `babel-preset-expo` with a custom plugin that polyfills `import.meta` to `{}` for web compatibility.
-- **`metro.config.js`:** Stubs native-only modules for web (e.g., speech recognition).
-- **`tsconfig.json`:** Extends `expo/tsconfig.base`, strict mode enabled.
+**Deploy trigger:** `.github/workflows/deploy.yml` fires on any push to `main` that touches `claudia.html`. It copies the file to `dist/index.html` and deploys to the `gh-pages` branch via `peaceiris/actions-gh-pages`. Deploys typically complete in ~1 minute.
 
-### EAS build profiles (`eas.json`) — paused
-| Profile | Distribution | Notes |
-|---------|-------------|-------|
-| development | internal | Dev client enabled, for Expo Go replacement |
-| preview | internal | Pre-production testing |
-| production | store | Auto-increment version |
+**claudia.html architecture:**
+- React 18 UMD + Babel Standalone loaded from unpkg/jsDelivr CDN
+- `<script type="text/babel">` block contains the entire app (~3000 lines)
+- Supabase JS client loaded from CDN — credentials hardcoded in the file
+- `fromRow(row)` maps DB rows → app job objects; `toRow(job, customerId, userId)` maps back
+- `deriveCustomers(jobs)` builds multi-property customer records client-side from job history
+- Claude proxy calls go to `CLAUDE_PROXY = ${SUPABASE_URL}/functions/v1/claude-proxy?apikey=${SUPABASE_KEY}`
+- CSP `eval` warnings in browser DevTools are expected and harmless — Babel Standalone requires eval; GitHub Pages sends no CSP headers
 
-EAS mobile builds are on hold. Do not assume a native build is current or runnable.
+### EAS / Expo — paused
+EAS mobile builds are on hold. Do not assume any native build is current or runnable.
 
 ### CI/CD
-- **No automated CI/CD.** No GitHub Actions workflows exist.
-- EAS builds are triggered manually when resumed: `eas build --platform android --profile development`
-- OTA updates via `eas update` for field testing without a full build.
-
-### Known deploy lag (web)
-The live web build can be **behind the working repo revision** if the web output has not been rebuilt and redeployed after recent commits. If behavior on the deployed site differs from the source, rebuild and redeploy before diagnosing.
+- GitHub Actions deploy (`deploy.yml`) is the only active CI/CD — triggers on `claudia.html` changes to `main`.
+- EAS builds triggered manually if/when resumed: `eas build --platform android --profile development`
 
 ---
 
@@ -407,26 +417,28 @@ The live web build can be **behind the working repo revision** if the web output
 
 | Issue | Severity | Detail |
 |-------|---------|--------|
-| **Speech recognition lag** | High | `expo-speech-recognition` has an ~8-second processing lag. Threading issue, not yet resolved. Voice intake feels slow. |
-| **Voice input on web uses browser SpeechRecognition** | Low | `expo-speech-recognition` is native-only. On web, VoiceBar uses the browser's `SpeechRecognition` API (`WEB_SPEECH` flag, `VoiceBar.tsx`). Chrome and Edge support this; Firefox and Safari fall back to a text input field. |
-| **Network flakiness on cellular** | Medium | Backend API calls fail intermittently when device is on mobile data in tunnel mode. Stable on WiFi. |
-| **backendUrl hardcoded to LAN IP** | Medium | `app.json` extra.backendUrl is `http://10.0.0.120:3001`. Must be updated for any device not on the same LAN, or replaced with a public URL for production. |
-| **No migration files committed** | Medium | Schema exists only in the Supabase dashboard. If the project is rebuilt from scratch, schema must be manually recreated from the types/queries. |
-| **No .env.example** | Low | New contributors won't know what env vars are needed. |
-| **iOS not yet built** | Low | Android was built first. No iOS EAS build has been run. |
-| **Expo SDK version mismatch in AGENTS.md** | Critical | **SDK 54 is installed. AGENTS.md says to read v56 docs — always verify with `cat package.json \| grep expo` before coding. Use v54 behavior, not v56.** |
-| **Backend code not in repo** | Medium | The Node.js server (port 3001, `/api/voice`, `/api/ocr`) is not committed. No server code is present in this repository. |
-| **No `App.tsx` usage** | Low | `App.tsx` exists at root but is not used — Expo Router takes over via `index.ts` → `registerRootComponent`. |
+| **claudia.html IS the app** | Critical | All user-facing changes must go in `claudia.html`. The Expo/RN app (`app/`, `components/`, `lib/`) is not deployed and not in active use. |
+| **DB column names differ from Expo types** | Critical | Live DB uses `flow_type`, `current_status`, `scheduled_at`, `site_address` — NOT `job_type`, `status`, `scheduled_time`, `address`. Never use Expo app column names when writing queries for claudia.html. |
+| **PostgREST schema cache staleness** | High | After `ALTER TABLE`, PostgREST caches the old schema and returns `PGRST204 "Could not find the X column"` until refreshed. Fix: run `NOTIFY pgrst, 'reload schema';` in Supabase SQL Editor. May take 5-10 min to propagate across all replicas. |
+| **`site_address` column may be missing** | High | Run `ALTER TABLE jobs ADD COLUMN site_address text; NOTIFY pgrst, 'reload schema';` if multi-property site picker or job saves fail with PGRST204 for `site_address`. |
+| **job_notes source constraint** | Medium | `job_notes.source` has CHECK constraint: allowed values are `'voice'`, `'text'`, `'system'`, `'user'`. Server-side triggers that write `source='system'` will fail the whole job insert if this constraint has been tightened. Verified expanded to include all four values. |
+| **Claude proxy CORS** | Medium | `claude-proxy` edge function CORS only allows `Authorization` and `Content-Type` headers. Pass `apikey` as a URL query param (`?apikey=...`) not a header — browser preflight rejects unknown headers. |
+| **CSP eval warnings** | Low | Babel Standalone triggers browser CSP eval warnings. These are informational only — GitHub Pages sends no CSP headers, nothing is blocked. |
+| **Speech recognition lag** | High | `expo-speech-recognition` has an ~8-second processing lag. Threading issue, not yet resolved. (Expo app only — not relevant to claudia.html.) |
+| **backendUrl hardcoded to LAN IP** | Medium | `app.json` extra.backendUrl is `http://10.0.0.120:3001`. (Expo app only.) |
+| **No migration files committed** | Medium | Schema exists only in the Supabase dashboard. If the project is rebuilt from scratch, schema must be manually recreated. |
+| **Expo SDK version mismatch in AGENTS.md** | Medium | SDK 54 is installed. AGENTS.md references v56 docs — verify with `cat package.json \| grep expo` before coding against Expo APIs. |
+| **Backend code not in repo** | Medium | The Node.js server (port 3001, `/api/voice`, `/api/ocr`) is not committed. (Expo app only.) |
 
 ---
 
-## Key Architecture Decisions
+## Key Architecture Decisions (claudia.html)
 
-- **Voice-first:** VoiceBar floats over every screen; speech → `/api/voice` → Claude → structured JSON → ConfirmJobModal → Supabase.
-- **OCR flow:** Photo → base64 → `/api/ocr` → Claude → structured JSON → OCRResultCard (editable) → upsert.
-- **Equipment deduplication:** Upserted by `(customer_id, serial)` — same serial on same customer overwrites, preventing duplicates.
-- **Status machine:** Job type gates which statuses are available, hardcoded in `lib/status.ts` via `statusesForJobType()`. Do not allow invalid status transitions.
-- **Platform scaling:** Web renders at 1.4× font scale, native at 1.3×, via `fs()` in `lib/platform.ts`. Always use `fs()` — never hardcode font sizes.
-- **Realtime:** Supabase Realtime is available but not wired to live-push updates. Dashboard uses pull-to-refresh and refetch-on-focus only.
-- **No auth:** All operations use the public anon key. RLS policies on the database side control access, not application-level auth.
-- **Dark olive theme:** Not a generic blue SaaS palette. Colors are defined in `lib/platform.ts`. Do not introduce off-palette colors without updating that file.
+- **Single-file deployment:** The entire app lives in `claudia.html` — no build step, no bundler, no node_modules needed. Babel Standalone transpiles JSX in the browser at page load.
+- **Voice-first:** Mic button → browser SpeechRecognition API → `CLAUDE_PROXY` edge function → Claude → structured intent JSON → job create/update.
+- **OCR flow:** Photo → base64 → `CLAUDE_PROXY` → Claude → structured equipment data → written to `jobs` row (denormalized) and optionally to `equipment` table.
+- **Multi-property customers:** No separate sites table. `deriveCustomers(jobs)` groups jobs by customer name and collects distinct `site_address` values client-side — a customer's site list is their job history.
+- **Status update closes detail:** Updating a job's status from the detail screen always navigates back to the dashboard.
+- **Job notes sourcing:** Auto-generated notes (status changes, job creation) use `source='system'`; voice-created notes use `source='voice'`; imported history uses `source='user'`.
+- **No auth:** All operations use the public anon key. RLS policies on the database side control access.
+- **Dark olive theme:** CSS variables in `<style>` block — `--bg`, `--panel`, `--line`, `--olive-bright`, `--text`, `--muted`, `--danger`. Do not introduce off-palette colors without updating that block.
