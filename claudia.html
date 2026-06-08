@@ -2199,8 +2199,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           </div>
         )}
 
+        <div style={{ marginTop:20, display:"flex", justifyContent:"center" }}>
+          <StatusPill status={job.status} />
+        </div>
         <button onClick={() => setShowStatus(true)} className="head"
-          style={{ width:"100%", marginTop:20, padding:16, borderRadius:10, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
+          style={{ width:"100%", marginTop:8, padding:16, borderRadius:10, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
           UPDATE STATUS →
         </button>
         <button onClick={() => { if (confirm("Delete this job?")) onDelete(); }} className="head"
