@@ -1176,7 +1176,9 @@ Command: "${transcript}"`
                         📍 {siteAddr(j)||custAddr(j)||j.location}
                       </div>
                     ) : null}
-                    <div style={{ fontSize:14, color:"var(--muted)", marginTop:3 }}>{j.type}</div>
+                    <div style={{ fontSize:14, color:"var(--muted)", marginTop:3, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+                      {j.type}{j.original_ask ? ` — ${j.original_ask}` : ''}
+                    </div>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginTop:10 }}>
                       <div className="mono" style={{ fontSize:14, color:"var(--brass-bright)" }}>
                         {fmtDate(j.scheduled_date)} · {fmtTime(j.scheduled_time)}
