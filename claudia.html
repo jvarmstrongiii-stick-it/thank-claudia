@@ -2212,6 +2212,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           style={{ width:"100%", marginTop:10, padding:13, borderRadius:10, fontSize:14, fontWeight:600, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)" }}>
           DELETE JOB
         </button>
+        <button onClick={onBack} className="head"
+          style={{ width:"100%", marginTop:10, padding:13, borderRadius:10, fontSize:16, fontWeight:600, background:"transparent", color:"var(--muted)", border:"1px solid var(--line)" }}>
+          ‹ BACK
+        </button>
       </div>
 
       {showStatus && (
