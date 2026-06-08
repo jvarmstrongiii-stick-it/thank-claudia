@@ -1448,7 +1448,7 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
   return (
     <div style={{ position:"fixed", inset:0, zIndex:100, background:"var(--bg)", overflowY:"auto", paddingBottom:40 }}>
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:10 }}>
-        <button onClick={onClose} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
+        <button onClick={onClose} className="head" style={{ fontSize:36, color:"var(--muted)", padding:"4px 12px 4px 4px", lineHeight:1 }}>‹</button>
         <div className="head" style={{ fontSize:18, fontWeight:600 }}>CHORES</div>
         <button onClick={() => { setAdding(v=>!v); setEditingId(null); }} className="head"
           style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
@@ -1926,7 +1926,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   return (
     <div className="fade-in" style={{ paddingBottom:40 }}>
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12 }}>
-        <button onClick={onBack} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
+        <button onClick={onBack} className="head" style={{ fontSize:36, color:"var(--muted)", padding:"4px 12px 4px 4px", lineHeight:1 }}>‹</button>
         <div className="head" style={{ fontSize:18, fontWeight:600 }}>JOB DETAIL</div>
         <button onClick={onEdit} className="head"
           style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
@@ -2210,7 +2210,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
       {showStatus && (
         <Sheet onClose={() => setShowStatus(false)} title="UPDATE STATUS">
           {STATUSES.map(s => (
-            <button key={s} onClick={() => { onUpdate({ status:s }); setShowStatus(false); if (s === "Closed") onBack(); }}
+            <button key={s} onClick={() => { onUpdate({ status:s }); setShowStatus(false); onBack(); }}
               style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", padding:"14px 4px", borderBottom:"1px solid var(--line)", textAlign:"left" }}>
               <StatusPill status={s} />
               {job.status === s && <span style={{ color:"var(--olive-bright)" }}>✓</span>}
@@ -2476,7 +2476,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
   return (
     <div className="fade-in" style={{ paddingBottom:40 }}>
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12 }}>
-        <button onClick={onCancel} className="head" style={{ fontSize:22, color:"var(--muted)" }}>‹</button>
+        <button onClick={onCancel} className="head" style={{ fontSize:36, color:"var(--muted)", padding:"4px 12px 4px 4px", lineHeight:1 }}>‹</button>
         <div className="head" style={{ fontSize:18, fontWeight:600 }}>{editing?"EDIT JOB":"NEW JOB"}</div>
       </div>
       <div style={{ padding:16, display:"flex", flexDirection:"column", gap:14 }}>
