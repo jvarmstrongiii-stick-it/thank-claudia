@@ -120,6 +120,18 @@ const STATUS_COLOR = {
 };
 const JOB_TYPES = ["Service Call","New Install","Maintenance","Replacement","Warranty","Estimate"];
 
+/* ── Recently-viewed jobs (per-device, localStorage) ───────────────────────── */
+const RECENT_KEY = 'tmc_recent_jobs';
+function getRecentJobs() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+}
+function saveRecentJob(job) {
+  if (!job || !job.id) return;
+  const list = getRecentJobs().filter(r => r.id !== job.id);
+  list.unshift({ id: job.id, customer: job.customer, type: job.type, status: job.status, site: siteAddr(job) });
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
+}
+
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
 function todayISO() { return new Date().toISOString().split("T")[0]; }
 function siteAddr(j) { return j.site_address || j.address || ""; }
@@ -353,43 +365,50 @@ function warrantyStatus(eq) {
   return { type:'pending', daysLeft, deadline: deadline.toISOString().split('T')[0] };
 }
 
-async function scanNameplate(file) {
+async function readFileForScan(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(new Error('File read failed'));
-    reader.onload = async (e) => {
-      try {
-        const dataUrl = e.target.result;
-        const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
-        if (!match) { reject(new Error('Invalid image data')); return; }
-        const rawType = match[1];
-        const base64Data = match[2];
-        const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType) ? rawType : 'image/jpeg';
-        const res = await fetch(CLAUDE_PROXY, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
-          body: JSON.stringify({
-            model: 'claude-haiku-4-5-20251001',
-            max_tokens: 512,
-            messages: [{
-              role: 'user',
-              content: [
-                { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
-                { type: 'text', text: 'You are an HVAC expert reading a photo of HVAC equipment, a nameplate, a data tag, or a part/component label.\n\nCRITICAL — label field mapping (read ALL digits exactly, do not truncate):\n- "P/N:", "Part No", "Part #", "CPN", "CPN-", "Model:" → model_number (use this, NOT the barcode model string, when both present)\n- "S/N:", "Serial:", "Serial No" → serial_number (completely separate from P/N — NEVER put a P/N value into serial_number)\n- "V:", "Volts:", "VAC" → voltage\n- "Hz" → frequency only, do NOT store in any field\n- "A", "Amps", "FLA", "RLA" → rated current only, do NOT store in mca (mca is a separate calculated value, leave null unless explicitly labeled MCA)\n\nEquipment types — this can be a WHOLE UNIT or a COMPONENT/PART:\n- Whole units: AC Condenser, Heat Pump, Air Handler, Gas Furnace, Electric Furnace, Mini-Split Indoor, Mini-Split Outdoor, Water Heater, Boiler, Package Unit\n- Motors & drives: Condenser Fan Motor, Evaporator Fan Motor, Blower Motor, ECM Motor, Variable-Speed Motor\n- Electrical components: Dual Run Capacitor, Start Capacitor, Contactor, Transformer, Circuit Board, Control Board, Sequencer\n- Refrigeration parts: Compressor, Expansion Valve, Reversing Valve, Filter Drier, Metering Device\n- Heating parts: Heat Strip, Igniter, Inducer Motor, Pressure Switch, Gas Valve\n\nEquipment type + brand inference from model/part number:\n- 253xxxxx = Interlink condenser fan motor\n- 5KCP, 3S, HC = GE/Genteq motor\n- CAP-xx = capacitor\n- DR96TC = 96% two-stage gas furnace (Daikin/Goodman)\n- GSX/SSX/XC = AC condenser; CAPEA/CHPF = evaporator coil\n- ARUF/AH = air handler; GMSS/GCSS = furnace\n- MXZ/FTX = Mitsubishi mini-split\n- H6HK/H8HK = Nordyne/Intertherm electric heat strip\n\nCapacity/spec → use "tonnage" for unit capacity only:\n- AC units/heat pumps/condensers: FIRST check nameplate for a direct capacity label (COOLING CAP, RATED CAP, NOMINAL CAP, BTU/HR, BTUH) — e.g. "36,000 BTU/HR" → "3 ton (36,000 BTU)". If not directly labeled, decode from the capacity digits embedded anywhere in the model number: 018 or 18=1.5T, 024 or 24=2T, 030 or 30=2.5T, 036 or 36=3T, 042 or 42=3.5T, 048 or 48=4T, 054 or 54=4.5T, 060 or 60=5T\n- Heat strips: kW × 3,412 = BTU (H6HK010 → "10 kW (34,120 BTU)")\n- Furnaces: "80,000 BTU" (080=80K, 100=100K in model)\n- Capacitors: "45+5 MFD, 440V"\n- For motors, leave tonnage null — use dedicated fields below\n\nBARCODE TEXT — if a 2D barcode (DataMatrix/QR/Code128) is visible, read the encoded text. Interlink barcodes encode: YSLB-{W}-{P}-{variant} e.g. YSLB-350-6-B001 (350W, 6-pole).\n\nPole count → RPM at 60 Hz: 2P=3450, 4P=1625, 6P=1075, 8P=825\nWatts → HP (input power, prefer printed label value): 150-180W=1/5, 190-230W=1/4, 240-370W=1/3, 371-540W=1/2, 541-700W=3/4, 701-760W=1\n\nMotor brand decoding by part number:\n- Interlink 253xxxxx: brand=Interlink, voltage=208-230V, shaft_diameter=1/2 inch; decode barcode YSLB-{W}-{P}-xxx → HP from watts, RPM from poles\n- GE/Genteq 5KCP39xx, 3S1xx, HC43xx: brand=GE/Genteq, shaft_diameter=1/2 inch\n- A.O. Smith / US Motor / Nidec F48xx, S58xx: shaft_diameter=1/2 inch\n- Century / Regal Beloit CPxx, CAxx: shaft_diameter=1/2 inch\n- Emerson K55xxx: shaft_diameter=1/2 inch\n\nMotor-specific fields (extract from label or barcode, or infer from part number):\n- horsepower: "1/4", "1/3", "1/2", "3/4", "1" — if printed on label (e.g. "1/3HP") use that value exactly; only derive from watts if HP not printed\n- rpm: "1075", "1625", "825", "1100", "3450" — derive from pole count if RPM not printed\n- shaft_diameter: "1/2 inch", "5/8 inch" — default "1/2 inch" for condenser fan motors\n\nReply with ONLY a JSON object using these exact keys (null if unknown):\n{"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"horsepower":null,"rpm":null,"shaft_diameter":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
-              ],
-            }],
-          }),
-        });
-        if (!res.ok) { const t = await res.text(); reject(new Error(`API ${res.status}: ${t}`)); return; }
-        const data = await res.json();
-        const text = (data.content[0].text || '').trim();
-        const m = text.match(/\{[\s\S]*\}/);
-        if (!m) { reject(new Error('No JSON in response')); return; }
-        resolve(JSON.parse(m[0]));
-      } catch(err) { reject(err); }
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) { reject(new Error('Invalid image data')); return; }
+      const rawType = match[1];
+      const b64 = match[2];
+      const mediaType = ['image/jpeg','image/png','image/gif','image/webp'].includes(rawType) ? rawType : 'image/jpeg';
+      resolve({ b64, mediaType });
     };
     reader.readAsDataURL(file);
   });
+}
+
+async function scanNameplateFromB64(b64, mediaType) {
+  const res = await fetch(CLAUDE_PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+          { type: 'text', text: 'You are an HVAC expert reading a photo of HVAC equipment, a nameplate, a data tag, or a part/component label.\n\nCRITICAL — label field mapping (read ALL digits exactly, do not truncate):\n- "P/N:", "Part No", "Part #", "CPN", "CPN-", "Model:" → model_number (use this, NOT the barcode model string, when both present)\n- "S/N:", "Serial:", "Serial No" → serial_number (completely separate from P/N — NEVER put a P/N value into serial_number)\n- "V:", "Volts:", "VAC" → voltage\n- "Hz" → frequency only, do NOT store in any field\n- "A", "Amps", "FLA", "RLA" → rated current only, do NOT store in mca (mca is a separate calculated value, leave null unless explicitly labeled MCA)\n\nEquipment types — this can be a WHOLE UNIT or a COMPONENT/PART:\n- Whole units: AC Condenser, Heat Pump, Air Handler, Gas Furnace, Electric Furnace, Mini-Split Indoor, Mini-Split Outdoor, Water Heater, Boiler, Package Unit\n- Motors & drives: Condenser Fan Motor, Evaporator Fan Motor, Blower Motor, ECM Motor, Variable-Speed Motor\n- Electrical components: Dual Run Capacitor, Start Capacitor, Contactor, Transformer, Circuit Board, Control Board, Sequencer\n- Refrigeration parts: Compressor, Expansion Valve, Reversing Valve, Filter Drier, Metering Device\n- Heating parts: Heat Strip, Igniter, Inducer Motor, Pressure Switch, Gas Valve\n\nEquipment type + brand inference from model/part number:\n- 253xxxxx = Interlink condenser fan motor\n- 5KCP, 3S, HC = GE/Genteq motor\n- CAP-xx = capacitor\n- DR96TC = 96% two-stage gas furnace (Daikin/Goodman)\n- GSX/SSX/XC = AC condenser; CAPEA/CHPF = evaporator coil\n- ARUF/AH = air handler; GMSS/GCSS = furnace\n- MXZ/FTX = Mitsubishi mini-split\n- H6HK/H8HK = Nordyne/Intertherm electric heat strip\n\nCapacity/spec → use "tonnage" for unit capacity only:\n- AC units/heat pumps/condensers: FIRST check nameplate for a direct capacity label (COOLING CAP, RATED CAP, NOMINAL CAP, BTU/HR, BTUH) — e.g. "36,000 BTU/HR" → "3 ton (36,000 BTU)". If not directly labeled, decode from the capacity digits embedded anywhere in the model number: 018 or 18=1.5T, 024 or 24=2T, 030 or 30=2.5T, 036 or 36=3T, 042 or 42=3.5T, 048 or 48=4T, 054 or 54=4.5T, 060 or 60=5T\n- Heat strips: kW × 3,412 = BTU (H6HK010 → "10 kW (34,120 BTU)")\n- Furnaces: "80,000 BTU" (080=80K, 100=100K in model)\n- Capacitors: "45+5 MFD, 440V"\n- For motors, leave tonnage null — use dedicated fields below\n\nBARCODE TEXT — if a 2D barcode (DataMatrix/QR/Code128) is visible, read the encoded text. Interlink barcodes encode: YSLB-{W}-{P}-{variant} e.g. YSLB-350-6-B001 (350W, 6-pole).\n\nPole count → RPM at 60 Hz: 2P=3450, 4P=1625, 6P=1075, 8P=825\nWatts → HP (input power, prefer printed label value): 150-180W=1/5, 190-230W=1/4, 240-370W=1/3, 371-540W=1/2, 541-700W=3/4, 701-760W=1\n\nMotor brand decoding by part number:\n- Interlink 253xxxxx: brand=Interlink, voltage=208-230V, shaft_diameter=1/2 inch; decode barcode YSLB-{W}-{P}-xxx → HP from watts, RPM from poles\n- GE/Genteq 5KCP39xx, 3S1xx, HC43xx: brand=GE/Genteq, shaft_diameter=1/2 inch\n- A.O. Smith / US Motor / Nidec F48xx, S58xx: shaft_diameter=1/2 inch\n- Century / Regal Beloit CPxx, CAxx: shaft_diameter=1/2 inch\n- Emerson K55xxx: shaft_diameter=1/2 inch\n\nMotor-specific fields (extract from label or barcode, or infer from part number):\n- horsepower: "1/4", "1/3", "1/2", "3/4", "1" — if printed on label (e.g. "1/3HP") use that value exactly; only derive from watts if HP not printed\n- rpm: "1075", "1625", "825", "1100", "3450" — derive from pole count if RPM not printed\n- shaft_diameter: "1/2 inch", "5/8 inch" — default "1/2 inch" for condenser fan motors\n\nReply with ONLY a JSON object using these exact keys (null if unknown):\n{"equipment_type":null,"brand":null,"model_number":null,"serial_number":null,"tonnage":null,"horsepower":null,"rpm":null,"shaft_diameter":null,"refrigerant":null,"voltage":null,"seer":null,"mca":null,"mop":null,"year_manufactured":null}' },
+        ],
+      }],
+    }),
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`API ${res.status}: ${t}`); }
+  const data = await res.json();
+  const text = (data.content[0].text || '').trim();
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('No JSON in response');
+  return JSON.parse(m[0]);
+}
+
+async function scanNameplate(file) {
+  const { b64, mediaType } = await readFileForScan(file);
+  return scanNameplateFromB64(b64, mediaType);
 }
 
 async function scanNameplateFromUrl(url) {
@@ -577,9 +596,19 @@ function App() {
   const toastTimer = useRef(null);
 
   const [selectedId, setSelectedIdRaw] = useState(() => sessionStorage.getItem('tmc_selected_job') || null);
+  const [recentJobs, setRecentJobs] = useState(getRecentJobs);
+  const [recentsOpen, setRecentsOpen] = useState(false);
+  const [searchActive, setSearchActive] = useState(false);
+  const searchInputRef = useRef(null);
   function setSelectedId(id) {
-    if (id) sessionStorage.setItem('tmc_selected_job', id);
-    else sessionStorage.removeItem('tmc_selected_job');
+    if (id) {
+      sessionStorage.setItem('tmc_selected_job', id);
+      const job = jobs.find(j => j.id === id);
+      if (job) { saveRecentJob(job); setRecentJobs(getRecentJobs()); }
+    } else {
+      sessionStorage.removeItem('tmc_selected_job');
+      setRecentJobs(getRecentJobs());
+    }
     setSelectedIdRaw(id);
   }
   const [adding, setAdding] = useState(false);
@@ -1103,17 +1132,69 @@ Command: "${transcript}"`
 
       {!loading && (
         <React.Fragment>
-          {/* Search bar */}
-          <div style={{ padding:"12px 16px 0", position:"relative" }}>
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="Search customers, addresses, sites, notes…"
-              style={{ paddingLeft:38 }} />
-            <span style={{ position:"absolute", left:28, top:22, fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
-            {search && (
-              <button onClick={() => setSearch("")}
-                style={{ position:"absolute", right:26, top:18, fontSize:16, color:"var(--muted)", padding:4 }}>✕</button>
+          {/* Search bar — fake div on idle (no keyboard), real input only in typing mode */}
+          <div style={{ padding:"12px 16px 0" }}>
+            {(!searchActive && !q) ? (
+              <div onClick={() => setRecentsOpen(r => !r)}
+                style={{ position:"relative", padding:"12px 12px 12px 38px", fontSize:16,
+                  background:"var(--bg)", color:"var(--muted)", border:"1px solid var(--line)",
+                  borderRadius:8, cursor:"text", userSelect:"none" }}>
+                🔍&nbsp; Search customers, addresses, sites, notes…
+              </div>
+            ) : (
+              <div style={{ position:"relative" }}>
+                <input ref={searchInputRef} type="text" value={search} autoFocus={searchActive && !q}
+                  onChange={e => setSearch(e.target.value)}
+                  onBlur={() => { if (!search) { setSearchActive(false); } }}
+                  placeholder="Search customers, addresses, sites, notes…"
+                  style={{ paddingLeft:38 }} />
+                <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)",
+                  fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
+                {search && (
+                  <button onClick={() => { setSearch(""); setSearchActive(false); setRecentsOpen(false); }}
+                    style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
+                      fontSize:16, color:"var(--muted)", padding:4 }}>✕</button>
+                )}
+              </div>
             )}
           </div>
+
+          {/* Recents panel — appears below idle search bar, no keyboard */}
+          {recentsOpen && !searchActive && !q && recentJobs.length > 0 && (
+            <div className="fade-in" style={{
+              margin:"4px 16px 0", borderRadius:10, overflow:"hidden",
+              border:"1px solid var(--line)", background:"var(--panel-2)",
+              boxShadow:"0 6px 20px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"8px 14px", borderBottom:"1px solid var(--line)" }}>
+                <span className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.05em" }}>RECENTLY VIEWED</span>
+                <button onClick={() => { setRecentsOpen(false); setSearchActive(true); }}
+                  className="mono" style={{ fontSize:11, color:"var(--olive-bright)", padding:"2px 6px",
+                    border:"1px solid var(--olive)", borderRadius:4 }}>
+                  ⌨ TYPE TO SEARCH
+                </button>
+              </div>
+              {recentJobs.map(r => {
+                const live = jobs.find(j => j.id === r.id);
+                const display = live || r;
+                return (
+                  <button key={r.id} onClick={() => { setRecentsOpen(false); setSelectedId(r.id); }}
+                    style={{ display:"flex", flexDirection:"column", width:"100%", padding:"11px 14px",
+                      borderBottom:"1px solid var(--line)", textAlign:"left", background:"transparent",
+                      color:"var(--text)", gap:2 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                      <span className="head" style={{ fontSize:14, fontWeight:600 }}>{display.customer || r.customer}</span>
+                      <span className="mono" style={{ fontSize:11, color:"var(--muted)", whiteSpace:"nowrap" }}>{display.status || r.status}</span>
+                    </div>
+                    <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                      {display.type || r.type}{(display.site || r.site) ? ` · ${display.site || r.site}` : ''}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Include-closed toggle — only while searching */}
           {q && (
@@ -1917,9 +1998,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [expandedEquipId, setExpandedEquipId] = useState(null);
   const [showWarrantySheet, setShowWarrantySheet] = useState(null);
   const [editEquipItem, setEditEquipItem] = useState(null);
-  const [scanning, setScanning] = useState(false);
-  const [pendingOtherScan, setPendingOtherScan] = useState(null);
-  const [scanningOther, setScanningOther] = useState(false);
+  const [scanQueue, setScanQueue] = useState([]);
+  const [scanningCount, setScanningCount] = useState(0);
+  const [pendingScanRetry, setPendingScanRetry] = useState(null);
+  const [otherScanQueue, setOtherScanQueue] = useState([]);
+  const [otherScanningCount, setOtherScanningCount] = useState(0);
+  const [pendingOtherScanRetry, setPendingOtherScanRetry] = useState(null);
   const [deletingPhoto, setDeletingPhoto] = useState(null);
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
@@ -1967,7 +2051,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   }
 
   async function confirmDeletePhoto(photo, idx) {
-    await deletePhoto(photo.id, photo.storage_path);
+    if (photo._local) {
+      if (photo.url?.startsWith('blob:')) URL.revokeObjectURL(photo.url);
+    } else {
+      await deletePhoto(photo.id, photo.storage_path);
+    }
     setPhotos(prev => prev.filter((_,i) => i !== idx));
     setDeletingPhoto(null);
   }
@@ -1986,57 +2074,89 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     setEditingNote(null);
   }
 
-  async function runScan(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    setScanning(true);
-    e.target.value = '';
-    try {
-      const [result, photo] = await Promise.all([scanNameplate(file), uploadPhoto(job.id, file, 'equipment')]);
-      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
-      const hasData = Object.values(result).some(v => v != null);
-      if (!hasData) { alert('No equipment data found in this photo.'); return; }
-      setPendingScan(result);
-    } catch(err) {
-      alert(`Scan failed: ${err.message}`);
-    } finally {
-      setScanning(false);
-    }
+  function _launchScan(file, isOther) {
+    const blobUrl = URL.createObjectURL(file);
+    const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+    // Photo visible in strip immediately — no waiting
+    setPhotos(prev => [...prev, { id: tempId, url: blobUrl, photo_type: 'equipment', _local: true }]);
+    isOther ? setOtherScanningCount(n => n + 1) : setScanningCount(n => n + 1);
+
+    // Upload in background — swap blob for real Supabase row when done
+    uploadPhoto(job.id, file, 'equipment').then(photo => {
+      if (photo && !photo.error) {
+        setPhotos(prev => prev.map(p => p.id === tempId ? photo : p));
+        URL.revokeObjectURL(blobUrl);
+      }
+    }).catch(() => {/* keep blob as-is */});
+
+    // Read file then OCR in background — queue result when ready
+    readFileForScan(file).then(({ b64, mediaType }) =>
+      scanNameplateFromB64(b64, mediaType).then(result => {
+        const hasData = Object.values(result).some(v => v != null);
+        if (hasData) {
+          isOther ? setOtherScanQueue(q => [...q, result]) : setScanQueue(q => [...q, result]);
+          isOther ? setPendingOtherScanRetry(null) : setPendingScanRetry(null);
+        }
+      }).catch(() => {
+        // No signal — save b64 for retry button
+        isOther ? setPendingOtherScanRetry({ b64, mediaType }) : setPendingScanRetry({ b64, mediaType });
+      })
+    ).catch(() => {}).finally(() => {
+      isOther ? setOtherScanningCount(n => n - 1) : setScanningCount(n => n - 1);
+    });
   }
 
-  async function runOtherScan(e) {
+  function runScan(e) {
     const file = e.target.files[0];
     if (!file) return;
-    setScanningOther(true);
     e.target.value = '';
-    try {
-      const [result, photo] = await Promise.all([scanNameplate(file), uploadPhoto(job.id, file, 'equipment')]);
-      if (photo && !photo.error) setPhotos(prev => [...prev, photo]);
-      const hasData = Object.values(result).some(v => v != null);
-      if (!hasData) { alert('No equipment data found in this photo.'); return; }
-      setPendingOtherScan(result);
-    } catch(err) {
-      alert(`Scan failed: ${err.message}`);
-    } finally {
-      setScanningOther(false);
-    }
+    _launchScan(file, false);
   }
 
-  async function saveNewEquipment(label) {
+  function runOtherScan(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    _launchScan(file, true);
+  }
+
+  async function retryScan() {
+    if (!pendingScanRetry) return;
+    setScanningCount(n => n + 1);
+    try {
+      const result = await scanNameplateFromB64(pendingScanRetry.b64, pendingScanRetry.mediaType);
+      const hasData = Object.values(result).some(v => v != null);
+      if (hasData) { setScanQueue(q => [...q, result]); setPendingScanRetry(null); }
+    } catch (_) { /* still offline — keep retry button */ }
+    setScanningCount(n => n - 1);
+  }
+
+  async function retryOtherScan() {
+    if (!pendingOtherScanRetry) return;
+    setOtherScanningCount(n => n + 1);
+    try {
+      const result = await scanNameplateFromB64(pendingOtherScanRetry.b64, pendingOtherScanRetry.mediaType);
+      const hasData = Object.values(result).some(v => v != null);
+      if (hasData) { setOtherScanQueue(q => [...q, result]); setPendingOtherScanRetry(null); }
+    } catch (_) { /* still offline */ }
+    setOtherScanningCount(n => n - 1);
+  }
+
+  async function saveNewEquipment(label, scanData) {
     if (!job._customer_id) { alert('No customer linked to this job.'); return; }
     const installDate = job.scheduled_date || todayISO();
-    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {}, installDate, job.id);
+    const { data, error } = await saveEquipment(job._customer_id, label, scanData || {}, installDate, job.id);
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setEquipmentList(prev => [...prev, data]);
-    setPendingScan(null);
+    setScanQueue(q => q.slice(1));
   }
 
-  async function saveOtherEquipment(label) {
+  async function saveOtherEquipment(label, scanData) {
     if (!job._customer_id) { alert('No customer linked to this job.'); return; }
-    const { data, error } = await saveEquipment(job._customer_id, label, pendingOtherScan || {}, null, null);
+    const { data, error } = await saveEquipment(job._customer_id, label, scanData || {}, null, null);
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setEquipmentList(prev => [...prev, data]);
-    setPendingOtherScan(null);
+    setOtherScanQueue(q => q.slice(1));
   }
 
   function renderEquipCard(eq) {
@@ -2267,27 +2387,35 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
             <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
               THIS JOB{jobEquip.length > 0 ? ` (${jobEquip.length})` : ''}
+              {scanningCount > 0 && (
+                <span style={{ marginLeft:8, fontSize:11, color:"var(--olive-bright)" }}>
+                  🔍 {scanningCount} scanning…
+                </span>
+              )}
             </div>
-            {scanning ? (
-              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
-            ) : (
-              <div style={{ display:"flex", gap:8 }}>
-                <button onClick={() => scanRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
-                  📷 SCAN
-                </button>
-                <button onClick={() => scanGalleryRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                  🖼 UPLOAD
-                </button>
-              </div>
-            )}
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => scanRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
+                📷 SCAN
+              </button>
+              <button onClick={() => scanGalleryRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                🖼 UPLOAD
+              </button>
+            </div>
           </div>
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
           <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
-          {jobEquip.length === 0 && !scanning && (
+          {pendingScanRetry && (
+            <button onClick={retryScan} className="head"
+              style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
+                background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
+              ↺ RETRY SCAN (no signal when scanned — tap to extract data)
+            </button>
+          )}
+          {jobEquip.length === 0 && scanningCount === 0 && !pendingScanRetry && (
             <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No equipment scanned for this job</div>
           )}
           {jobEquip.map(renderEquipCard)}
@@ -2296,45 +2424,53 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, marginBottom:10, borderTop:"1px solid var(--line)", paddingTop:14 }}>
             <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
               OTHER AT THIS ADDRESS{otherEquip.length > 0 ? ` (${otherEquip.length})` : ''}
+              {otherScanningCount > 0 && (
+                <span style={{ marginLeft:8, fontSize:11, color:"var(--olive-bright)" }}>
+                  🔍 {otherScanningCount} scanning…
+                </span>
+              )}
             </div>
-            {scanningOther ? (
-              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
-            ) : (
-              <div style={{ display:"flex", gap:8 }}>
-                <button onClick={() => otherScanRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                  📷 SCAN
-                </button>
-                <button onClick={() => otherScanGalleryRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                  🖼 UPLOAD
-                </button>
-              </div>
-            )}
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => otherScanRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                📷 SCAN
+              </button>
+              <button onClick={() => otherScanGalleryRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                🖼 UPLOAD
+              </button>
+            </div>
           </div>
           <input ref={otherScanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runOtherScan} />
           <input ref={otherScanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runOtherScan} />
-          {otherEquip.length === 0 && !scanningOther && (
+          {pendingOtherScanRetry && (
+            <button onClick={retryOtherScan} className="head"
+              style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
+                background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
+              ↺ RETRY SCAN (no signal when scanned — tap to extract data)
+            </button>
+          )}
+          {otherEquip.length === 0 && otherScanningCount === 0 && !pendingOtherScanRetry && (
             <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No other equipment logged</div>
           )}
           {otherEquip.map(renderEquipCard)}
         </div>
 
-        {pendingScan && (
+        {scanQueue.length > 0 && (
           <LabelPromptSheet
-            scan={pendingScan}
-            onSave={saveNewEquipment}
-            onCancel={() => setPendingScan(null)}
+            scan={scanQueue[0]}
+            onSave={(label) => saveNewEquipment(label, scanQueue[0])}
+            onCancel={() => setScanQueue(q => q.slice(1))}
           />
         )}
 
-        {pendingOtherScan && (
+        {scanQueue.length === 0 && otherScanQueue.length > 0 && (
           <LabelPromptSheet
-            scan={pendingOtherScan}
-            onSave={saveOtherEquipment}
-            onCancel={() => setPendingOtherScan(null)}
+            scan={otherScanQueue[0]}
+            onSave={(label) => saveOtherEquipment(label, otherScanQueue[0])}
+            onCancel={() => setOtherScanQueue(q => q.slice(1))}
           />
         )}
 
