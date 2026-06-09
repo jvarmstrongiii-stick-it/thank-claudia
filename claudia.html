@@ -288,9 +288,9 @@ async function deletePhoto(photoId, storagePath) {
   await sb.from('job_photos').delete().eq('id', photoId);
 }
 
-async function fetchEquipment(customerId) {
-  if (!customerId) return [];
-  const { data, error } = await sb.from('equipment').select('*').eq('customer_id', customerId).order('created_at');
+async function fetchEquipment(jobId) {
+  if (!jobId) return [];
+  const { data, error } = await sb.from('equipment').select('*').eq('job_id', jobId).order('created_at');
   if (error) { console.warn('fetchEquipment', error); return []; }
   return data || [];
 }
@@ -1780,8 +1780,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   }, [job.id]);
 
   useEffect(() => {
-    fetchEquipment(job._customer_id).then(setEquipmentList);
-  }, [job._customer_id]);
+    fetchEquipment(job.id).then(setEquipmentList);
+  }, [job.id]);
 
   useEffect(() => {
     if (focusPhotos && photoRef.current) {
