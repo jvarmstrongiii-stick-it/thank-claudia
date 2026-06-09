@@ -1135,7 +1135,10 @@ Command: "${transcript}"`
           {/* Search bar — fake div on idle (no keyboard), real input only in typing mode */}
           <div style={{ padding:"12px 16px 0" }}>
             {(!searchActive && !q) ? (
-              <div onClick={() => setRecentsOpen(r => !r)}
+              <div onClick={() => {
+                  if (recentJobs.length > 0 && !recentsOpen) setRecentsOpen(true);
+                  else setSearchActive(true); // no recents or second tap → keyboard
+                }}
                 style={{ position:"relative", padding:"12px 12px 12px 38px", fontSize:16,
                   background:"var(--bg)", color:"var(--muted)", border:"1px solid var(--line)",
                   borderRadius:8, cursor:"text", userSelect:"none" }}>
