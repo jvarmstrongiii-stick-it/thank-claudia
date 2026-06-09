@@ -591,6 +591,7 @@ function App() {
   const [choresExpanded, setChoresExpanded] = useState(false);
   const [showChoresView, setShowChoresView] = useState(false);
   const [focusPhotos, setFocusPhotos] = useState(false);
+  const [showCapCalc, setShowCapCalc] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [users, setUsers] = useState(FALLBACK_USERS);
   const [expandedCustomers, setExpandedCustomers] = useState(new Set());
@@ -1067,6 +1068,11 @@ Command: "${transcript}"`
             style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
             ↺
           </button>
+          <button onClick={() => setShowCapCalc(true)} className="mono"
+            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}
+            title="Capacitor Calculator">
+            μF
+          </button>
           <button onClick={() => setShowSettings(true)} className="mono"
             style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
             ⚙
@@ -1329,8 +1335,162 @@ Command: "${transcript}"`
       )}
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLock={() => { setShowSettings(false); lockDevice(); }} />}
+      {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
+    </div>
+  );
+}
+
+/* ── CapacitorCalc ─────────────────────────────────────────────────────────── */
+function CapacitorCalc({ onClose }) {
+  const [step, setStep] = useState(1);
+  const [terminal, setTerminal] = useState(null);
+  const [amps, setAmps] = useState('');
+  const [volts, setVolts] = useState('');
+  const [nameplate, setNameplate] = useState('');
+
+  const result = (amps && volts && parseFloat(amps) > 0 && parseFloat(volts) > 0)
+    ? (parseFloat(amps) * 2652) / parseFloat(volts) : null;
+  const npVal = parseFloat(nameplate);
+  const low = npVal * 0.94;
+  const high = npVal * 1.06;
+  const inRange = result && npVal ? result >= low && result <= high : null;
+
+  const sectionLabel = { fontSize:11, color:"var(--muted)", fontWeight:600, letterSpacing:"0.08em", marginBottom:6 };
+  const inputStyle = { width:"100%", fontSize:26, fontWeight:700, textAlign:"center", padding:"14px", borderRadius:10,
+    background:"var(--bg)", border:"1px solid var(--line)", color:"var(--text)", boxSizing:"border-box" };
+  const stepBtn = (label, action, disabled) => (
+    <button onClick={action} disabled={disabled} className="head"
+      style={{ width:"100%", marginTop:14, padding:16, borderRadius:10, fontSize:16, fontWeight:700,
+        background: disabled ? "var(--line)" : "var(--olive-bright)", color: disabled ? "var(--muted)" : "var(--bg)" }}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:300, display:"flex", flexDirection:"column", justifyContent:"flex-end" }}>
+      <div style={{ background:"var(--panel)", borderRadius:"16px 16px 0 0", padding:20, maxHeight:"90vh", overflowY:"auto" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:18 }}>
+          <div className="head" style={{ fontSize:18, fontWeight:700 }}>⚡ CAPACITOR CALCULATOR</div>
+          <button onClick={onClose} className="mono" style={{ fontSize:20, color:"var(--muted)" }}>✕</button>
+        </div>
+
+        {/* STEP INDICATOR */}
+        <div style={{ display:"flex", gap:6, marginBottom:20 }}>
+          {[1,2,3,4].map(s => (
+            <div key={s} style={{ flex:1, height:4, borderRadius:2,
+              background: s <= step ? "var(--olive-bright)" : "var(--line)" }} />
+          ))}
+        </div>
+
+        {step === 1 && (
+          <div>
+            <div className="mono" style={{ ...sectionLabel }}>STEP 1 OF 4 — SAFETY &amp; SETUP</div>
+            <div style={{ background:"#b5432f18", border:"1px solid #b5432f", borderRadius:10, padding:14, marginBottom:16 }}>
+              <div className="head" style={{ fontSize:13, fontWeight:700, color:"#b5432f", marginBottom:6 }}>⚠ SAFETY FIRST</div>
+              <div style={{ fontSize:14, lineHeight:1.6 }}>If the capacitor has been removed from the unit, discharge it first — short across the terminals with an insulated screwdriver before touching anything.</div>
+            </div>
+            <div className="mono" style={{ ...sectionLabel, marginTop:16 }}>WHICH SIDE ARE YOU TESTING?</div>
+            <div style={{ display:"flex", gap:10, marginTop:8 }}>
+              {['HERM', 'FAN'].map(t => (
+                <button key={t} onClick={() => setTerminal(t)} className="head"
+                  style={{ flex:1, padding:18, borderRadius:10, fontSize:18, fontWeight:700,
+                    border:`2px solid ${terminal===t ? "var(--olive-bright)" : "var(--line)"}`,
+                    color: terminal===t ? "var(--olive-bright)" : "var(--muted)",
+                    background:"transparent" }}>
+                  {t === 'HERM' ? '🌀 HERM' : '💨 FAN'}
+                  <div style={{ fontSize:11, fontWeight:400, marginTop:4, color:"var(--muted)" }}>
+                    {t === 'HERM' ? 'Compressor' : 'Fan motor'}
+                  </div>
+                </button>
+              ))}
+            </div>
+            {stepBtn('NEXT — MEASURE AMPS →', () => setStep(2), !terminal)}
+          </div>
+        )}
+
+        {step === 2 && (
+          <div>
+            <div className="mono" style={{ ...sectionLabel }}>STEP 2 OF 4 — MEASURE START WINDING AMPS</div>
+            <div style={{ background:"var(--bg)", border:"1px solid var(--line)", borderRadius:10, padding:14, marginBottom:16, fontSize:14, lineHeight:1.7 }}>
+              <div style={{ marginBottom:6 }}>Set your clamp meter to <strong>AC Amps</strong>.</div>
+              <div>Clamp around the <strong>{terminal === 'HERM' ? 'compressor start wire (to HERM terminal)' : 'fan motor start wire (to FAN terminal)'}</strong> while the unit is running.</div>
+            </div>
+            <div className="mono" style={{ ...sectionLabel }}>AMPS READING</div>
+            <input type="number" inputMode="decimal" placeholder="e.g. 4.2"
+              value={amps} onChange={e => setAmps(e.target.value)} style={inputStyle} />
+            <div style={{ display:"flex", gap:10, marginTop:14 }}>
+              <button onClick={() => setStep(1)} className="head"
+                style={{ padding:"14px 20px", borderRadius:10, fontSize:14, background:"transparent",
+                  border:"1px solid var(--line)", color:"var(--muted)" }}>‹ BACK</button>
+              {stepBtn('NEXT — MEASURE VOLTAGE →', () => setStep(3), !amps || parseFloat(amps) <= 0)}
+            </div>
+          </div>
+        )}
+
+        {step === 3 && (
+          <div>
+            <div className="mono" style={{ ...sectionLabel }}>STEP 3 OF 4 — MEASURE CAPACITOR VOLTAGE</div>
+            <div style={{ background:"var(--bg)", border:"1px solid var(--line)", borderRadius:10, padding:14, marginBottom:16, fontSize:14, lineHeight:1.7 }}>
+              <div style={{ marginBottom:6 }}>Set your DMM to <strong>AC Volts</strong>.</div>
+              <div>Place probes across the <strong>C</strong> and <strong>{terminal}</strong> terminals while the unit is running.</div>
+            </div>
+            <div className="mono" style={{ ...sectionLabel }}>VOLTAGE READING</div>
+            <input type="number" inputMode="decimal" placeholder="e.g. 370"
+              value={volts} onChange={e => setVolts(e.target.value)} style={inputStyle} />
+            <div style={{ display:"flex", gap:10, marginTop:14 }}>
+              <button onClick={() => setStep(2)} className="head"
+                style={{ padding:"14px 20px", borderRadius:10, fontSize:14, background:"transparent",
+                  border:"1px solid var(--line)", color:"var(--muted)" }}>‹ BACK</button>
+              {stepBtn('CALCULATE →', () => setStep(4), !volts || parseFloat(volts) <= 0)}
+            </div>
+          </div>
+        )}
+
+        {step === 4 && (
+          <div>
+            <div className="mono" style={{ ...sectionLabel }}>STEP 4 OF 4 — RESULT</div>
+            <div style={{ background:"var(--bg)", border:"1px solid var(--line)", borderRadius:10, padding:20, textAlign:"center", marginBottom:16 }}>
+              <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:6 }}>CALCULATED CAPACITANCE</div>
+              <div className="head" style={{ fontSize:48, fontWeight:700, color:"var(--olive-bright)", lineHeight:1 }}>
+                {result ? result.toFixed(2) : '—'}
+              </div>
+              <div className="mono" style={{ fontSize:16, color:"var(--muted)", marginTop:4 }}>μF ({terminal} side)</div>
+              <div style={{ marginTop:12, fontSize:13, color:"var(--muted)" }}>
+                {parseFloat(amps).toFixed(2)} A × 2652 ÷ {parseFloat(volts).toFixed(1)} V
+              </div>
+            </div>
+
+            <div className="mono" style={{ ...sectionLabel }}>NAMEPLATE RATING (μF)</div>
+            <input type="number" inputMode="decimal" placeholder="e.g. 45 or 5"
+              value={nameplate} onChange={e => setNameplate(e.target.value)} style={{ ...inputStyle, fontSize:22 }} />
+
+            {nameplate && npVal > 0 && result && (
+              <div style={{ marginTop:14, padding:16, borderRadius:10,
+                background: inRange ? "#5d8a3a18" : "#b5432f18",
+                border: `1px solid ${inRange ? "#5d8a3a" : "#b5432f"}` }}>
+                <div className="head" style={{ fontSize:16, fontWeight:700, color: inRange ? "#5d8a3a" : "#b5432f", marginBottom:6 }}>
+                  {inRange ? '✓ WITHIN TOLERANCE' : '✗ OUT OF TOLERANCE — REPLACE CAPACITOR'}
+                </div>
+                <div style={{ fontSize:13, color:"var(--text)", lineHeight:1.6 }}>
+                  Nameplate: <strong>{npVal} μF</strong> &nbsp;|&nbsp; Acceptable range (±6%): <strong>{low.toFixed(2)} – {high.toFixed(2)} μF</strong><br />
+                  Measured: <strong style={{ color: inRange ? "#5d8a3a" : "#b5432f" }}>{result.toFixed(2)} μF</strong>
+                </div>
+              </div>
+            )}
+
+            <div style={{ display:"flex", gap:10, marginTop:16 }}>
+              <button onClick={() => { setStep(1); setAmps(''); setVolts(''); setNameplate(''); setTerminal(null); }} className="head"
+                style={{ flex:1, padding:14, borderRadius:10, fontSize:14, background:"transparent",
+                  border:"1px solid var(--line)", color:"var(--muted)" }}>↺ NEW TEST</button>
+              <button onClick={onClose} className="head"
+                style={{ flex:1, padding:14, borderRadius:10, fontSize:14, fontWeight:700,
+                  background:"var(--olive-bright)", color:"var(--bg)" }}>DONE</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1742,6 +1902,7 @@ function LabelPromptSheet({ scan, onSave, onCancel }) {
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
 function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
+  const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showResched, setShowResched] = useState(false);
   const [date, setDate] = useState(job.scheduled_date);
@@ -1955,10 +2116,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12 }}>
         <button onClick={onBack} className="head" style={{ fontSize:36, color:"var(--muted)", padding:"4px 12px 4px 4px", lineHeight:1 }}>‹</button>
         <div className="head" style={{ fontSize:18, fontWeight:600 }}>JOB DETAIL</div>
+        <button onClick={() => setShowCapCalc(true)} className="mono"
+          style={{ marginLeft:"auto", fontSize:13, fontWeight:700, padding:"7px 12px", borderRadius:6,
+            border:"1px solid var(--line)", color:"var(--muted)" }}>μF</button>
         <button onClick={onEdit} className="head"
-          style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
+          style={{ fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
             border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>EDIT</button>
       </div>
+      {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
       <div style={{ padding:16 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
           <div className="head" style={{ fontSize:24, fontWeight:700, lineHeight:1.1 }}>{job.customer}</div>
