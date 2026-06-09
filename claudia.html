@@ -96,6 +96,23 @@ const STATUSES = [
   "In Progress","On Hold",
   "Completed/Needs Billing","Billed/Waiting for Payment","Completed/Paid","Closed",
 ];
+const WORKFLOW_STATUSES = [
+  "New",
+  "Evaluation Needed",
+  "Write Estimate",
+  "Waiting on Approval",
+  "Ready to Schedule",
+  "Scheduled",
+  "In Route",
+  "On Site",
+  "In Progress",
+  "On Hold",
+  "Completed/Needs Billing",
+  "Billed/Waiting for Payment",
+  "Completed/Paid",
+  "Closed",
+];
+];
 const STATUS_COLOR = {
   "New":"#d9af52","Evaluation Needed":"#8a8c7e","Write Estimate":"#b8923f",
   "Waiting on Approval":"#c98a3f","Ready to Schedule":"#6b7338","Scheduled":"#6b7338","In Route":"#d9af52",
@@ -2222,7 +2239,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
 
       {showStatus && (
         <Sheet onClose={() => setShowStatus(false)} title="UPDATE STATUS">
-          {STATUSES.map(s => (
+          {WORKFLOW_STATUSES.map(s => (
             <button key={s} onClick={() => { onUpdate({ status:s }); setShowStatus(false); onBack(); }}
               style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", padding:"14px 4px", borderBottom:"1px solid var(--line)", textAlign:"left" }}>
               <StatusPill status={s} />
@@ -2608,7 +2625,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
         <div>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>STATUS</div>
           <select value={f.status} onChange={e => set("status",e.target.value)}>
-            {STATUSES.map(s => <option key={s}>{s}</option>)}
+            {WORKFLOW_STATUSES.map(s => <option key={s}>{s}</option>)}
           </select>
         </div>
         <div>
