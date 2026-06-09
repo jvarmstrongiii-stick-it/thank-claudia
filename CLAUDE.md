@@ -71,23 +71,16 @@ Verified column list (June 2026). **claudia.html column names differ from Expo a
 
 **Note:** `address`, `job_type`, `status`, `scheduled_time`, `priority` do NOT exist on the live jobs table — these are Expo app names only. The live columns are `site_address`, `flow_type`, `current_status`, `scheduled_at` (no priority column).
 
-**Job status values** (claudia.html `STATUSES` array — use these exact strings):
+**Job status values** — two separate arrays in claudia.html:
 
-| Status | Color |
-|--------|-------|
-| `New` | #d9af52 |
-| `Evaluation Needed` | #8a8c7e |
-| `Write Estimate` | #b8923f |
-| `Waiting on Approval` | #c98a3f |
-| `Scheduled` | #6b7338 |
-| `In Route` | #d9af52 |
-| `On Site` | #93a046 |
-| `In Progress` | #93a046 |
-| `On Hold` | #b5432f |
-| `Completed/Needs Billing` | #d9af52 |
-| `Billed/Waiting for Payment` | #c98a3f |
-| `Completed/Paid` | #5d8a3a |
-| `Closed` | #8a8c7e |
+`STATUSES` (dashboard filter tab order): `On Site`, `In Route`, `Scheduled`, `Ready to Schedule`, `New`, `Evaluation Needed`, `Write Estimate`, `Waiting on Approval`, `In Progress`, `On Hold`, `Completed/Needs Billing`, `Billed/Waiting for Payment`, `Completed/Paid`, `Closed`
+
+`WORKFLOW_STATUSES` (status picker order — natural job lifecycle): `New` → `Evaluation Needed` → `Write Estimate` → `Waiting on Approval` → `Ready to Schedule` → `Scheduled` → `In Route` → `On Site` → `In Progress` → `On Hold` → `Completed/Needs Billing` → `Billed/Waiting for Payment` → `Completed/Paid` → `Closed`
+
+**Status pill colors on job tiles** (claudia.html `StatusPill` component):
+- All pills are **neutral/muted** by default — no per-status colors
+- **Green** (`#5d8a3a`) pill + left border — status is `Scheduled` and date is today or future
+- **Red** (`#b5432f`) pill + left border — status is `Scheduled` and date has already passed (overdue)
 
 **Job types** (claudia.html `JOB_TYPES`): `Service Call`, `New Install`, `Maintenance`, `Replacement`, `Warranty`, `Estimate`
 
@@ -325,13 +318,14 @@ Two field sets depending on `photo_type`:
 - **document (estimate/invoice/other):** customer_name, address, description, amount, date
 
 ### `app/index.tsx` (Dashboard)
-Status filter tabs: ALL + all 13 individual statuses. `CLOSED_STATUSES` (`Complete`, `Paid`, `Cancelled`) are hidden from the default ALL view. Dashboard-level display labels override status labels (e.g., `In Progress` tab shows as "ON SITE").
+Status filter tabs show only statuses that have at least one job. On load, the **first occupied status tab is auto-selected** (not "All") — so if there are On Site jobs the dashboard opens to that view. "All" and "Closed" tabs are always available. Job tiles show the original_ask inline after the job type, truncated with ellipsis.
 
-### `app/job/[id].tsx` (Job Detail)
-- Status modal: shows only `statusesForJobType(job.job_type)` as options
-- Reschedule modal: Android uses native date/time pickers; iOS/web uses text inputs
-- Address chip: tappable — iOS opens `maps://`, other platforms open Google Maps URL
-- Phone chip: tappable → `tel:` link
+### Job Detail (claudia.html `JobDetail` component)
+- **CURRENT STATUS** label + color pill displayed above the UPDATE STATUS button
+- Status picker uses `WORKFLOW_STATUSES` order (lifecycle order, not dashboard tab order)
+- Any status change immediately closes detail and returns to dashboard
+- Back `‹` arrows are 36px with extra tap padding for finger use
+- Bottom of screen: UPDATE STATUS → | DELETE JOB | ‹ BACK (three full-width buttons)
 - Customer name display: shortens "Last, First Middle" format to "First Last-initial"
 
 ---
