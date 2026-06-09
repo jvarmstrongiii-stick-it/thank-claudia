@@ -1989,10 +1989,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [expandedEquipId, setExpandedEquipId] = useState(null);
   const [showWarrantySheet, setShowWarrantySheet] = useState(null);
   const [editEquipItem, setEditEquipItem] = useState(null);
-  const [scanning, setScanning] = useState(false);
+  const [scanQueue, setScanQueue] = useState([]);
+  const [scanningCount, setScanningCount] = useState(0);
   const [pendingScanRetry, setPendingScanRetry] = useState(null);
-  const [pendingOtherScan, setPendingOtherScan] = useState(null);
-  const [scanningOther, setScanningOther] = useState(false);
+  const [otherScanQueue, setOtherScanQueue] = useState([]);
+  const [otherScanningCount, setOtherScanningCount] = useState(0);
   const [pendingOtherScanRetry, setPendingOtherScanRetry] = useState(null);
   const [deletingPhoto, setDeletingPhoto] = useState(null);
   const [history, setHistory] = useState(job.history || []);
@@ -2064,127 +2065,89 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
     setEditingNote(null);
   }
 
-  async function runScan(e) {
+  function _launchScan(file, isOther) {
+    const blobUrl = URL.createObjectURL(file);
+    const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+    // Photo visible in strip immediately — no waiting
+    setPhotos(prev => [...prev, { id: tempId, url: blobUrl, photo_type: 'equipment', _local: true }]);
+    isOther ? setOtherScanningCount(n => n + 1) : setScanningCount(n => n + 1);
+
+    // Upload in background — swap blob for real Supabase row when done
+    uploadPhoto(job.id, file, 'equipment').then(photo => {
+      if (photo && !photo.error) {
+        setPhotos(prev => prev.map(p => p.id === tempId ? photo : p));
+        URL.revokeObjectURL(blobUrl);
+      }
+    }).catch(() => {/* keep blob as-is */});
+
+    // Read file then OCR in background — queue result when ready
+    readFileForScan(file).then(({ b64, mediaType }) =>
+      scanNameplateFromB64(b64, mediaType).then(result => {
+        const hasData = Object.values(result).some(v => v != null);
+        if (hasData) {
+          isOther ? setOtherScanQueue(q => [...q, result]) : setScanQueue(q => [...q, result]);
+          isOther ? setPendingOtherScanRetry(null) : setPendingScanRetry(null);
+        }
+      }).catch(() => {
+        // No signal — save b64 for retry button
+        isOther ? setPendingOtherScanRetry({ b64, mediaType }) : setPendingScanRetry({ b64, mediaType });
+      })
+    ).catch(() => {}).finally(() => {
+      isOther ? setOtherScanningCount(n => n - 1) : setScanningCount(n => n - 1);
+    });
+  }
+
+  function runScan(e) {
     const file = e.target.files[0];
     if (!file) return;
-    setScanning(true);
     e.target.value = '';
+    _launchScan(file, false);
+  }
 
-    let b64, mediaType;
-    try {
-      ({ b64, mediaType } = await readFileForScan(file));
-    } catch (readErr) {
-      alert(`Could not read image: ${readErr.message}`);
-      setScanning(false);
-      return;
-    }
-
-    // Upload independently — fall back to local blob if offline
-    const blobUrl = URL.createObjectURL(file);
-    try {
-      const photo = await uploadPhoto(job.id, file, 'equipment');
-      if (photo && !photo.error) {
-        setPhotos(prev => [...prev, photo]);
-        URL.revokeObjectURL(blobUrl);
-      } else {
-        setPhotos(prev => [...prev, { id: `local-${Date.now()}`, url: blobUrl, storage_path: null, photo_type: 'equipment', _local: true }]);
-      }
-    } catch (_) {
-      setPhotos(prev => [...prev, { id: `local-${Date.now()}`, url: blobUrl, storage_path: null, photo_type: 'equipment', _local: true }]);
-    }
-
-    // OCR independently — save b64 for retry if offline
-    try {
-      const result = await scanNameplateFromB64(b64, mediaType);
-      const hasData = Object.values(result).some(v => v != null);
-      if (hasData) { setPendingScan(result); setPendingScanRetry(null); }
-      else alert('No equipment data found in this photo.');
-    } catch (_) {
-      setPendingScanRetry({ b64, mediaType });
-    }
-
-    setScanning(false);
+  function runOtherScan(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+    _launchScan(file, true);
   }
 
   async function retryScan() {
     if (!pendingScanRetry) return;
-    setScanning(true);
+    setScanningCount(n => n + 1);
     try {
       const result = await scanNameplateFromB64(pendingScanRetry.b64, pendingScanRetry.mediaType);
       const hasData = Object.values(result).some(v => v != null);
-      if (hasData) { setPendingScan(result); setPendingScanRetry(null); }
-      else alert('No equipment data found in this photo.');
+      if (hasData) { setScanQueue(q => [...q, result]); setPendingScanRetry(null); }
     } catch (_) { /* still offline — keep retry button */ }
-    setScanning(false);
-  }
-
-  async function runOtherScan(e) {
-    const file = e.target.files[0];
-    if (!file) return;
-    setScanningOther(true);
-    e.target.value = '';
-
-    let b64, mediaType;
-    try {
-      ({ b64, mediaType } = await readFileForScan(file));
-    } catch (readErr) {
-      alert(`Could not read image: ${readErr.message}`);
-      setScanningOther(false);
-      return;
-    }
-
-    const blobUrl = URL.createObjectURL(file);
-    try {
-      const photo = await uploadPhoto(job.id, file, 'equipment');
-      if (photo && !photo.error) {
-        setPhotos(prev => [...prev, photo]);
-        URL.revokeObjectURL(blobUrl);
-      } else {
-        setPhotos(prev => [...prev, { id: `local-${Date.now()}`, url: blobUrl, storage_path: null, photo_type: 'equipment', _local: true }]);
-      }
-    } catch (_) {
-      setPhotos(prev => [...prev, { id: `local-${Date.now()}`, url: blobUrl, storage_path: null, photo_type: 'equipment', _local: true }]);
-    }
-
-    try {
-      const result = await scanNameplateFromB64(b64, mediaType);
-      const hasData = Object.values(result).some(v => v != null);
-      if (hasData) { setPendingOtherScan(result); setPendingOtherScanRetry(null); }
-      else alert('No equipment data found in this photo.');
-    } catch (_) {
-      setPendingOtherScanRetry({ b64, mediaType });
-    }
-
-    setScanningOther(false);
+    setScanningCount(n => n - 1);
   }
 
   async function retryOtherScan() {
     if (!pendingOtherScanRetry) return;
-    setScanningOther(true);
+    setOtherScanningCount(n => n + 1);
     try {
       const result = await scanNameplateFromB64(pendingOtherScanRetry.b64, pendingOtherScanRetry.mediaType);
       const hasData = Object.values(result).some(v => v != null);
-      if (hasData) { setPendingOtherScan(result); setPendingOtherScanRetry(null); }
-      else alert('No equipment data found in this photo.');
+      if (hasData) { setOtherScanQueue(q => [...q, result]); setPendingOtherScanRetry(null); }
     } catch (_) { /* still offline */ }
-    setScanningOther(false);
+    setOtherScanningCount(n => n - 1);
   }
 
-  async function saveNewEquipment(label) {
+  async function saveNewEquipment(label, scanData) {
     if (!job._customer_id) { alert('No customer linked to this job.'); return; }
     const installDate = job.scheduled_date || todayISO();
-    const { data, error } = await saveEquipment(job._customer_id, label, pendingScan || {}, installDate, job.id);
+    const { data, error } = await saveEquipment(job._customer_id, label, scanData || {}, installDate, job.id);
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setEquipmentList(prev => [...prev, data]);
-    setPendingScan(null);
+    setScanQueue(q => q.slice(1));
   }
 
-  async function saveOtherEquipment(label) {
+  async function saveOtherEquipment(label, scanData) {
     if (!job._customer_id) { alert('No customer linked to this job.'); return; }
-    const { data, error } = await saveEquipment(job._customer_id, label, pendingOtherScan || {}, null, null);
+    const { data, error } = await saveEquipment(job._customer_id, label, scanData || {}, null, null);
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setEquipmentList(prev => [...prev, data]);
-    setPendingOtherScan(null);
+    setOtherScanQueue(q => q.slice(1));
   }
 
   function renderEquipCard(eq) {
@@ -2415,34 +2378,35 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
             <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
               THIS JOB{jobEquip.length > 0 ? ` (${jobEquip.length})` : ''}
+              {scanningCount > 0 && (
+                <span style={{ marginLeft:8, fontSize:11, color:"var(--olive-bright)" }}>
+                  🔍 {scanningCount} scanning…
+                </span>
+              )}
             </div>
-            {scanning ? (
-              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
-            ) : (
-              <div style={{ display:"flex", gap:8 }}>
-                <button onClick={() => scanRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
-                  📷 SCAN
-                </button>
-                <button onClick={() => scanGalleryRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                  🖼 UPLOAD
-                </button>
-              </div>
-            )}
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => scanRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
+                📷 SCAN
+              </button>
+              <button onClick={() => scanGalleryRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                🖼 UPLOAD
+              </button>
+            </div>
           </div>
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
           <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
-          {pendingScanRetry && !scanning && (
+          {pendingScanRetry && (
             <button onClick={retryScan} className="head"
               style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
                 background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
               ↺ RETRY SCAN (no signal when scanned — tap to extract data)
             </button>
           )}
-          {jobEquip.length === 0 && !scanning && !pendingScanRetry && (
+          {jobEquip.length === 0 && scanningCount === 0 && !pendingScanRetry && (
             <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No equipment scanned for this job</div>
           )}
           {jobEquip.map(renderEquipCard)}
@@ -2451,52 +2415,53 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, marginBottom:10, borderTop:"1px solid var(--line)", paddingTop:14 }}>
             <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
               OTHER AT THIS ADDRESS{otherEquip.length > 0 ? ` (${otherEquip.length})` : ''}
+              {otherScanningCount > 0 && (
+                <span style={{ marginLeft:8, fontSize:11, color:"var(--olive-bright)" }}>
+                  🔍 {otherScanningCount} scanning…
+                </span>
+              )}
             </div>
-            {scanningOther ? (
-              <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>🔍 SCANNING…</span>
-            ) : (
-              <div style={{ display:"flex", gap:8 }}>
-                <button onClick={() => otherScanRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                  📷 SCAN
-                </button>
-                <button onClick={() => otherScanGalleryRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                  🖼 UPLOAD
-                </button>
-              </div>
-            )}
+            <div style={{ display:"flex", gap:8 }}>
+              <button onClick={() => otherScanRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                📷 SCAN
+              </button>
+              <button onClick={() => otherScanGalleryRef.current.click()} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                🖼 UPLOAD
+              </button>
+            </div>
           </div>
           <input ref={otherScanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runOtherScan} />
           <input ref={otherScanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runOtherScan} />
-          {pendingOtherScanRetry && !scanningOther && (
+          {pendingOtherScanRetry && (
             <button onClick={retryOtherScan} className="head"
               style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
                 background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
               ↺ RETRY SCAN (no signal when scanned — tap to extract data)
             </button>
           )}
-          {otherEquip.length === 0 && !scanningOther && !pendingOtherScanRetry && (
+          {otherEquip.length === 0 && otherScanningCount === 0 && !pendingOtherScanRetry && (
             <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No other equipment logged</div>
           )}
           {otherEquip.map(renderEquipCard)}
         </div>
 
-        {pendingScan && (
+        {scanQueue.length > 0 && (
           <LabelPromptSheet
-            scan={pendingScan}
-            onSave={saveNewEquipment}
-            onCancel={() => setPendingScan(null)}
+            scan={scanQueue[0]}
+            onSave={(label) => saveNewEquipment(label, scanQueue[0])}
+            onCancel={() => setScanQueue(q => q.slice(1))}
           />
         )}
 
-        {pendingOtherScan && (
+        {scanQueue.length === 0 && otherScanQueue.length > 0 && (
           <LabelPromptSheet
-            scan={pendingOtherScan}
-            onSave={saveOtherEquipment}
-            onCancel={() => setPendingOtherScan(null)}
+            scan={otherScanQueue[0]}
+            onSave={(label) => saveOtherEquipment(label, otherScanQueue[0])}
+            onCancel={() => setOtherScanQueue(q => q.slice(1))}
           />
         )}
 
