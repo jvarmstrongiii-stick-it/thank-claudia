@@ -598,6 +598,7 @@ function App() {
   const [selectedId, setSelectedIdRaw] = useState(() => sessionStorage.getItem('tmc_selected_job') || null);
   const [recentJobs, setRecentJobs] = useState(getRecentJobs);
   const [recentsOpen, setRecentsOpen] = useState(false);
+  const [searchActive, setSearchActive] = useState(false);
   const searchInputRef = useRef(null);
   function setSelectedId(id) {
     if (id) {
@@ -1131,27 +1132,35 @@ Command: "${transcript}"`
 
       {!loading && (
         <React.Fragment>
-          {/* Search bar */}
-          <div style={{ padding:"12px 16px 0", position:"relative" }}>
-            {/* Invisible overlay — intercepts first tap to show recents without keyboard */}
-            {!q && !recentsOpen && (
-              <div onClick={() => setRecentsOpen(true)}
-                style={{ position:"absolute", inset:0, zIndex:3, cursor:"text" }} />
-            )}
-            <input ref={searchInputRef} type="text" value={search}
-              onChange={e => { setSearch(e.target.value); setRecentsOpen(false); }}
-              onFocus={() => setRecentsOpen(false)}
-              placeholder="Search customers, addresses, sites, notes…"
-              style={{ paddingLeft:38 }} />
-            <span style={{ position:"absolute", left:28, top:22, fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
-            {search && (
-              <button onClick={() => setSearch("")}
-                style={{ position:"absolute", right:26, top:18, fontSize:16, color:"var(--muted)", padding:4, zIndex:4 }}>✕</button>
+          {/* Search bar — fake div on idle (no keyboard), real input only in typing mode */}
+          <div style={{ padding:"12px 16px 0" }}>
+            {(!searchActive && !q) ? (
+              <div onClick={() => setRecentsOpen(r => !r)}
+                style={{ position:"relative", padding:"12px 12px 12px 38px", fontSize:16,
+                  background:"var(--bg)", color:"var(--muted)", border:"1px solid var(--line)",
+                  borderRadius:8, cursor:"text", userSelect:"none" }}>
+                🔍&nbsp; Search customers, addresses, sites, notes…
+              </div>
+            ) : (
+              <div style={{ position:"relative" }}>
+                <input ref={searchInputRef} type="text" value={search} autoFocus={searchActive && !q}
+                  onChange={e => setSearch(e.target.value)}
+                  onBlur={() => { if (!search) { setSearchActive(false); } }}
+                  placeholder="Search customers, addresses, sites, notes…"
+                  style={{ paddingLeft:38 }} />
+                <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)",
+                  fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
+                {search && (
+                  <button onClick={() => { setSearch(""); setSearchActive(false); setRecentsOpen(false); }}
+                    style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
+                      fontSize:16, color:"var(--muted)", padding:4 }}>✕</button>
+                )}
+              </div>
             )}
           </div>
 
-          {/* Recents panel — appears below search bar, keyboard stays down */}
-          {recentsOpen && !q && recentJobs.length > 0 && (
+          {/* Recents panel — appears below idle search bar, no keyboard */}
+          {recentsOpen && !searchActive && !q && recentJobs.length > 0 && (
             <div className="fade-in" style={{
               margin:"4px 16px 0", borderRadius:10, overflow:"hidden",
               border:"1px solid var(--line)", background:"var(--panel-2)",
@@ -1160,7 +1169,7 @@ Command: "${transcript}"`
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
                 padding:"8px 14px", borderBottom:"1px solid var(--line)" }}>
                 <span className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.05em" }}>RECENTLY VIEWED</span>
-                <button onClick={() => { setRecentsOpen(false); searchInputRef.current?.focus(); }}
+                <button onClick={() => { setRecentsOpen(false); setSearchActive(true); }}
                   className="mono" style={{ fontSize:11, color:"var(--olive-bright)", padding:"2px 6px",
                     border:"1px solid var(--olive)", borderRadius:4 }}>
                   ⌨ TYPE TO SEARCH
