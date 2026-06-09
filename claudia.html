@@ -805,10 +805,15 @@ Command: "${transcript}"`
     const { error } = await sb.from('jobs').update(updateData).eq('id', id);
     if (error) { showToast("Error updating job", true); console.error(error); return; }
     if (patch.status && patch.status !== job.status) {
-      await sb.from('job_notes').insert({
-        job_id: id, content: `Status → ${patch.status}`,
-        source: 'system', created_at: new Date().toISOString(),
-      });
+      const fieldStatuses = ["In Route", "On Site"];
+      const userName = currentUser?.name || null;
+      const noteContent = userName ? `Status → ${patch.status} (${userName})` : `Status → ${patch.status}`;
+      const noteRow = { job_id: id, content: noteContent, source: 'system', created_at: new Date().toISOString() };
+      if (currentUser?.id) noteRow.user_id = currentUser.id;
+      await sb.from('job_notes').insert(noteRow);
+      if (fieldStatuses.includes(patch.status) && currentUser?.id) {
+        await sb.from('jobs').update({ assigned_to: currentUser.id }).eq('id', id);
+      }
       if (patch.status === "Completed/Needs Billing") spawnBillingChore({ ...job, ...patch });
     }
     setJobs(js => js.map(j => j.id === id ? { ...j, ...patch } : j));
