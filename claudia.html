@@ -597,7 +597,8 @@ function App() {
 
   const [selectedId, setSelectedIdRaw] = useState(() => sessionStorage.getItem('tmc_selected_job') || null);
   const [recentJobs, setRecentJobs] = useState(getRecentJobs);
-  const [searchFocused, setSearchFocused] = useState(false);
+  const [recentsOpen, setRecentsOpen] = useState(false);
+  const searchInputRef = useRef(null);
   function setSelectedId(id) {
     if (id) {
       sessionStorage.setItem('tmc_selected_job', id);
@@ -605,6 +606,7 @@ function App() {
       if (job) { saveRecentJob(job); setRecentJobs(getRecentJobs()); }
     } else {
       sessionStorage.removeItem('tmc_selected_job');
+      setRecentJobs(getRecentJobs());
     }
     setSelectedIdRaw(id);
   }
@@ -1131,44 +1133,59 @@ Command: "${transcript}"`
         <React.Fragment>
           {/* Search bar */}
           <div style={{ padding:"12px 16px 0", position:"relative" }}>
-            <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            {/* Invisible overlay — intercepts first tap to show recents without keyboard */}
+            {!q && !recentsOpen && (
+              <div onClick={() => setRecentsOpen(true)}
+                style={{ position:"absolute", inset:0, zIndex:3, cursor:"text" }} />
+            )}
+            <input ref={searchInputRef} type="text" value={search}
+              onChange={e => { setSearch(e.target.value); setRecentsOpen(false); }}
+              onFocus={() => setRecentsOpen(false)}
               placeholder="Search customers, addresses, sites, notes…"
-              style={{ paddingLeft:38 }}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setTimeout(() => setSearchFocused(false), 150)} />
+              style={{ paddingLeft:38 }} />
             <span style={{ position:"absolute", left:28, top:22, fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
             {search && (
               <button onClick={() => setSearch("")}
-                style={{ position:"absolute", right:26, top:18, fontSize:16, color:"var(--muted)", padding:4 }}>✕</button>
-            )}
-            {searchFocused && !q && recentJobs.length > 0 && (
-              <div className="fade-in" style={{
-                position:"absolute", top:"100%", left:0, right:0, zIndex:50,
-                background:"var(--panel-2,var(--panel))", border:"1px solid var(--line)",
-                borderRadius:"0 0 10px 10px", overflow:"hidden", boxShadow:"0 6px 20px rgba(0,0,0,0.4)",
-              }}>
-                <div className="mono" style={{ fontSize:11, color:"var(--muted)", padding:"8px 14px 4px", letterSpacing:"0.05em" }}>RECENTLY VIEWED</div>
-                {recentJobs.map(r => {
-                  const live = jobs.find(j => j.id === r.id);
-                  const display = live || r;
-                  return (
-                    <button key={r.id} onMouseDown={() => { setSelectedId(r.id); setSearchFocused(false); }}
-                      style={{ display:"flex", flexDirection:"column", width:"100%", padding:"10px 14px",
-                        borderBottom:"1px solid var(--line)", textAlign:"left", background:"transparent",
-                        color:"var(--text)", gap:2 }}>
-                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
-                        <span className="head" style={{ fontSize:14, fontWeight:600 }}>{display.customer || r.customer}</span>
-                        <span className="mono" style={{ fontSize:11, color:"var(--muted)", whiteSpace:"nowrap" }}>{display.status || r.status}</span>
-                      </div>
-                      <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
-                        {display.type || r.type}{(display.site || r.site) ? ` · ${display.site || r.site}` : ''}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+                style={{ position:"absolute", right:26, top:18, fontSize:16, color:"var(--muted)", padding:4, zIndex:4 }}>✕</button>
             )}
           </div>
+
+          {/* Recents panel — appears below search bar, keyboard stays down */}
+          {recentsOpen && !q && recentJobs.length > 0 && (
+            <div className="fade-in" style={{
+              margin:"4px 16px 0", borderRadius:10, overflow:"hidden",
+              border:"1px solid var(--line)", background:"var(--panel-2)",
+              boxShadow:"0 6px 20px rgba(0,0,0,0.5)",
+            }}>
+              <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                padding:"8px 14px", borderBottom:"1px solid var(--line)" }}>
+                <span className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.05em" }}>RECENTLY VIEWED</span>
+                <button onClick={() => { setRecentsOpen(false); searchInputRef.current?.focus(); }}
+                  className="mono" style={{ fontSize:11, color:"var(--olive-bright)", padding:"2px 6px",
+                    border:"1px solid var(--olive)", borderRadius:4 }}>
+                  ⌨ TYPE TO SEARCH
+                </button>
+              </div>
+              {recentJobs.map(r => {
+                const live = jobs.find(j => j.id === r.id);
+                const display = live || r;
+                return (
+                  <button key={r.id} onClick={() => { setRecentsOpen(false); setSelectedId(r.id); }}
+                    style={{ display:"flex", flexDirection:"column", width:"100%", padding:"11px 14px",
+                      borderBottom:"1px solid var(--line)", textAlign:"left", background:"transparent",
+                      color:"var(--text)", gap:2 }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                      <span className="head" style={{ fontSize:14, fontWeight:600 }}>{display.customer || r.customer}</span>
+                      <span className="mono" style={{ fontSize:11, color:"var(--muted)", whiteSpace:"nowrap" }}>{display.status || r.status}</span>
+                    </div>
+                    <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                      {display.type || r.type}{(display.site || r.site) ? ` · ${display.site || r.site}` : ''}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
 
           {/* Include-closed toggle — only while searching */}
           {q && (
