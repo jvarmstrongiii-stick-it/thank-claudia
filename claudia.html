@@ -585,7 +585,7 @@ function App() {
   const [adding, setAdding] = useState(false);
   const [voicePreFill, setVoicePreFill] = useState(null);
   const [editingId, setEditingId] = useState(null);
-  const [filter, setFilter] = useState("All");
+  const [filter, setFilter] = useState(null);
   const [search, setSearch] = useState("");
   const [searchClosed, setSearchClosed] = useState(false);
   const [choresExpanded, setChoresExpanded] = useState(false);
@@ -1020,6 +1020,7 @@ Command: "${transcript}"`
   const usedStatuses = STATUSES.filter(s => s !== "Closed" && jobs.some(j => j.status === s));
   const hasClosed = jobs.some(j => j.status === "Closed");
   const FILTERS = [...usedStatuses, "All", ...(hasClosed ? ["Closed"] : [])];
+  const effectiveFilter = filter ?? usedStatuses[0] ?? "All";
   const q = search.trim().toLowerCase();
 
   function matchesSearch(j) {
@@ -1030,7 +1031,7 @@ Command: "${transcript}"`
     return hay.includes(q);
   }
 
-  const shown = q ? jobs.filter(matchesSearch) : jobs.filter(j => filter === "All" ? j.status !== "Closed" : j.status === filter);
+  const shown = q ? jobs.filter(matchesSearch) : jobs.filter(j => effectiveFilter === "All" ? j.status !== "Closed" : j.status === effectiveFilter);
   const outstanding = jobs.filter(j => isActive(j.status)).reduce((s,j) => s + Number(j.value||0), 0);
 
   return (
@@ -1120,9 +1121,9 @@ Command: "${transcript}"`
               {FILTERS.map(f => (
                 <button key={f} onClick={() => setFilter(f)} className="head"
                   style={{ fontSize:13, fontWeight:600, padding:"7px 16px", borderRadius:6, flexShrink:0,
-                    border:`1px solid ${filter===f ? "var(--olive-bright)" : "var(--line)"}`,
-                    color: filter===f ? "var(--bg)" : "var(--muted)",
-                    background: filter===f ? "var(--olive-bright)" : "transparent" }}>{f}</button>
+                    border:`1px solid ${effectiveFilter===f ? "var(--olive-bright)" : "var(--line)"}`,
+                    color: effectiveFilter===f ? "var(--bg)" : "var(--muted)",
+                    background: effectiveFilter===f ? "var(--olive-bright)" : "transparent" }}>{f}</button>
               ))}
             </div>
           )}
