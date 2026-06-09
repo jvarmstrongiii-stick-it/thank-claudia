@@ -120,6 +120,18 @@ const STATUS_COLOR = {
 };
 const JOB_TYPES = ["Service Call","New Install","Maintenance","Replacement","Warranty","Estimate"];
 
+/* ── Recently-viewed jobs (per-device, localStorage) ───────────────────────── */
+const RECENT_KEY = 'tmc_recent_jobs';
+function getRecentJobs() {
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
+}
+function saveRecentJob(job) {
+  if (!job || !job.id) return;
+  const list = getRecentJobs().filter(r => r.id !== job.id);
+  list.unshift({ id: job.id, customer: job.customer, type: job.type, status: job.status, site: siteAddr(job) });
+  localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
+}
+
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
 function todayISO() { return new Date().toISOString().split("T")[0]; }
 function siteAddr(j) { return j.site_address || j.address || ""; }
@@ -584,9 +596,16 @@ function App() {
   const toastTimer = useRef(null);
 
   const [selectedId, setSelectedIdRaw] = useState(() => sessionStorage.getItem('tmc_selected_job') || null);
+  const [recentJobs, setRecentJobs] = useState(getRecentJobs);
+  const [searchFocused, setSearchFocused] = useState(false);
   function setSelectedId(id) {
-    if (id) sessionStorage.setItem('tmc_selected_job', id);
-    else sessionStorage.removeItem('tmc_selected_job');
+    if (id) {
+      sessionStorage.setItem('tmc_selected_job', id);
+      const job = jobs.find(j => j.id === id);
+      if (job) { saveRecentJob(job); setRecentJobs(getRecentJobs()); }
+    } else {
+      sessionStorage.removeItem('tmc_selected_job');
+    }
     setSelectedIdRaw(id);
   }
   const [adding, setAdding] = useState(false);
@@ -1114,11 +1133,40 @@ Command: "${transcript}"`
           <div style={{ padding:"12px 16px 0", position:"relative" }}>
             <input type="text" value={search} onChange={e => setSearch(e.target.value)}
               placeholder="Search customers, addresses, sites, notes…"
-              style={{ paddingLeft:38 }} />
+              style={{ paddingLeft:38 }}
+              onFocus={() => setSearchFocused(true)}
+              onBlur={() => setTimeout(() => setSearchFocused(false), 150)} />
             <span style={{ position:"absolute", left:28, top:22, fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
             {search && (
               <button onClick={() => setSearch("")}
                 style={{ position:"absolute", right:26, top:18, fontSize:16, color:"var(--muted)", padding:4 }}>✕</button>
+            )}
+            {searchFocused && !q && recentJobs.length > 0 && (
+              <div className="fade-in" style={{
+                position:"absolute", top:"100%", left:0, right:0, zIndex:50,
+                background:"var(--panel-2,var(--panel))", border:"1px solid var(--line)",
+                borderRadius:"0 0 10px 10px", overflow:"hidden", boxShadow:"0 6px 20px rgba(0,0,0,0.4)",
+              }}>
+                <div className="mono" style={{ fontSize:11, color:"var(--muted)", padding:"8px 14px 4px", letterSpacing:"0.05em" }}>RECENTLY VIEWED</div>
+                {recentJobs.map(r => {
+                  const live = jobs.find(j => j.id === r.id);
+                  const display = live || r;
+                  return (
+                    <button key={r.id} onMouseDown={() => { setSelectedId(r.id); setSearchFocused(false); }}
+                      style={{ display:"flex", flexDirection:"column", width:"100%", padding:"10px 14px",
+                        borderBottom:"1px solid var(--line)", textAlign:"left", background:"transparent",
+                        color:"var(--text)", gap:2 }}>
+                      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
+                        <span className="head" style={{ fontSize:14, fontWeight:600 }}>{display.customer || r.customer}</span>
+                        <span className="mono" style={{ fontSize:11, color:"var(--muted)", whiteSpace:"nowrap" }}>{display.status || r.status}</span>
+                      </div>
+                      <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                        {display.type || r.type}{(display.site || r.site) ? ` · ${display.site || r.site}` : ''}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
           </div>
 
