@@ -1170,11 +1170,11 @@ Command: "${transcript}"`
               boxShadow:"0 6px 20px rgba(0,0,0,0.5)",
             }}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-                padding:"8px 14px", borderBottom:"1px solid var(--line)" }}>
-                <span className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.05em" }}>RECENTLY VIEWED</span>
+                padding:"10px 14px", borderBottom:"1px solid var(--line)" }}>
+                <span className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)", letterSpacing:"0.05em" }}>RECENTLY VIEWED</span>
                 <button onClick={() => { setRecentsOpen(false); setSearchActive(true); }}
-                  className="mono" style={{ fontSize:11, color:"var(--olive-bright)", padding:"2px 6px",
-                    border:"1px solid var(--olive)", borderRadius:4 }}>
+                  className="head" style={{ fontSize:14, fontWeight:700, color:"#0b0c08", padding:"7px 14px",
+                    background:"var(--olive-bright)", border:"none", borderRadius:6 }}>
                   ⌨ TYPE TO SEARCH
                 </button>
               </div>
@@ -1183,14 +1183,14 @@ Command: "${transcript}"`
                 const display = live || r;
                 return (
                   <button key={r.id} onClick={() => { setRecentsOpen(false); setSelectedId(r.id); }}
-                    style={{ display:"flex", flexDirection:"column", width:"100%", padding:"11px 14px",
+                    style={{ display:"flex", flexDirection:"column", width:"100%", padding:"13px 14px",
                       borderBottom:"1px solid var(--line)", textAlign:"left", background:"transparent",
-                      color:"var(--text)", gap:2 }}>
+                      color:"var(--text)", gap:4 }}>
                     <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
-                      <span className="head" style={{ fontSize:14, fontWeight:600 }}>{display.customer || r.customer}</span>
-                      <span className="mono" style={{ fontSize:11, color:"var(--muted)", whiteSpace:"nowrap" }}>{display.status || r.status}</span>
+                      <span className="head" style={{ fontSize:16, fontWeight:700, color:"var(--text)" }}>{display.customer || r.customer}</span>
+                      <span className="head" style={{ fontSize:13, color:"var(--text)", whiteSpace:"nowrap" }}>{display.status || r.status}</span>
                     </div>
-                    <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                    <div className="mono" style={{ fontSize:13, color:"var(--text)" }}>
                       {display.type || r.type}{(display.site || r.site) ? ` · ${display.site || r.site}` : ''}
                     </div>
                   </button>
