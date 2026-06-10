@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 50;
+const APP_REV = 51;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -363,6 +363,16 @@ async function deleteEquipmentItem(id) {
 }
 
 const EQUIP_KEYS = ['equipment_type','brand','model_number','serial_number','tonnage','horsepower','rpm','shaft_diameter','refrigerant','voltage','seer','mca','mop','year_manufactured'];
+
+function findDuplicateEquipment(scan, list) {
+  const model = (scan.model_number || '').trim().toLowerCase();
+  const serial = (scan.serial_number || '').trim().toLowerCase();
+  if (!model || !serial) return null;
+  return list.find(eq =>
+    (eq.model_number || '').trim().toLowerCase() === model &&
+    (eq.serial_number || '').trim().toLowerCase() === serial
+  ) || null;
+}
 
 function getLabelSuggestions(equipType) {
   const t = (equipType||'').toLowerCase();
@@ -2036,6 +2046,37 @@ function LabelPromptSheet({ scan, onSave, onCancel }) {
   );
 }
 
+function DuplicateEquipmentSheet({ scan, existing, onOverride, onKeep }) {
+  const found = Object.entries(scan).filter(([,v]) => v != null);
+  return (
+    <div onClick={onKeep} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
+      <div onClick={e => e.stopPropagation()} className="fade-in"
+        style={{ width:"100%", maxWidth:520, background:"var(--panel-2)", borderTop:"2px solid var(--brass)",
+          borderRadius:"16px 16px 0 0", padding:"20px 16px 36px", maxHeight:"80vh", overflowY:"auto" }}>
+        <div className="head" style={{ fontSize:16, fontWeight:700, marginBottom:4 }}>ALREADY IMPORTED</div>
+        <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:10 }}>
+          "{existing.label}" already has model {existing.model_number} / serial {existing.serial_number} on file for this job.
+        </div>
+        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:14 }}>
+          New scan: {found.map(([k,v]) => `${k.replace(/_/g,' ')}: ${v}`).join(' · ')}
+        </div>
+        <div style={{ display:"flex", gap:10 }}>
+          <button onClick={onOverride} className="head"
+            style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+              background:"var(--brass-bright)", color:"var(--bg)" }}>
+            OVERRIDE
+          </button>
+          <button onClick={onKeep} className="head"
+            style={{ flex:1, padding:14, borderRadius:9, fontSize:14,
+              background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+            KEEP ORIGINAL
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
 function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
@@ -2291,6 +2332,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setEquipmentList(prev => [...prev, data]);
     setOtherScanQueue(q => q.slice(1));
+  }
+
+  async function overrideEquipment(existing, scanData, isOther) {
+    const fields = {};
+    EQUIP_KEYS.forEach(k => { if (scanData[k] != null) fields[k] = scanData[k]; });
+    const error = await updateEquipment(existing.id, fields);
+    if (error) { alert(`Update failed: ${error.message}`); return; }
+    setEquipmentList(prev => prev.map(e => e.id === existing.id ? { ...e, ...fields } : e));
+    if (isOther) setOtherScanQueue(q => q.slice(1)); else setScanQueue(q => q.slice(1));
   }
 
   function renderEquipCard(eq) {
@@ -2613,19 +2663,37 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         </div>
 
         {scanQueue.length > 0 && (
-          <LabelPromptSheet
-            scan={scanQueue[0]}
-            onSave={(label) => saveNewEquipment(label, scanQueue[0])}
-            onCancel={() => setScanQueue(q => q.slice(1))}
-          />
+          findDuplicateEquipment(scanQueue[0], equipmentList) ? (
+            <DuplicateEquipmentSheet
+              scan={scanQueue[0]}
+              existing={findDuplicateEquipment(scanQueue[0], equipmentList)}
+              onOverride={() => overrideEquipment(findDuplicateEquipment(scanQueue[0], equipmentList), scanQueue[0], false)}
+              onKeep={() => setScanQueue(q => q.slice(1))}
+            />
+          ) : (
+            <LabelPromptSheet
+              scan={scanQueue[0]}
+              onSave={(label) => saveNewEquipment(label, scanQueue[0])}
+              onCancel={() => setScanQueue(q => q.slice(1))}
+            />
+          )
         )}
 
         {scanQueue.length === 0 && otherScanQueue.length > 0 && (
-          <LabelPromptSheet
-            scan={otherScanQueue[0]}
-            onSave={(label) => saveOtherEquipment(label, otherScanQueue[0])}
-            onCancel={() => setOtherScanQueue(q => q.slice(1))}
-          />
+          findDuplicateEquipment(otherScanQueue[0], equipmentList) ? (
+            <DuplicateEquipmentSheet
+              scan={otherScanQueue[0]}
+              existing={findDuplicateEquipment(otherScanQueue[0], equipmentList)}
+              onOverride={() => overrideEquipment(findDuplicateEquipment(otherScanQueue[0], equipmentList), otherScanQueue[0], true)}
+              onKeep={() => setOtherScanQueue(q => q.slice(1))}
+            />
+          ) : (
+            <LabelPromptSheet
+              scan={otherScanQueue[0]}
+              onSave={(label) => saveOtherEquipment(label, otherScanQueue[0])}
+              onCancel={() => setOtherScanQueue(q => q.slice(1))}
+            />
+          )
         )}
 
         {showWarrantySheet && (
