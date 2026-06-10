@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 44;
+const APP_REV = 45;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -146,6 +146,16 @@ function fmtDate(iso) {
 function fmtTime(t) {
   if (!t) return "—";
   let [h,mn] = t.split(":").map(Number);
+  const ap = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${h}:${String(mn).padStart(2,"0")} ${ap}`;
+}
+function fmtTimestamp(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return "—";
+  let h = d.getHours();
+  const mn = d.getMinutes();
   const ap = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
   return `${h}:${String(mn).padStart(2,"0")} ${ap}`;
@@ -459,6 +469,25 @@ async function fetchUsers() {
     name: u.name || u.display_name || u.full_name || u.email || 'Tech',
   }));
   return mapped.length > 0 ? mapped : null;
+}
+
+async function fetchJobCrew(jobId) {
+  const { data, error } = await sb.from('job_crew').select('*').eq('job_id', jobId);
+  if (error) { console.warn('fetchJobCrew error', error.message || error); return []; }
+  return data || [];
+}
+
+async function upsertJobCrewStatus(jobId, userId, status) {
+  const { data, error } = await sb.from('job_crew')
+    .upsert({ job_id: jobId, user_id: userId, status, status_at: new Date().toISOString() }, { onConflict: 'job_id,user_id' })
+    .select().single();
+  if (error) { console.warn('upsertJobCrewStatus error', error.message || error); return null; }
+  return data;
+}
+
+async function clearJobCrewStatus(jobId, userId) {
+  const { error } = await sb.from('job_crew').delete().eq('job_id', jobId).eq('user_id', userId);
+  if (error) console.warn('clearJobCrewStatus error', error.message || error);
 }
 
 /* ── Components ────────────────────────────────────────────────────────────── */
@@ -1045,7 +1074,9 @@ Command: "${transcript}"`
         onUpdate={(patch) => updateJob(selected.id, patch)}
         onEdit={() => setEditingId(selected.id)}
         onDelete={() => deleteJob(selected.id)}
-        focusPhotos={focusPhotos} />
+        focusPhotos={focusPhotos}
+        currentUser={currentUser}
+        users={users} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
@@ -1985,7 +2016,7 @@ function LabelPromptSheet({ scan, onSave, onCancel }) {
 }
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
-function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
+function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showResched, setShowResched] = useState(false);
@@ -2010,6 +2041,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   const [deletingPhoto, setDeletingPhoto] = useState(null);
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
+  const [crew, setCrew] = useState([]);
   const fileRef = useRef();
   const cameraRef = useRef();
   const scanRef = useRef();
@@ -2030,6 +2062,27 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
   useEffect(() => {
     fetchEquipment(job.id).then(setEquipmentList);
   }, [job.id]);
+
+  useEffect(() => {
+    fetchJobCrew(job.id).then(setCrew);
+  }, [job.id]);
+
+  async function setMyCrewStatus(status) {
+    if (!currentUser?.id) return;
+    const updated = await upsertJobCrewStatus(job.id, currentUser.id, status);
+    if (!updated) return;
+    setCrew(prev => [...prev.filter(c => c.user_id !== currentUser.id), updated]);
+    await sb.from('job_notes').insert({
+      job_id: job.id, content: `Status → ${status} (${currentUser.name})`,
+      source: 'system', created_at: new Date().toISOString(), user_id: currentUser.id,
+    });
+  }
+
+  async function clearMyCrewStatus() {
+    if (!currentUser?.id) return;
+    await clearJobCrewStatus(job.id, currentUser.id);
+    setCrew(prev => prev.filter(c => c.user_id !== currentUser.id));
+  }
 
   useEffect(() => {
     if (focusPhotos && photoRef.current) {
@@ -2525,6 +2578,49 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos }) {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {users.length > 0 && (
+          <div style={{ marginTop:20 }}>
+            <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:8 }}>CREW STATUS</div>
+            {users.map(u => {
+              const c = crew.find(x => x.user_id === u.id);
+              const isMe = currentUser?.id === u.id;
+              return (
+                <div key={u.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
+                  padding:"10px 0", borderBottom:"1px solid var(--line)", gap:8 }}>
+                  <div>
+                    <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)" }}>
+                      {u.name}{isMe ? ' (You)' : ''}
+                    </div>
+                    {c && (
+                      <div className="mono" style={{ fontSize:12, color: c.status === 'On Site' ? "var(--green)" : "var(--olive-bright)", marginTop:2 }}>
+                        {c.status} · {fmtTimestamp(c.status_at)}
+                      </div>
+                    )}
+                  </div>
+                  {isMe && (
+                    <div style={{ display:"flex", gap:6, flexShrink:0 }}>
+                      <button onClick={() => setMyCrewStatus('In Route')} className="head"
+                        style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
+                          background: c?.status === 'In Route' ? "var(--olive-bright)" : "var(--panel)",
+                          color: c?.status === 'In Route' ? "var(--bg)" : "var(--text)",
+                          border:"1px solid var(--line)" }}>IN ROUTE</button>
+                      <button onClick={() => setMyCrewStatus('On Site')} className="head"
+                        style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
+                          background: c?.status === 'On Site' ? "var(--green)" : "var(--panel)",
+                          color: c?.status === 'On Site' ? "#fff" : "var(--text)",
+                          border:"1px solid var(--line)" }}>ON SITE</button>
+                      {c && (
+                        <button onClick={clearMyCrewStatus} className="mono"
+                          style={{ fontSize:16, color:"var(--muted)", padding:"8px 6px" }}>✕</button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
 
