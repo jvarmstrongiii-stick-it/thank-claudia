@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 45;
+const APP_REV = 46;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2042,6 +2042,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
   const [crew, setCrew] = useState([]);
+  const [photosOpen, setPhotosOpen] = useState(true);
+  const [thisJobEquipOpen, setThisJobEquipOpen] = useState(true);
+  const [otherEquipOpen, setOtherEquipOpen] = useState(true);
   const fileRef = useRef();
   const cameraRef = useRef();
   const scanRef = useRef();
@@ -2086,6 +2089,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
 
   useEffect(() => {
     if (focusPhotos && photoRef.current) {
+      setPhotosOpen(true);
       setTimeout(() => photoRef.current.scrollIntoView({ behavior:'smooth', block:'center' }), 150);
     }
   }, [focusPhotos]);
@@ -2356,7 +2360,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         {/* Photo strip */}
         <div ref={photoRef} style={{ marginTop:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-            <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>PHOTOS</div>
+            <div onClick={() => setPhotosOpen(o => !o)} className="mono"
+              style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+              <span style={{ display:"inline-block", transition:"transform 0.15s", transform: photosOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+              PHOTOS{photos.length > 0 ? ` (${photos.length})` : ''}
+            </div>
             {uploading ? (
               <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>UPLOADING…</span>
             ) : (
@@ -2378,20 +2386,24 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             style={{ display:'none' }} onChange={handlePhotoInput} />
           <input ref={fileRef} type="file" accept="image/*" multiple
             style={{ display:'none' }} onChange={handlePhotoInput} />
-          {photos.length === 0 && !uploading && (
-            <div className="mono" style={{ fontSize:14, color:"var(--muted)", padding:"14px 0" }}>No photos yet</div>
-          )}
-          <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-            {photos.map((p,i) => (
-              <div key={p.id} style={{ position:"relative" }}>
-                <img src={p.url} alt="" onClick={() => setLightbox(p.url)}
-                  style={{ width:90, height:90, objectFit:"cover", borderRadius:8, border:"1px solid var(--line)", cursor:"pointer" }} />
-                <button onClick={() => setDeletingPhoto({ photo: p, idx: i })}
-                  style={{ position:"absolute", top:2, right:2, width:24, height:24, borderRadius:"50%",
-                    background:"rgba(0,0,0,0.75)", color:"#fff", fontSize:13, lineHeight:"24px", textAlign:"center" }}>✕</button>
+          {photosOpen && (
+            <>
+              {photos.length === 0 && !uploading && (
+                <div className="mono" style={{ fontSize:14, color:"var(--muted)", padding:"14px 0" }}>No photos yet</div>
+              )}
+              <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                {photos.map((p,i) => (
+                  <div key={p.id} style={{ position:"relative" }}>
+                    <img src={p.url} alt="" onClick={() => setLightbox(p.url)}
+                      style={{ width:90, height:90, objectFit:"cover", borderRadius:8, border:"1px solid var(--line)", cursor:"pointer" }} />
+                    <button onClick={() => setDeletingPhoto({ photo: p, idx: i })}
+                      style={{ position:"absolute", top:2, right:2, width:24, height:24, borderRadius:"50%",
+                        background:"rgba(0,0,0,0.75)", color:"#fff", fontSize:13, lineHeight:"24px", textAlign:"center" }}>✕</button>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            </>
+          )}
         </div>
 
         {lightbox && (
@@ -2441,7 +2453,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         <div style={{ marginTop:20 }}>
           {/* THIS JOB section */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-            <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
+            <div onClick={() => setThisJobEquipOpen(o => !o)} className="mono"
+              style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+              <span style={{ display:"inline-block", transition:"transform 0.15s", transform: thisJobEquipOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
               THIS JOB{jobEquip.length > 0 ? ` (${jobEquip.length})` : ''}
               {scanningCount > 0 && (
                 <span style={{ marginLeft:8, fontSize:11, color:"var(--olive-bright)" }}>
@@ -2464,21 +2478,27 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           </div>
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
           <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
-          {pendingScanRetry && (
-            <button onClick={retryScan} className="head"
-              style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
-                background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
-              ↺ RETRY SCAN (no signal when scanned — tap to extract data)
-            </button>
+          {thisJobEquipOpen && (
+            <>
+              {pendingScanRetry && (
+                <button onClick={retryScan} className="head"
+                  style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
+                    background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
+                  ↺ RETRY SCAN (no signal when scanned — tap to extract data)
+                </button>
+              )}
+              {jobEquip.length === 0 && scanningCount === 0 && !pendingScanRetry && (
+                <div className="mono" style={{ fontSize:14, color:"var(--muted)", padding:"6px 0 10px" }}>No equipment scanned for this job</div>
+              )}
+              {jobEquip.map(renderEquipCard)}
+            </>
           )}
-          {jobEquip.length === 0 && scanningCount === 0 && !pendingScanRetry && (
-            <div className="mono" style={{ fontSize:14, color:"var(--muted)", padding:"6px 0 10px" }}>No equipment scanned for this job</div>
-          )}
-          {jobEquip.map(renderEquipCard)}
 
           {/* OTHER AT THIS ADDRESS section */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, marginBottom:10, borderTop:"1px solid var(--line)", paddingTop:14 }}>
-            <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>
+            <div onClick={() => setOtherEquipOpen(o => !o)} className="mono"
+              style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+              <span style={{ display:"inline-block", transition:"transform 0.15s", transform: otherEquipOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
               OTHER AT THIS ADDRESS{otherEquip.length > 0 ? ` (${otherEquip.length})` : ''}
               {otherScanningCount > 0 && (
                 <span style={{ marginLeft:8, fontSize:11, color:"var(--olive-bright)" }}>
@@ -2501,17 +2521,21 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           </div>
           <input ref={otherScanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runOtherScan} />
           <input ref={otherScanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runOtherScan} />
-          {pendingOtherScanRetry && (
-            <button onClick={retryOtherScan} className="head"
-              style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
-                background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
-              ↺ RETRY SCAN (no signal when scanned — tap to extract data)
-            </button>
+          {otherEquipOpen && (
+            <>
+              {pendingOtherScanRetry && (
+                <button onClick={retryOtherScan} className="head"
+                  style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
+                    background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
+                  ↺ RETRY SCAN (no signal when scanned — tap to extract data)
+                </button>
+              )}
+              {otherEquip.length === 0 && otherScanningCount === 0 && !pendingOtherScanRetry && (
+                <div className="mono" style={{ fontSize:14, color:"var(--muted)", padding:"6px 0 10px" }}>No other equipment logged</div>
+              )}
+              {otherEquip.map(renderEquipCard)}
+            </>
           )}
-          {otherEquip.length === 0 && otherScanningCount === 0 && !pendingOtherScanRetry && (
-            <div className="mono" style={{ fontSize:14, color:"var(--line)", padding:"6px 0 10px" }}>No other equipment logged</div>
-          )}
-          {otherEquip.map(renderEquipCard)}
         </div>
 
         {scanQueue.length > 0 && (
