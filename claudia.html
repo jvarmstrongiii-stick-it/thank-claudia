@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 47;
+const APP_REV = 48;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -169,7 +169,17 @@ function fmtTimestamp(iso) {
   const mn = d.getMinutes();
   const ap = h >= 12 ? "PM" : "AM";
   h = h % 12 || 12;
-  return `${h}:${String(mn).padStart(2,"0")} ${ap}`;
+  const time = `${h}:${String(mn).padStart(2,"0")} ${ap}`;
+  const sameDay = d.toDateString() === new Date().toDateString();
+  if (sameDay) return time;
+  const pad = n => String(n).padStart(2,"0");
+  return `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${time}`;
+}
+function toLocalDateTimeInput(iso) {
+  const d = iso ? new Date(iso) : new Date();
+  if (isNaN(d)) return '';
+  const pad = n => String(n).padStart(2,"0");
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 function deriveCustomers(jobs) {
   const map = {};
@@ -2053,6 +2063,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
   const [crew, setCrew] = useState([]);
+  const [editingCrew, setEditingCrew] = useState(null); // user id being edited, or null
+  const [editCrewStatus, setEditCrewStatus] = useState('In Route');
+  const [editCrewDateTime, setEditCrewDateTime] = useState('');
   const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
   const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(() => !getSectionCollapse().thisJobEquip);
   const [otherEquipOpen, setOtherEquipOpenRaw] = useState(() => !getSectionCollapse().otherEquip);
@@ -2117,6 +2130,35 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (!currentUser?.id) return;
     await clearJobCrewStatus(job.id, currentUser.id);
     setCrew(prev => prev.filter(c => c.user_id !== currentUser.id));
+  }
+
+  function openCrewEdit(u, c) {
+    setEditingCrew(u.id);
+    setEditCrewStatus(c?.status || 'In Route');
+    setEditCrewDateTime(toLocalDateTimeInput(c?.status_at));
+  }
+
+  async function saveCrewEdit(u) {
+    if (editCrewStatus === 'none') {
+      await clearJobCrewStatus(job.id, u.id);
+      setCrew(prev => prev.filter(c => c.user_id !== u.id));
+    } else {
+      const statusAt = new Date(editCrewDateTime).toISOString();
+      const updated = await upsertJobCrewStatus(job.id, u.id, editCrewStatus);
+      if (updated) {
+        // upsertJobCrewStatus stamps "now" — overwrite with the chosen time
+        const { data, error } = await sb.from('job_crew')
+          .update({ status_at: statusAt }).eq('id', updated.id).select().single();
+        const final = (!error && data) ? data : { ...updated, status_at: statusAt };
+        setCrew(prev => [...prev.filter(c => c.user_id !== u.id), final]);
+      }
+      const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
+      await sb.from('job_notes').insert({
+        job_id: job.id, content: `Status → ${editCrewStatus} (${u.name})${editorName}`,
+        source: 'system', created_at: new Date().toISOString(), user_id: currentUser?.id || null,
+      });
+    }
+    setEditingCrew(null);
   }
 
   useEffect(() => {
@@ -2643,35 +2685,71 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             {users.map(u => {
               const c = crew.find(x => x.user_id === u.id);
               const isMe = currentUser?.id === u.id;
+              const isEditing = editingCrew === u.id;
               return (
-                <div key={u.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between",
-                  padding:"10px 0", borderBottom:"1px solid var(--line)", gap:8 }}>
-                  <div>
-                    <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)" }}>
-                      {u.name}{isMe ? ' (You)' : ''}
-                    </div>
-                    {c && (
-                      <div className="mono" style={{ fontSize:12, color: c.status === 'On Site' ? "var(--green)" : "var(--olive-bright)", marginTop:2 }}>
-                        {c.status} · {fmtTimestamp(c.status_at)}
+                <div key={u.id} style={{ padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
+                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
+                    <div>
+                      <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)" }}>
+                        {u.name}{isMe ? ' (You)' : ''}
                       </div>
-                    )}
-                  </div>
-                  {isMe && (
-                    <div style={{ display:"flex", gap:6, flexShrink:0 }}>
-                      <button onClick={() => setMyCrewStatus('In Route')} className="head"
-                        style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
-                          background: c?.status === 'In Route' ? "var(--olive-bright)" : "var(--panel)",
-                          color: c?.status === 'In Route' ? "var(--bg)" : "var(--text)",
-                          border:"1px solid var(--line)" }}>IN ROUTE</button>
-                      <button onClick={() => setMyCrewStatus('On Site')} className="head"
-                        style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
-                          background: c?.status === 'On Site' ? "var(--green)" : "var(--panel)",
-                          color: c?.status === 'On Site' ? "#fff" : "var(--text)",
-                          border:"1px solid var(--line)" }}>ON SITE</button>
                       {c && (
-                        <button onClick={clearMyCrewStatus} className="mono"
-                          style={{ fontSize:16, color:"var(--muted)", padding:"8px 6px" }}>✕</button>
+                        <div className="mono" style={{ fontSize:12, color: c.status === 'On Site' ? "var(--green)" : "var(--olive-bright)", marginTop:2 }}>
+                          {c.status} · {fmtTimestamp(c.status_at)}
+                        </div>
                       )}
+                    </div>
+                    <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
+                      {isMe && (
+                        <>
+                          <button onClick={() => setMyCrewStatus('In Route')} className="head"
+                            style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
+                              background: c?.status === 'In Route' ? "var(--olive-bright)" : "var(--panel)",
+                              color: c?.status === 'In Route' ? "var(--bg)" : "var(--text)",
+                              border:"1px solid var(--line)" }}>IN ROUTE</button>
+                          <button onClick={() => setMyCrewStatus('On Site')} className="head"
+                            style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
+                              background: c?.status === 'On Site' ? "var(--green)" : "var(--panel)",
+                              color: c?.status === 'On Site' ? "#fff" : "var(--text)",
+                              border:"1px solid var(--line)" }}>ON SITE</button>
+                          {c && (
+                            <button onClick={clearMyCrewStatus} className="mono"
+                              style={{ fontSize:16, color:"var(--muted)", padding:"8px 6px" }}>✕</button>
+                          )}
+                        </>
+                      )}
+                      <button onClick={() => isEditing ? setEditingCrew(null) : openCrewEdit(u, c)} className="mono"
+                        style={{ fontSize:16, color:"var(--muted)", padding:"8px 6px" }}>{isEditing ? '✕' : '✎'}</button>
+                    </div>
+                  </div>
+                  {isEditing && (
+                    <div className="fade-in" style={{ marginTop:10, padding:12, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8 }}>
+                      <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>STATUS</div>
+                      <div style={{ display:"flex", gap:6, marginBottom:10 }}>
+                        {['In Route','On Site','none'].map(s => (
+                          <button key={s} onClick={() => setEditCrewStatus(s)} className="head"
+                            style={{ flex:1, fontSize:12, fontWeight:700, padding:"9px 6px", borderRadius:6,
+                              background: editCrewStatus === s ? "var(--olive-bright)" : "var(--bg)",
+                              color: editCrewStatus === s ? "var(--bg)" : "var(--text)",
+                              border:"1px solid var(--line)" }}>{s === 'none' ? 'NONE' : s.toUpperCase()}</button>
+                        ))}
+                      </div>
+                      {editCrewStatus !== 'none' && (
+                        <>
+                          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>WHEN</div>
+                          <input type="datetime-local" value={editCrewDateTime}
+                            onChange={e => setEditCrewDateTime(e.target.value)}
+                            style={{ marginBottom:10 }} />
+                        </>
+                      )}
+                      <div style={{ display:"flex", gap:8 }}>
+                        <button onClick={() => saveCrewEdit(u)} className="head"
+                          style={{ flex:1, padding:"11px 0", borderRadius:8, fontSize:14, fontWeight:700,
+                            background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
+                        <button onClick={() => setEditingCrew(null)} className="head"
+                          style={{ padding:"11px 16px", borderRadius:8, fontSize:14, fontWeight:600,
+                            background:"transparent", border:"1px solid var(--line)", color:"var(--text)" }}>CANCEL</button>
+                      </div>
                     </div>
                   )}
                 </div>
