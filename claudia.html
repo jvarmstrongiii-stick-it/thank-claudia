@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 46;
+const APP_REV = 47;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -130,6 +130,17 @@ function saveRecentJob(job) {
   const list = getRecentJobs().filter(r => r.id !== job.id);
   list.unshift({ id: job.id, customer: job.customer, type: job.type, status: job.status, site: siteAddr(job) });
   localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, 8)));
+}
+
+/* ── Collapsible section preferences (per-device, localStorage) ───────────── */
+const SECTION_COLLAPSE_KEY = 'tmc_section_collapse';
+function getSectionCollapse() {
+  try { return JSON.parse(localStorage.getItem(SECTION_COLLAPSE_KEY) || '{}'); } catch { return {}; }
+}
+function setSectionCollapsed(key, collapsed) {
+  const map = getSectionCollapse();
+  if (collapsed) map[key] = true; else delete map[key];
+  localStorage.setItem(SECTION_COLLAPSE_KEY, JSON.stringify(map));
 }
 
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
@@ -2042,9 +2053,30 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
   const [crew, setCrew] = useState([]);
-  const [photosOpen, setPhotosOpen] = useState(true);
-  const [thisJobEquipOpen, setThisJobEquipOpen] = useState(true);
-  const [otherEquipOpen, setOtherEquipOpen] = useState(true);
+  const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
+  const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(() => !getSectionCollapse().thisJobEquip);
+  const [otherEquipOpen, setOtherEquipOpenRaw] = useState(() => !getSectionCollapse().otherEquip);
+  function setPhotosOpen(updater) {
+    setPhotosOpenRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setSectionCollapsed('photos', !next);
+      return next;
+    });
+  }
+  function setThisJobEquipOpen(updater) {
+    setThisJobEquipOpenRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setSectionCollapsed('thisJobEquip', !next);
+      return next;
+    });
+  }
+  function setOtherEquipOpen(updater) {
+    setOtherEquipOpenRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setSectionCollapsed('otherEquip', !next);
+      return next;
+    });
+  }
   const fileRef = useRef();
   const cameraRef = useRef();
   const scanRef = useRef();
