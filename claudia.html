@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 48;
+const APP_REV = 49;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -115,7 +115,7 @@ const WORKFLOW_STATUSES = [
 const STATUS_COLOR = {
   "New":"#d9af52","Evaluation Needed":"#b8baa8","Write Estimate":"#b8923f",
   "Waiting on Approval":"#c98a3f","Ready to Schedule":"#93a046","Scheduled":"#93a046","In Route":"#d9af52",
-  "On Site":"#93a046","In Progress":"#93a046","On Hold":"#b5432f",
+  "On Site":"#6fa33d","In Progress":"#93a046","On Hold":"#b5432f",
   "Completed/Needs Billing":"#d9af52","Billed/Waiting for Payment":"#c98a3f","Completed/Paid":"#6fa33d","Closed":"#b8baa8",
 };
 const JOB_TYPES = ["Service Call","New Install","Maintenance","Replacement","Warranty","Estimate"];
