@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 55;
+const APP_REV = 56;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2836,10 +2836,16 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                           {c.status} · {fmtTimestamp(c.status_at)}
                         </div>
                       )}
+                      {!isMe && !c && elsewhere && (
+                        <div className="mono" style={{ fontSize:12, color: elsewhere.status === 'On Site' ? "var(--green)" : "var(--olive-bright)", marginTop:2 }}>
+                          {elsewhere.status} · {fmtTimestamp(elsewhere.status_at)}
+                        </div>
+                      )}
                     </div>
                     {!isMe && !c && elsewhereJob && (
-                      <div className="mono" style={{ fontSize:12, color: elsewhere.status === 'On Site' ? "var(--green)" : "var(--olive-bright)", textAlign:"right", flex:1 }}>
-                        {elsewhere.status} · {elsewhereJob.customer}
+                      <div className="mono" style={{ fontSize:12, color:"var(--muted)", textAlign:"right", flex:1 }}>
+                        <div>{elsewhereJob.customer}</div>
+                        {elsewhereJob.site_address && <div>{elsewhereJob.site_address}</div>}
                       </div>
                     )}
                     <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
