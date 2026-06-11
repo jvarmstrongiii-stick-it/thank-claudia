@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 52;
+const APP_REV = 53;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2104,6 +2104,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
   const [crew, setCrew] = useState([]);
+  const [onSiteCheck, setOnSiteCheck] = useState(null); // array of crew users to confirm 'On Site' for, or null
   const [editingCrew, setEditingCrew] = useState(null); // user id being edited, or null
   const [editCrewStatus, setEditCrewStatus] = useState('In Route');
   const [editCrewDateTime, setEditCrewDateTime] = useState('');
@@ -2166,6 +2167,25 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       source: 'system', created_at: new Date().toISOString(), user_id: currentUser.id,
     });
     if (job.status !== status) onUpdate({ status, _skipNote: true });
+    if (status === 'On Site') {
+      const others = users.filter(u => u.id !== currentUser.id &&
+        crew.find(c => c.user_id === u.id)?.status === 'In Route');
+      if (others.length > 0) setOnSiteCheck(others);
+    }
+  }
+
+  async function markOthersOnSite() {
+    const targets = onSiteCheck || [];
+    setOnSiteCheck(null);
+    for (const u of targets) {
+      const updated = await upsertJobCrewStatus(job.id, u.id, 'On Site');
+      if (!updated) continue;
+      setCrew(prev => [...prev.filter(c => c.user_id !== u.id), updated]);
+      await sb.from('job_notes').insert({
+        job_id: job.id, content: `Status → On Site (${u.name})`,
+        source: 'system', created_at: new Date().toISOString(), user_id: currentUser?.id || null,
+      });
+    }
   }
 
   async function clearMyCrewStatus() {
@@ -2696,6 +2716,26 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
               onCancel={() => setOtherScanQueue(q => q.slice(1))}
             />
           )
+        )}
+
+        {onSiteCheck && (
+          <Sheet onClose={() => setOnSiteCheck(null)} title="ON SITE">
+            <div className="mono" style={{ fontSize:14, color:"var(--text)", marginBottom:14 }}>
+              Are {onSiteCheck.map(u => u.name).join(', ')} also on site?
+            </div>
+            <div style={{ display:"flex", gap:10 }}>
+              <button onClick={markOthersOnSite} className="head"
+                style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+                  background:"var(--green)", color:"var(--bg)" }}>
+                YES, MARK THEM ON SITE
+              </button>
+              <button onClick={() => setOnSiteCheck(null)} className="head"
+                style={{ flex:1, padding:14, borderRadius:9, fontSize:14,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                NO
+              </button>
+            </div>
+          </Sheet>
         )}
 
         {showWarrantySheet && (
