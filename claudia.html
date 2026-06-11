@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 51;
+const APP_REV = 52;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -894,7 +894,7 @@ Command: "${transcript}"`
     }
     const { error } = await sb.from('jobs').update(updateData).eq('id', id);
     if (error) { showToast("Error updating job", true); console.error(error); return; }
-    if (patch.status && patch.status !== job.status) {
+    if (patch.status && patch.status !== job.status && !patch._skipNote) {
       const fieldStatuses = ["In Route", "On Site"];
       const userName = currentUser?.name || null;
       const noteContent = userName ? `Status → ${patch.status} (${userName})` : `Status → ${patch.status}`;
@@ -2165,6 +2165,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       job_id: job.id, content: `Status → ${status} (${currentUser.name})`,
       source: 'system', created_at: new Date().toISOString(), user_id: currentUser.id,
     });
+    if (job.status !== status) onUpdate({ status, _skipNote: true });
   }
 
   async function clearMyCrewStatus() {
@@ -2198,6 +2199,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         job_id: job.id, content: `Status → ${editCrewStatus} (${u.name})${editorName}`,
         source: 'system', created_at: new Date().toISOString(), user_id: currentUser?.id || null,
       });
+      if (job.status !== editCrewStatus) onUpdate({ status: editCrewStatus, _skipNote: true });
     }
     setEditingCrew(null);
   }
