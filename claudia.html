@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 57;
+const APP_REV = 58;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -145,6 +145,14 @@ function setSectionCollapsed(key, collapsed) {
 
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
 function todayISO() { return new Date().toISOString().split("T")[0]; }
+function nowTimeRounded15() {
+  const d = new Date();
+  let mins = Math.round(d.getMinutes() / 15) * 15;
+  let hours = d.getHours();
+  if (mins === 60) { mins = 0; hours = (hours + 1) % 24; }
+  const pad = n => String(n).padStart(2,"0");
+  return `${pad(hours)}:${pad(mins)}`;
+}
 function siteAddr(j) { return j.site_address || j.address || ""; }
 function custAddr(j) { return j.customer_address || j.address || ""; }
 function uid() { return "job_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
@@ -2952,10 +2960,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       {showResched && (
         <Sheet onClose={() => setShowResched(false)} title="RESCHEDULE">
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, marginTop:4 }}>DATE</div>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} />
+          <input type="date" value={date} min={todayISO()} onChange={e => setDate(e.target.value)} />
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"14px 0 6px" }}>TIME</div>
-          <input type="time" value={time} onChange={e => setTime(e.target.value)} />
-          <button onClick={() => { onUpdate({ scheduled_date:date, scheduled_time:time }); setShowResched(false); }} className="head"
+          <input type="time" value={time} min={date === todayISO() ? nowTimeRounded15() : undefined} onChange={e => setTime(e.target.value)} />
+          <button onClick={() => {
+              const dt = new Date(`${date}T${time}:00`);
+              if (isNaN(dt) || dt < new Date()) { alert('Please choose a date and time that is not in the past.'); return; }
+              onUpdate({ scheduled_date:date, scheduled_time:time }); setShowResched(false);
+            }} className="head"
             style={{ width:"100%", marginTop:18, padding:15, borderRadius:9, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
             SAVE
           </button>
@@ -3144,7 +3156,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
     customer:"", location:"", customer_address:"", site_address:"",
     same_address: loadSameAddrPref(),
     phone:"", email:"", type:"Service Call",
-    status:"New", scheduled_date: todayISO(), scheduled_time:"09:00",
+    status:"New", scheduled_date: todayISO(), scheduled_time: nowTimeRounded15(),
     value:"", original_ask:"", notes:"", history:[],
     ...(prefill || {}),
   });
