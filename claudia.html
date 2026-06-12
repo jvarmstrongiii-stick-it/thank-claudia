@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 58;
+const APP_REV = 59;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3013,8 +3013,11 @@ function LocationPickerSheet({ lat, lng, onConfirm, onCancel }) {
     if (!q.trim()) { setSearchResults([]); setShowResults(false); return; }
     setSearching(true);
     try {
+      const center = mapRef.current ? mapRef.current.getCenter() : { lat, lng };
+      const delta = 0.5; // ~35 miles — keeps results within the Philly service area
+      const viewbox = `${center.lng-delta},${center.lat+delta},${center.lng+delta},${center.lat-delta}`;
       const r = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1&countrycodes=us`,
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1&countrycodes=us&viewbox=${viewbox}&bounded=1`,
         { headers: { 'Accept-Language': 'en-US,en' } }
       );
       const results = await r.json();
