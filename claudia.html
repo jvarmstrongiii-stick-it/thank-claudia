@@ -70,7 +70,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 56;
+const APP_REV = 57;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2824,6 +2824,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
               const isEditing = editingCrew === u.id;
               const elsewhere = !isMe ? activeCrew.find(a => a.user_id === u.id && a.job_id !== job.id) : null;
               const elsewhereJob = elsewhere ? (jobs||[]).find(j => j.id === elsewhere.job_id) : null;
+              const locationJob = !isMe ? (c ? job : elsewhereJob) : null;
               return (
                 <div key={u.id} style={{ padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
                   <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", gap:8 }}>
@@ -2842,10 +2843,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                         </div>
                       )}
                     </div>
-                    {!isMe && !c && elsewhereJob && (
+                    {!isMe && locationJob && (
                       <div className="mono" style={{ fontSize:12, color:"var(--muted)", textAlign:"right", flex:1 }}>
-                        <div>{elsewhereJob.customer}</div>
-                        {elsewhereJob.site_address && <div>{elsewhereJob.site_address}</div>}
+                        <div>{locationJob.customer}</div>
+                        {locationJob.site_address && <div>{locationJob.site_address}</div>}
                       </div>
                     )}
                     <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
