@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 61;
+const APP_REV = 62;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -186,6 +186,40 @@ function fmtTimestamp(iso) {
   const pad = n => String(n).padStart(2,"0");
   return `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${time}`;
 }
+function fmtElapsed(ms) {
+  if (!isFinite(ms) || ms < 0) ms = 0;
+  const mins = Math.round(ms / 60000);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+const CREW_FIELD_STATUSES = ['In Route','On Site'];
+function parseCrewLogEntry(n) {
+  const m = (n.content||'').match(/^Status → (.+?) \(([^)]+)\)/);
+  if (!m) return null;
+  return { status: m[1], userName: m[2], at: n.at };
+}
+function buildCrewTimeline(crewLog, crew, users) {
+  const entries = (crewLog||[]).map(parseCrewLogEntry).filter(Boolean)
+    .sort((a,b) => new Date(a.at) - new Date(b.at));
+  const byUser = {};
+  entries.forEach(e => { (byUser[e.userName] = byUser[e.userName] || []).push(e); });
+  const result = {};
+  Object.entries(byUser).forEach(([name, list]) => {
+    const u = users.find(uu => uu.name === name);
+    const current = u ? crew.find(c => c.user_id === u.id) : null;
+    const periods = [];
+    list.forEach((e, i) => {
+      if (!CREW_FIELD_STATUSES.includes(e.status)) return;
+      const next = list[i+1];
+      const end = next ? next.at : null;
+      const ongoing = !end && !!current && current.status === e.status;
+      periods.push({ status: e.status, start: e.at, end, ongoing });
+    });
+    if (periods.length) result[name] = periods;
+  });
+  return result;
+}
 function toLocalDateTimeInput(iso) {
   const d = iso ? new Date(iso) : new Date();
   if (isNaN(d)) return '';
@@ -249,6 +283,11 @@ function fromRow(row, notes=[]) {
       id: n.id,
       date: (n.created_at||'').slice(0,10),
       note: n.content,
+    })),
+    crewLog: notes.filter(n => n.source === 'system' && /^Status → /.test(n.content)).map(n => ({
+      id: n.id,
+      content: n.content,
+      at: n.created_at,
     })),
     _customer_id: row.customer_id,
     _assigned_to: row.assigned_to,
@@ -2125,6 +2164,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
   const [crew, setCrew] = useState([]);
+  const [crewLog, setCrewLog] = useState(job.crewLog || []);
   const [activeCrew, setActiveCrew] = useState([]); // other-job In Route/On Site assignments, for crew location display
   const [onSiteCheck, setOnSiteCheck] = useState(null); // array of crew users to confirm 'On Site' for, or null
   const [editingCrew, setEditingCrew] = useState(null); // user id being edited, or null
@@ -2169,6 +2209,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   }, [job.history]);
 
   useEffect(() => {
+    setCrewLog(job.crewLog || []);
+  }, [job.crewLog]);
+
+  useEffect(() => {
     fetchPhotos(job.id).then(setPhotos);
   }, [job.id]);
 
@@ -2186,10 +2230,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     const updated = await upsertJobCrewStatus(job.id, currentUser.id, status);
     if (!updated) return;
     setCrew(prev => [...prev.filter(c => c.user_id !== currentUser.id), updated]);
+    const at = new Date().toISOString();
     await sb.from('job_notes').insert({
       job_id: job.id, content: `Status → ${status} (${currentUser.name})`,
-      source: 'system', created_at: new Date().toISOString(), user_id: currentUser.id,
+      source: 'system', created_at: at, user_id: currentUser.id,
     });
+    setCrewLog(prev => [...prev, { content: `Status → ${status} (${currentUser.name})`, at }]);
     if (job.status !== status) onUpdate({ status, _skipNote: true });
     if (status === 'On Site') {
       const others = users.filter(u => u.id !== currentUser.id &&
@@ -2205,17 +2251,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       const updated = await upsertJobCrewStatus(job.id, u.id, 'On Site');
       if (!updated) continue;
       setCrew(prev => [...prev.filter(c => c.user_id !== u.id), updated]);
+      const at = new Date().toISOString();
       await sb.from('job_notes').insert({
         job_id: job.id, content: `Status → On Site (${u.name})`,
-        source: 'system', created_at: new Date().toISOString(), user_id: currentUser?.id || null,
+        source: 'system', created_at: at, user_id: currentUser?.id || null,
       });
+      setCrewLog(prev => [...prev, { content: `Status → On Site (${u.name})`, at }]);
     }
-  }
-
-  async function clearMyCrewStatus() {
-    if (!currentUser?.id) return;
-    await clearJobCrewStatus(job.id, currentUser.id);
-    setCrew(prev => prev.filter(c => c.user_id !== currentUser.id));
   }
 
   function openCrewEdit(u, c) {
@@ -2229,6 +2271,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (editCrewStatus === 'none') {
       await clearJobCrewStatus(job.id, u.id);
       setCrew(prev => prev.filter(c => c.user_id !== u.id));
+      const at = new Date().toISOString();
+      const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
+      await sb.from('job_notes').insert({
+        job_id: job.id, content: `Status → Cleared (${u.name})${editorName}`,
+        source: 'system', created_at: at, user_id: currentUser?.id || null,
+      });
+      setCrewLog(prev => [...prev, { content: `Status → Cleared (${u.name})${editorName}`, at }]);
     } else {
       const statusAt = new Date(editCrewDateTime).toISOString();
       const targetJobId = editCrewJobId || job.id;
@@ -2245,11 +2294,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         if (targetJobId === job.id) setCrew(prev => [...prev.filter(c => c.user_id !== u.id), final]);
       }
       const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
+      const noteContent = `Status → ${editCrewStatus} (${u.name})${editorName}`;
       await sb.from('job_notes').insert({
-        job_id: targetJobId, content: `Status → ${editCrewStatus} (${u.name})${editorName}`,
-        source: 'system', created_at: new Date().toISOString(), user_id: currentUser?.id || null,
+        job_id: targetJobId, content: noteContent,
+        source: 'system', created_at: statusAt, user_id: currentUser?.id || null,
       });
       if (targetJobId === job.id) {
+        setCrewLog(prev => [...prev, { content: noteContent, at: statusAt }]);
         if (job.status !== editCrewStatus) onUpdate({ status: editCrewStatus, _skipNote: true });
       } else {
         const targetJob = (jobs||[]).find(j => j.id === targetJobId);
@@ -2473,6 +2524,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
 
   const jobEquip = equipmentList.filter(eq => eq.job_id === job.id);
   const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
+  const crewTimeline = buildCrewTimeline(crewLog, crew, users);
 
   return (
     <div className="fade-in" style={{ paddingBottom:40 }}>
@@ -2920,6 +2972,32 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                       </div>
                     </div>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {Object.keys(crewTimeline).length > 0 && (
+          <div style={{ marginTop:20 }}>
+            <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:8 }}>TIME LOG</div>
+            {Object.entries(crewTimeline).map(([name, periods]) => {
+              const driveMs = periods.filter(p => p.status === 'In Route')
+                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+              const onSiteMs = periods.filter(p => p.status === 'On Site')
+                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+              return (
+                <div key={name} style={{ padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
+                  <div className="head" style={{ fontSize:14, fontWeight:700, color:"var(--text)", marginBottom:4 }}>{name}</div>
+                  {periods.map((p,i) => (
+                    <div key={i} className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:2 }}>
+                      {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtTimestamp(p.end) : '—')}
+                      {' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})
+                    </div>
+                  ))}
+                  <div className="mono" style={{ fontSize:12, color:"var(--olive-bright)", marginTop:6 }}>
+                    Drive: {fmtElapsed(driveMs)} · On Site: {fmtElapsed(onSiteMs)}
+                  </div>
                 </div>
               );
             })}
