@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 66;
+const APP_REV = 67;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2294,26 +2294,28 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     }
   }
 
-  function openCrewEdit(u, c) {
+  function openCrewEdit(u, c, elsewhere) {
     setEditingCrew(u.id);
-    setEditCrewStatus(c?.status || 'In Route');
+    setEditCrewStatus(c?.status || elsewhere?.status || 'In Route');
     setEditCrewDateTime(toLocalDateTimeInput());
-    setEditCrewJobId(job.id);
+    setEditCrewJobId(c ? job.id : (elsewhere?.job_id || job.id));
   }
 
   async function saveCrewEdit(u) {
     if (editCrewStatus === 'none') {
-      const clearError = await clearJobCrewStatus(job.id, u.id);
+      const targetJobId = editCrewJobId || job.id;
+      const clearError = await clearJobCrewStatus(targetJobId, u.id);
       if (clearError) { alert(`Couldn't clear status: ${clearError.message || clearError}`); return; }
-      setCrew(prev => prev.filter(c => c.user_id !== u.id));
+      if (targetJobId === job.id) setCrew(prev => prev.filter(c => c.user_id !== u.id));
+      setActiveCrew(prev => prev.filter(a => !(a.user_id === u.id && a.job_id === targetJobId)));
       const at = new Date().toISOString();
       const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
       const content = `Status → Cleared (${u.name})${editorName}`;
       const { data: noteRow } = await sb.from('job_notes').insert({
-        job_id: job.id, content,
+        job_id: targetJobId, content,
         source: 'system', created_at: at, user_id: currentUser?.id || null,
       }).select().single();
-      setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
+      if (targetJobId === job.id) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
     } else {
       const statusAt = new Date(editCrewDateTime).toISOString();
       const targetJobId = editCrewJobId || job.id;
@@ -3014,7 +3016,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                               border:"1px solid var(--line)" }}>ON SITE</button>
                         </>
                       )}
-                      <button onClick={() => isEditing ? setEditingCrew(null) : openCrewEdit(u, c)} className="mono"
+                      <button onClick={() => isEditing ? setEditingCrew(null) : openCrewEdit(u, c, elsewhere)} className="mono"
                         style={{ fontSize:16, color:"var(--muted)", padding:"8px 6px" }}>{isEditing ? '✕' : '✎'}</button>
                     </div>
                   </div>
