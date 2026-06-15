@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 71;
+const APP_REV = 72;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -923,6 +923,16 @@ Command: "${transcript}"`
     const timer = setInterval(refresh, 60000); // auto-refresh every 60s
     return () => { window.removeEventListener('focus', refresh); clearInterval(timer); };
   }, [currentUser, refresh]);
+
+  // On fresh app open, jump straight to the job a tech is currently on site at
+  useEffect(() => {
+    if (!currentUser || selectedId) return;
+    fetchActiveCrewAssignments().then(assignments => {
+      const mine = assignments.find(a => a.user_id === currentUser.id && a.status === 'On Site');
+      if (mine) setSelectedId(mine.job_id);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
 
   /* ── CRUD ── */
   async function addJob(job) {
