@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 68;
+const APP_REV = 69;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2292,6 +2292,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       }).select().single();
       setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
     }
+    if (targets.length > 0 && job.status !== 'On Site') onUpdate({ status: 'On Site', _skipNote: true });
   }
 
   function openCrewEdit(u, c, elsewhere) {
