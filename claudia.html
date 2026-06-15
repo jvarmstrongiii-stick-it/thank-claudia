@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 65;
+const APP_REV = 66;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2190,6 +2190,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
   const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(() => !getSectionCollapse().thisJobEquip);
   const [otherEquipOpen, setOtherEquipOpenRaw] = useState(() => !getSectionCollapse().otherEquip);
+  const [crewStatusOpen, setCrewStatusOpenRaw] = useState(() => !getSectionCollapse().crewStatus);
+  const [timeLogOpen, setTimeLogOpenRaw] = useState(() => !getSectionCollapse().timeLog);
   function setPhotosOpen(updater) {
     setPhotosOpenRaw(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
@@ -2208,6 +2210,20 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     setOtherEquipOpenRaw(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       setSectionCollapsed('otherEquip', !next);
+      return next;
+    });
+  }
+  function setCrewStatusOpen(updater) {
+    setCrewStatusOpenRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setSectionCollapsed('crewStatus', !next);
+      return next;
+    });
+  }
+  function setTimeLogOpen(updater) {
+    setTimeLogOpenRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setSectionCollapsed('timeLog', !next);
       return next;
     });
   }
@@ -2947,8 +2963,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
 
         {users.length > 0 && (
           <div style={{ marginTop:20 }}>
-            <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:8 }}>CREW STATUS</div>
-            {users.map(u => {
+            <div onClick={() => setCrewStatusOpen(o => !o)} className="mono"
+              style={{ fontSize:12, color:"var(--muted)", marginBottom:8, display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+              <span style={{ display:"inline-block", transition:"transform 0.15s", transform: crewStatusOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+              CREW STATUS
+            </div>
+            {crewStatusOpen && users.map(u => {
               const c = crew.find(x => x.user_id === u.id);
               const isMe = currentUser?.id === u.id;
               const isEditing = editingCrew === u.id;
@@ -3048,21 +3068,27 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         {users.length > 0 && (
           <div style={{ marginTop:20 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-              <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>TIME LOG</div>
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <button onClick={() => setCrewLogDate(d => shiftDateISO(d, -1))} className="mono"
-                  style={{ fontSize:16, color:"var(--muted)", padding:"2px 8px" }}>‹</button>
-                <input type="date" value={crewLogDate} onChange={e => setCrewLogDate(e.target.value)}
-                  className="mono" style={{ fontSize:12, padding:"4px 6px" }} />
-                <button onClick={() => setCrewLogDate(d => shiftDateISO(d, 1))} className="mono"
-                  style={{ fontSize:16, color:"var(--muted)", padding:"2px 8px" }}>›</button>
-                {crewLogDate !== todayISO() && (
-                  <button onClick={() => setCrewLogDate(todayISO())} className="mono"
-                    style={{ fontSize:11, color:"var(--olive-bright)", padding:"2px 6px" }}>TODAY</button>
-                )}
+              <div onClick={() => setTimeLogOpen(o => !o)} className="mono"
+                style={{ fontSize:12, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+                <span style={{ display:"inline-block", transition:"transform 0.15s", transform: timeLogOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+                TIME LOG
               </div>
+              {timeLogOpen && (
+                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+                  <button onClick={() => setCrewLogDate(d => shiftDateISO(d, -1))} className="mono"
+                    style={{ fontSize:16, color:"var(--muted)", padding:"2px 8px" }}>‹</button>
+                  <input type="date" value={crewLogDate} onChange={e => setCrewLogDate(e.target.value)}
+                    className="mono" style={{ fontSize:12, padding:"4px 6px" }} />
+                  <button onClick={() => setCrewLogDate(d => shiftDateISO(d, 1))} className="mono"
+                    style={{ fontSize:16, color:"var(--muted)", padding:"2px 8px" }}>›</button>
+                  {crewLogDate !== todayISO() && (
+                    <button onClick={() => setCrewLogDate(todayISO())} className="mono"
+                      style={{ fontSize:11, color:"var(--olive-bright)", padding:"2px 6px" }}>TODAY</button>
+                  )}
+                </div>
+              )}
             </div>
-            {users.map(u => {
+            {timeLogOpen && users.map(u => {
               const name = u.name;
               const periods = (crewTimeline[name] || []).filter(p => p.start.slice(0,10) === crewLogDate);
               const driveMs = periods.filter(p => p.status === 'In Route')
