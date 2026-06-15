@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 63;
+const APP_REV = 64;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -576,6 +576,7 @@ async function upsertJobCrewStatus(jobId, userId, status) {
 async function clearJobCrewStatus(jobId, userId) {
   const { error } = await sb.from('job_crew').delete().eq('job_id', jobId).eq('user_id', userId);
   if (error) console.warn('clearJobCrewStatus error', error.message || error);
+  return error;
 }
 
 async function fetchActiveCrewAssignments() {
@@ -2286,7 +2287,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
 
   async function saveCrewEdit(u) {
     if (editCrewStatus === 'none') {
-      await clearJobCrewStatus(job.id, u.id);
+      const clearError = await clearJobCrewStatus(job.id, u.id);
+      if (clearError) { alert(`Couldn't clear status: ${clearError.message || clearError}`); return; }
       setCrew(prev => prev.filter(c => c.user_id !== u.id));
       const at = new Date().toISOString();
       const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
