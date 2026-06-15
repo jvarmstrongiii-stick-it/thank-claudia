@@ -1,5 +1,9 @@
 @AGENTS.md
 
+# User Identity
+
+The user operating this session (jvarmstrongiii@gmail.com) is **Jack**, one of the techs/users in the `users` table. When personalizing app behavior "for me" or "I/me/my", treat that as referring to Jack.
+
 # thank-claudia — Session Context
 
 **thank-claudia** is a voice-first HVAC field service management app (React Native/Expo) for TMC Mechanical in Philadelphia. Techs use it to log jobs, track status, scan equipment, and take photos from the field.
