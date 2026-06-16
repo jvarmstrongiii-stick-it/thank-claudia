@@ -37,7 +37,7 @@
   var appEl = document.getElementById('app-script');
   if (appEl && window.Babel) {
     try {
-      var transformed = window.Babel.transform(appEl.textContent, { presets: ['env', 'react'] }).code;
+      var transformed = window.Babel.transform(appEl.textContent, { presets: ['react'] }).code;
       var s = document.createElement('script');
       s.textContent = transformed;
       document.head.appendChild(s);
@@ -122,7 +122,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 84;
+const APP_REV = 85;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
