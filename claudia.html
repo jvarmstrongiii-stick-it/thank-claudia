@@ -16,9 +16,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js'"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js'"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="this.onerror=null;this.src='https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js'"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.108.2/dist/umd/supabase.js" onerror="this.onerror=null;this.src='https://unpkg.com/@supabase/supabase-js@2.108.2/dist/umd/supabase.js'"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -69,11 +69,28 @@
 </style>
 </head>
 <body>
-<div id="root"></div>
+<script>
+window.onerror = function(msg, src, line, col, err) {
+  var el = document.getElementById('pre-react');
+  if (el) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>LOAD ERROR — screenshot this</b><br><br>' + msg + '<br><br>File: ' + (src||'?') + ':' + line + '<br><br>' + (err&&err.stack?err.stack.slice(0,500):'') + '</div>';
+};
+setTimeout(function() {
+  var el = document.getElementById('pre-react');
+  if (!el) return;
+  var missing = [];
+  if (!window.React) missing.push('React');
+  if (!window.ReactDOM) missing.push('ReactDOM');
+  if (!window.Babel) missing.push('Babel');
+  if (!window.supabase) missing.push('Supabase');
+  if (!window.L) missing.push('Leaflet');
+  if (missing.length) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>STUCK LOADING — missing: ' + missing.join(', ') + '</b><br><br>Screenshot and send to Jack</div>';
+}, 10000);
+</script>
+<div id="root"><div id="pre-react" style="padding:20px;color:#93a046;font-family:monospace;font-size:14px">TMC Mechanical — Loading…</div></div>
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 78;
+const APP_REV = 79;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
