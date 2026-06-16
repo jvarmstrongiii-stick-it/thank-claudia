@@ -16,44 +16,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js" onerror="this._failed=true"></script>
-<script>if(!window.React){document.write('<script crossorigin src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"><\/script>')}</script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" onerror="this._failed=true"></script>
-<script>if(!window.ReactDOM){document.write('<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"><\/script>')}</script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="this._failed=true"></script>
-<script>if(!window.Babel){document.write('<script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"><\/script>')}</script>
-<script type="module">
-  try {
-    const m = await import('https://esm.sh/@supabase/supabase-js@2');
-    window.supabase = m;
-  } catch {
-    try {
-      const m = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-      window.supabase = m;
-    } catch { window._supabaseFailed = true; }
-  }
-  // Manually invoke Babel now that supabase is loaded.
-  // The app script has type="text/plain" to prevent Babel auto-processing on DOMContentLoaded.
-  var appEl = document.getElementById('app-script');
-  if (appEl && window.Babel) {
-    try {
-      var transformed = window.Babel.transform(appEl.textContent, { presets: ['react'] }).code;
-      var s = document.createElement('script');
-      s.textContent = transformed;
-      document.head.appendChild(s);
-    } catch(e) {
-      var el = document.getElementById('pre-react');
-      if (el) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>BABEL ERROR — screenshot this</b><br><br>' + String(e) + '</div>';
-    }
-  } else {
-    var el = document.getElementById('pre-react');
-    if (el && !appEl) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>APP SCRIPT NOT FOUND</b></div>';
-    if (el && !window.Babel) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>BABEL NOT LOADED</b></div>';
-  }
-</script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window._leafletFailed=true"></script>
-<script>if(!window.L){document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>')}</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
   (g => {var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async (f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({key: "AIzaSyD7Ur3AgwikpCk7d9KLtavYUMgaxGbuGOE", v: "weekly"});
 </script>
@@ -101,37 +69,15 @@
 </style>
 </head>
 <body>
-<script>
-window.onerror = function(msg, src, line, col, err) {
-  var el = document.getElementById('pre-react');
-  if (el) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>LOAD ERROR — screenshot this</b><br><br>' + msg + '<br><br>File: ' + (src||'?') + ':' + line + '<br><br>' + (err&&err.stack ? err.stack.slice(0,400) : '') + '</div>';
-};
-setTimeout(function() {
-  var el = document.getElementById('pre-react');
-  if (!el) return; // React mounted successfully
-  var missing = [];
-  if (!window.React) missing.push('React');
-  if (!window.ReactDOM) missing.push('ReactDOM');
-  if (!window.Babel) missing.push('Babel');
-  if (!window.supabase) missing.push('Supabase');
-  if (!window.L) missing.push('Leaflet');
-  el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>STUCK LOADING — screenshot this</b><br><br>' + (missing.length ? 'Missing libraries: ' + missing.join(', ') : 'All libraries loaded but app did not start') + '<br><br>Try refreshing. If this keeps happening, check your internet connection.</div>';
-}, 10000);
-</script>
-<div id="root"><div id="pre-react" style="color:#d4d0b8;background:#0b0c08;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;gap:12px"><div style="font-size:22px">TMC Mechanical</div><div style="font-size:13px;color:#6b7252">Loading…</div></div></div>
-<script id="app-script" type="text/plain">
+<div id="root"></div>
+<script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 85;
+const APP_REV = 77;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzaXZpd3dzdGdsbml1aHNyeXplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDkzOTcsImV4cCI6MjA5NTU4NTM5N30.Eo_waRUbNxdq3xEfEd7AxCAEnVc4VobaV8N5ZPyGi0o';
-if (!window.supabase) {
-  const el = document.getElementById('pre-react');
-  if (el) el.innerHTML = '<div style="color:#f87171;padding:24px;font-family:monospace;font-size:14px"><b>SUPABASE LIBRARY FAILED TO LOAD</b><br><br>Pull down to refresh the page. If this keeps happening, check your internet connection.</div>';
-  throw new Error('Supabase library not available');
-}
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const CLAUDE_PROXY = `${SUPABASE_URL}/functions/v1/claude-proxy?apikey=${SUPABASE_KEY}`;
 function getAnthropicKey() { return ''; } // key lives in Supabase Edge Function secret
@@ -4118,21 +4064,7 @@ function Sheet({ title, onClose, children }) {
   );
 }
 
-class ErrorBoundary extends React.Component {
-  constructor(props) { super(props); this.state = { err: null }; }
-  static getDerivedStateFromError(err) { return { err }; }
-  render() {
-    if (this.state.err) return (
-      <div style={{ padding:24, fontFamily:"monospace", color:"#f87171", background:"#0b0c08", minHeight:"100vh" }}>
-        <div style={{ fontSize:16, fontWeight:700, marginBottom:12 }}>APP ERROR — please screenshot and send to Jack</div>
-        <pre style={{ fontSize:12, whiteSpace:"pre-wrap", wordBreak:"break-all" }}>{String(this.state.err)}{'\n\n'}{this.state.err?.stack}</pre>
-      </div>
-    );
-    return this.props.children;
-  }
-}
-
-ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App /></ErrorBoundary>);
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
