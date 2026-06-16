@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 77;
+const APP_REV = 78;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -4064,7 +4064,21 @@ function Sheet({ title, onClose, children }) {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+class ErrorBoundary extends React.Component {
+  constructor(props) { super(props); this.state = { err: null }; }
+  static getDerivedStateFromError(err) { return { err }; }
+  render() {
+    if (this.state.err) return (
+      <div style={{ padding:24, fontFamily:"monospace", color:"#f87171", background:"#0b0c08", minHeight:"100vh" }}>
+        <div style={{ fontSize:16, fontWeight:700, marginBottom:12 }}>APP ERROR — please screenshot and send to Jack</div>
+        <pre style={{ fontSize:12, whiteSpace:"pre-wrap", wordBreak:"break-all" }}>{String(this.state.err)}{'\n\n'}{this.state.err?.stack}</pre>
+      </div>
+    );
+    return this.props.children;
+  }
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<ErrorBoundary><App /></ErrorBoundary>);
 </script>
 </body>
 </html>
