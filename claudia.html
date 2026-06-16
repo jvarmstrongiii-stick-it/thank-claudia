@@ -95,11 +95,16 @@ setTimeout(function() {
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 81;
+const APP_REV = 82;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzaXZpd3dzdGdsbml1aHNyeXplIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAwMDkzOTcsImV4cCI6MjA5NTU4NTM5N30.Eo_waRUbNxdq3xEfEd7AxCAEnVc4VobaV8N5ZPyGi0o';
+if (!window.supabase) {
+  const el = document.getElementById('pre-react');
+  if (el) el.innerHTML = '<div style="color:#f87171;padding:24px;font-family:monospace;font-size:14px"><b>SUPABASE LIBRARY FAILED TO LOAD</b><br><br>Pull down to refresh the page. If this keeps happening, check your internet connection.</div>';
+  throw new Error('Supabase library not available');
+}
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const CLAUDE_PROXY = `${SUPABASE_URL}/functions/v1/claude-proxy?apikey=${SUPABASE_KEY}`;
 function getAnthropicKey() { return ''; } // key lives in Supabase Edge Function secret
