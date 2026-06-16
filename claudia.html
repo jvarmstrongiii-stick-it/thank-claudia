@@ -87,10 +87,10 @@ setTimeout(function() {
 }, 10000);
 </script>
 <div id="root"><div id="pre-react" style="padding:20px;color:#93a046;font-family:monospace;font-size:14px">TMC Mechanical — Loading…</div></div>
-<script type="text/babel" data-presets="react">
+<script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 80;
+const APP_REV = 81;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -4082,6 +4082,23 @@ function Sheet({ title, onClose, children }) {
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+<script>
+(function() {
+  var el = document.getElementById('app-script');
+  if (!el) return;
+  try {
+    var result = Babel.transform(el.textContent, {
+      presets: [['react', { runtime: 'classic' }]]
+    });
+    var s = document.createElement('script');
+    s.textContent = result.code;
+    document.head.appendChild(s);
+  } catch(e) {
+    var pre = document.getElementById('pre-react');
+    if (pre) pre.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>BABEL ERROR — screenshot this</b><br><br>' + String(e) + '</div>';
+  }
+})();
 </script>
 </body>
 </html>
