@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 77;
+const APP_REV = 76;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -94,9 +94,9 @@ const DEVICE_PASSPHRASE = "TMCmech";
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
-  "On Site","In Route","In Progress","Scheduled","Ready to Schedule",
+  "On Site","In Route","Scheduled","Ready to Schedule",
   "New","Evaluation Needed","Write Estimate","Waiting on Approval",
-  "On Hold",
+  "In Progress","On Hold",
   "Completed/Needs Billing","Billed/Waiting for Payment","Completed/Paid","Closed",
 ];
 const WORKFLOW_STATUSES = [
