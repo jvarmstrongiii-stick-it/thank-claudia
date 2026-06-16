@@ -22,8 +22,17 @@
 <script>if(!window.ReactDOM){document.write('<script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"><\/script>')}</script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js" onerror="this._failed=true"></script>
 <script>if(!window.Babel){document.write('<script src="https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js"><\/script>')}</script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js" onerror="this._failed=true"></script>
-<script>if(!window.supabase){document.write('<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"><\/script>')}</script>
+<script type="module">
+  try {
+    const m = await import('https://esm.sh/@supabase/supabase-js@2');
+    window.supabase = m;
+  } catch {
+    try {
+      const m = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+      window.supabase = m;
+    } catch { window._supabaseFailed = true; }
+  }
+</script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window._leafletFailed=true"></script>
 <script>if(!window.L){document.write('<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"><\/script>')}</script>
@@ -95,7 +104,7 @@ setTimeout(function() {
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 82;
+const APP_REV = 83;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
