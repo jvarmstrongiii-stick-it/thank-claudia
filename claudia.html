@@ -73,7 +73,7 @@
 <script type="text/babel">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 73;
+const APP_REV = 74;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2380,7 +2380,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         source: 'system', created_at: at, user_id: currentUser?.id || null,
       }).select().single();
       if (targetJobId === job.id) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
-      setShowCompleteCheck(targetJobId);
+      const targetJob = targetJobId === job.id ? job : (jobs||[]).find(j => j.id === targetJobId);
+      if (CREW_FIELD_STATUSES.includes(targetJob?.status)) setShowCompleteCheck(targetJobId);
     } else {
       const statusAt = new Date(editCrewDateTime).toISOString();
       const targetJobId = editCrewJobId || job.id;
