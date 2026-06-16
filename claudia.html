@@ -32,6 +32,24 @@
       window.supabase = m;
     } catch { window._supabaseFailed = true; }
   }
+  // Manually invoke Babel now that supabase is loaded.
+  // The app script has type="text/plain" to prevent Babel auto-processing on DOMContentLoaded.
+  var appEl = document.getElementById('app-script');
+  if (appEl && window.Babel) {
+    try {
+      var transformed = window.Babel.transform(appEl.textContent, { presets: ['env', 'react'] }).code;
+      var s = document.createElement('script');
+      s.textContent = transformed;
+      document.head.appendChild(s);
+    } catch(e) {
+      var el = document.getElementById('pre-react');
+      if (el) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>BABEL ERROR — screenshot this</b><br><br>' + String(e) + '</div>';
+    }
+  } else {
+    var el = document.getElementById('pre-react');
+    if (el && !appEl) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>APP SCRIPT NOT FOUND</b></div>';
+    if (el && !window.Babel) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>BABEL NOT LOADED</b></div>';
+  }
 </script>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="window._leafletFailed=true"></script>
@@ -101,10 +119,10 @@ setTimeout(function() {
 }, 10000);
 </script>
 <div id="root"><div id="pre-react" style="color:#d4d0b8;background:#0b0c08;min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:sans-serif;gap:12px"><div style="font-size:22px">TMC Mechanical</div><div style="font-size:13px;color:#6b7252">Loading…</div></div></div>
-<script type="text/babel">
+<script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 83;
+const APP_REV = 84;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
