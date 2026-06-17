@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 85;
+const APP_REV = 86;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -417,6 +417,7 @@ async function saveEquipment(customerId, label, fields, installDate, jobId) {
   EQUIP_KEYS.forEach(k => { if (fields[k] != null) row[k] = String(fields[k]); });
   if (installDate) row.install_date = installDate;
   if (jobId) row.job_id = jobId;
+  if (fields._photoUrl) row.source_photo_url = fields._photoUrl;
   const { data, error } = await sb.from('equipment').insert(row).select().single();
   return { data, error };
 }
@@ -427,6 +428,7 @@ async function updateEquipment(id, fields) {
   if ('install_date' in fields) row.install_date = fields.install_date || null;
   if ('warranty_registered' in fields) row.warranty_registered = fields.warranty_registered;
   if ('warranty_registered_date' in fields) row.warranty_registered_date = fields.warranty_registered_date || null;
+  if ('source_photo_url' in fields) row.source_photo_url = fields.source_photo_url || null;
   EQUIP_KEYS.forEach(k => { if (k in fields) row[k] = fields[k]||null; });
   const { error } = await sb.from('equipment').update(row).eq('id', id);
   return error;
@@ -2553,25 +2555,32 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     setPhotos(prev => [...prev, { id: tempId, url: blobUrl, photo_type: 'equipment', _local: true }]);
     isOther ? setOtherScanningCount(n => n + 1) : setScanningCount(n => n + 1);
 
-    // Upload in background — swap blob for real Supabase row when done
-    uploadPhoto(job.id, file, 'equipment').then(photo => {
+    // Shared upload promise — both photo strip and scan queue need the URL
+    const uploadP = uploadPhoto(job.id, file, 'equipment').then(photo => {
       if (photo && !photo.error) {
         setPhotos(prev => prev.map(p => p.id === tempId ? photo : p));
         URL.revokeObjectURL(blobUrl);
       }
-    }).catch(() => {/* keep blob as-is */});
+      return photo;
+    }).catch(() => null);
 
-    // Read file then OCR in background — queue result when ready
+    // Read file then OCR in background — attach photo URL to scan result
     readFileForScan(file).then(({ b64, mediaType }) =>
       scanNameplateFromB64(b64, mediaType).then(result => {
         const hasData = Object.values(result).some(v => v != null);
         if (hasData) {
-          isOther ? setOtherScanQueue(q => [...q, result]) : setScanQueue(q => [...q, result]);
-          isOther ? setPendingOtherScanRetry(null) : setPendingScanRetry(null);
+          uploadP.then(photo => {
+            const entry = { ...result, _photoUrl: photo?.url || null };
+            isOther ? setOtherScanQueue(q => [...q, entry]) : setScanQueue(q => [...q, entry]);
+            isOther ? setPendingOtherScanRetry(null) : setPendingScanRetry(null);
+          });
         }
       }).catch(() => {
-        // No signal — save b64 for retry button
-        isOther ? setPendingOtherScanRetry({ b64, mediaType }) : setPendingScanRetry({ b64, mediaType });
+        // No signal — save b64 + photoUrl for retry button
+        uploadP.then(photo => {
+          const retry = { b64, mediaType, _photoUrl: photo?.url || null };
+          isOther ? setPendingOtherScanRetry(retry) : setPendingScanRetry(retry);
+        });
       })
     ).catch(() => {}).finally(() => {
       isOther ? setOtherScanningCount(n => n - 1) : setScanningCount(n => n - 1);
@@ -2598,7 +2607,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     try {
       const result = await scanNameplateFromB64(pendingScanRetry.b64, pendingScanRetry.mediaType);
       const hasData = Object.values(result).some(v => v != null);
-      if (hasData) { setScanQueue(q => [...q, result]); setPendingScanRetry(null); }
+      if (hasData) { setScanQueue(q => [...q, { ...result, _photoUrl: pendingScanRetry._photoUrl || null }]); setPendingScanRetry(null); }
     } catch (_) { /* still offline — keep retry button */ }
     setScanningCount(n => n - 1);
   }
@@ -2609,7 +2618,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     try {
       const result = await scanNameplateFromB64(pendingOtherScanRetry.b64, pendingOtherScanRetry.mediaType);
       const hasData = Object.values(result).some(v => v != null);
-      if (hasData) { setOtherScanQueue(q => [...q, result]); setPendingOtherScanRetry(null); }
+      if (hasData) { setOtherScanQueue(q => [...q, { ...result, _photoUrl: pendingOtherScanRetry._photoUrl || null }]); setPendingOtherScanRetry(null); }
     } catch (_) { /* still offline */ }
     setOtherScanningCount(n => n - 1);
   }
@@ -2634,6 +2643,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   async function overrideEquipment(existing, scanData, isOther) {
     const fields = {};
     EQUIP_KEYS.forEach(k => { if (scanData[k] != null) fields[k] = scanData[k]; });
+    if (scanData._photoUrl) fields.source_photo_url = scanData._photoUrl;
     const error = await updateEquipment(existing.id, fields);
     if (error) { alert(`Update failed: ${error.message}`); return; }
     setEquipmentList(prev => prev.map(e => e.id === existing.id ? { ...e, ...fields } : e));
@@ -2687,7 +2697,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           <div style={{ display:"flex", gap:6 }}>
             {eq.job_id && eq.job_id !== job.id && (
               <button onClick={async () => {
-                const { data } = await sb.from('job_photos').select('url,storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment');
+                if (eq.source_photo_url) { setLightbox(eq.source_photo_url); return; }
+                const { data } = await sb.from('job_photos').select('url,storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment').order('created_at', { ascending: true });
                 if (!data || data.length === 0) { alert('No equipment photo found.'); return; }
                 const p = data[0];
                 const url = p.url || (p.storage_path ? sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl : null);
