@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 82;
+const APP_REV = 83;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2336,8 +2336,20 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   }, [job.id]);
 
   useEffect(() => {
-    fetchEquipment(job.id).then(setEquipmentList);
-  }, [job.id]);
+    async function loadEquipment() {
+      const mine = await fetchEquipment(job.id);
+      if (job._customer_id) {
+        const { data } = await sb.from('equipment').select('*')
+          .eq('customer_id', job._customer_id)
+          .or('job_id.neq.' + job.id + ',job_id.is.null')
+          .order('created_at', { ascending: false });
+        setEquipmentList([...mine, ...(data || [])]);
+      } else {
+        setEquipmentList(mine);
+      }
+    }
+    loadEquipment();
+  }, [job.id, job._customer_id]);
 
   useEffect(() => {
     fetchJobCrew(job.id).then(setCrew);
