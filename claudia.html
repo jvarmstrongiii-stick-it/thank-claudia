@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 86;
+const APP_REV = 87;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -315,6 +315,7 @@ function fromRow(row, notes=[]) {
     })),
     _customer_id: row.customer_id,
     _assigned_to: row.assigned_to,
+    _site_address_raw: row.site_address || null,
   };
 }
 
@@ -2341,17 +2342,24 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     async function loadEquipment() {
       const mine = await fetchEquipment(job.id);
       if (job._customer_id) {
-        const { data } = await sb.from('equipment').select('*')
+        // Join jobs to get each equipment item's source site_address for address-scoped filtering
+        const { data } = await sb.from('equipment')
+          .select('*, jobs(site_address)')
           .eq('customer_id', job._customer_id)
-          .or('job_id.neq.' + job.id + ',job_id.is.null')
+          .neq('job_id', job.id)
           .order('created_at', { ascending: false });
-        setEquipmentList([...mine, ...(data || [])]);
+        const rawSite = job._site_address_raw;
+        const other = (data || []).filter(eq => {
+          const eqSite = eq.jobs?.site_address ?? null;
+          return eqSite === rawSite;
+        });
+        setEquipmentList([...mine, ...other]);
       } else {
         setEquipmentList(mine);
       }
     }
     loadEquipment();
-  }, [job.id, job._customer_id]);
+  }, [job.id, job._customer_id, job._site_address_raw]);
 
   useEffect(() => {
     fetchJobCrew(job.id).then(setCrew);
