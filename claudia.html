@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 84;
+const APP_REV = 85;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2685,6 +2685,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             )}
           </div>
           <div style={{ display:"flex", gap:6 }}>
+            {eq.job_id && eq.job_id !== job.id && (
+              <button onClick={async () => {
+                const { data } = await sb.from('job_photos').select('url,storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment');
+                if (!data || data.length === 0) { alert('No equipment photo found.'); return; }
+                const p = data[0];
+                const url = p.url || (p.storage_path ? sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl : null);
+                if (url) setLightbox(url); else alert('Photo unavailable.');
+              }} className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>📷</button>
+            )}
             <button onClick={() => setExpandedEquipId(expandedEquipId === eq.id ? null : eq.id)}
               className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>
               {expandedEquipId === eq.id ? '▲' : '▼'}
