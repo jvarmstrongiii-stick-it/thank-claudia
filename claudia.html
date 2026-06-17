@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 83;
+const APP_REV = 84;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3216,7 +3216,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                 </div>
               )}
             </div>
-            {timeLogOpen && users.map(u => {
+            {timeLogOpen && users.filter(u => crewTimeline[u.name]).map(u => {
               const name = u.name;
               const periods = (crewTimeline[name] || []).filter(p => p.start.slice(0,10) === crewLogDate);
               const driveMs = periods.filter(p => p.status === 'In Route')
