@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 87;
+const APP_REV = 88;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -382,7 +382,12 @@ async function fetchPhotos(jobId) {
   const { data, error } = await sb.from('job_photos')
     .select('*').eq('job_id', jobId).order('created_at', { ascending: true });
   if (error) { console.warn('fetchPhotos error', error); return []; }
-  return (data||[]).map(p => ({ id: p.id, url: p.url || p.photo_url || '', storage_path: p.storage_path || '', photo_type: p.photo_type || null }));
+  return (data||[]).map(p => {
+    const url = p.storage_path
+      ? (sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl || '')
+      : (p.url || p.photo_url || '');
+    return { id: p.id, url, storage_path: p.storage_path || '', photo_type: p.photo_type || null };
+  });
 }
 
 async function uploadPhoto(jobId, file, photoType) {
@@ -392,7 +397,7 @@ async function uploadPhoto(jobId, file, photoType) {
   if (upErr) { console.error('upload error', upErr); return { error: upErr.message || JSON.stringify(upErr) }; }
   const { data: urlData } = sb.storage.from('job-photos').getPublicUrl(path);
   const url = urlData.publicUrl;
-  const insertRow = { job_id: jobId, url, storage_path: path, created_at: new Date().toISOString() };
+  const insertRow = { job_id: jobId, storage_path: path, created_at: new Date().toISOString() };
   if (photoType) insertRow.photo_type = photoType;
   const { data: row, error: dbErr } = await sb.from('job_photos')
     .insert(insertRow)
@@ -2709,7 +2714,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                 const { data } = await sb.from('job_photos').select('url,storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment').order('created_at', { ascending: true });
                 if (!data || data.length === 0) { alert('No equipment photo found.'); return; }
                 const p = data[0];
-                const url = p.url || (p.storage_path ? sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl : null);
+                const url = p.storage_path ? sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl : (p.url || null);
                 if (url) setLightbox(url); else alert('Photo unavailable.');
               }} className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>📷</button>
             )}
