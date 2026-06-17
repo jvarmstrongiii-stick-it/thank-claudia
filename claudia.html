@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 81;
+const APP_REV = 82;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -111,9 +111,9 @@ const DEVICE_PASSPHRASE = "TMCmech";
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
-  "On Site","In Route","Scheduled","Ready to Schedule",
+  "On Site","In Route","In Progress","Scheduled","Ready to Schedule",
   "New","Evaluation Needed","Write Estimate","Waiting on Approval",
-  "In Progress","On Hold",
+  "On Hold",
   "Completed/Needs Billing","Billed/Waiting for Payment","Completed/Paid","Closed",
 ];
 const WORKFLOW_STATUSES = [
