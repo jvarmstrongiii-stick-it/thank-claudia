@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 96;
+const APP_REV = 97;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2272,6 +2272,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [editingLogPeriod, setEditingLogPeriod] = useState(null); // { name, idx } or null
   const [editLogStart, setEditLogStart] = useState('');
   const [editLogEnd, setEditLogEnd] = useState('');
+  const [editLogJobId, setEditLogJobId] = useState(null);
   const [addingLogFor, setAddingLogFor] = useState(null); // user name or null
   const [addLogStatus, setAddLogStatus] = useState('In Route');
   const [addLogStart, setAddLogStart] = useState('');
@@ -2478,16 +2479,28 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     setEditingLogPeriod({ name, idx });
     setEditLogStart(toLocalDateTimeInput(period.start));
     setEditLogEnd(period.end ? toLocalDateTimeInput(period.end) : '');
+    setEditLogJobId(job.id);
   }
 
   async function saveLogEdit(period) {
     const startIso = new Date(editLogStart).toISOString();
-    if (period.startId) await sb.from('job_notes').update({ created_at: startIso }).eq('id', period.startId);
-    setCrewLog(prev => prev.map(n => n.id === period.startId ? { ...n, at: startIso } : n));
+    const targetJobId = editLogJobId || job.id;
+    const jobChanged = targetJobId !== job.id;
+    const noteIds = [period.startId, period.endId].filter(Boolean);
+    if (period.startId) {
+      const update = { created_at: startIso };
+      if (jobChanged) update.job_id = targetJobId;
+      await sb.from('job_notes').update(update).eq('id', period.startId);
+      if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.startId));
+      else setCrewLog(prev => prev.map(n => n.id === period.startId ? { ...n, at: startIso } : n));
+    }
     if (period.endId && editLogEnd) {
       const endIso = new Date(editLogEnd).toISOString();
-      await sb.from('job_notes').update({ created_at: endIso }).eq('id', period.endId);
-      setCrewLog(prev => prev.map(n => n.id === period.endId ? { ...n, at: endIso } : n));
+      const update = { created_at: endIso };
+      if (jobChanged) update.job_id = targetJobId;
+      await sb.from('job_notes').update(update).eq('id', period.endId);
+      if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.endId));
+      else setCrewLog(prev => prev.map(n => n.id === period.endId ? { ...n, at: endIso } : n));
     }
     setEditingLogPeriod(null);
   }
@@ -3477,19 +3490,32 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                           )}
                         </div>
                         {isEditing && (
-                          <div style={{ display:"flex", gap:8, marginTop:6, flexWrap:"wrap", alignItems:"flex-end" }}>
-                            <div style={{ flex:1, minWidth:140 }}>
-                              <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>START</div>
-                              <input type="datetime-local" value={editLogStart} onChange={e => setEditLogStart(e.target.value)} />
-                            </div>
-                            {p.endId && (
+                          <div style={{ marginTop:6 }}>
+                            <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end", marginBottom:8 }}>
                               <div style={{ flex:1, minWidth:140 }}>
-                                <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
-                                <input type="datetime-local" value={editLogEnd} onChange={e => setEditLogEnd(e.target.value)} />
+                                <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>START</div>
+                                <input type="datetime-local" value={editLogStart} onChange={e => setEditLogStart(e.target.value)} />
                               </div>
-                            )}
+                              {p.endId && (
+                                <div style={{ flex:1, minWidth:140 }}>
+                                  <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
+                                  <input type="datetime-local" value={editLogEnd} onChange={e => setEditLogEnd(e.target.value)} />
+                                </div>
+                              )}
+                            </div>
+                            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:4 }}>JOB</div>
+                            <select value={editLogJobId || job.id} onChange={e => setEditLogJobId(e.target.value)}
+                              style={{ width:"100%", marginBottom:8 }}>
+                              {(jobs||[]).filter(j => j.status !== 'Closed' || j.id === job.id)
+                                .slice().sort((a,b) => (a.customer||'').localeCompare(b.customer||''))
+                                .map(j => (
+                                  <option key={j.id} value={j.id}>
+                                    {j.customer}{j.site_address ? ` — ${j.site_address}` : ''}
+                                  </option>
+                                ))}
+                            </select>
                             <button onClick={() => saveLogEdit(p)} className="head"
-                              style={{ padding:"9px 14px", borderRadius:8, fontSize:13, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
+                              style={{ width:"100%", padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
                           </div>
                         )}
                       </div>
