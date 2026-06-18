@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 89;
+const APP_REV = 90;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2377,7 +2377,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (!currentUser?.id) return;
     const updated = await upsertJobCrewStatus(job.id, currentUser.id, status);
     if (!updated) return;
-    setCrew(prev => [...prev.filter(c => c.user_id !== currentUser.id), updated]);
     const at = new Date().toISOString();
     const content = `Status → ${status} (${currentUser.name})`;
     const { data: noteRow } = await sb.from('job_notes').insert({
@@ -2387,9 +2386,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
     if (job.status !== status) onUpdate({ status, _skipNote: true });
     if (status === 'On Site') {
+      // Re-fetch crew live so we catch status set on other devices
+      const freshCrew = await fetchJobCrew(job.id);
+      setCrew(freshCrew);
       const others = users.filter(u => u.id !== currentUser.id &&
-        crew.find(c => c.user_id === u.id)?.status === 'In Route');
+        freshCrew.find(c => c.user_id === u.id)?.status === 'In Route');
       if (others.length > 0) setOnSiteCheck(others);
+    } else {
+      setCrew(prev => [...prev.filter(c => c.user_id !== currentUser.id), updated]);
     }
   }
 
