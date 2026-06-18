@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 91;
+const APP_REV = 92;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -383,11 +383,9 @@ async function fetchPhotos(jobId) {
     .select('*').eq('job_id', jobId).order('created_at', { ascending: true });
   if (error) { console.warn('fetchPhotos error', error); return []; }
   return (data||[]).map(p => {
-    // Prefer stored URL (backward compat); derive from storage_path when absent
-    const stored = p.url || p.photo_url || '';
-    const url = stored || (p.storage_path
-      ? (sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl || '')
-      : '');
+    const url = p.storage_path
+      ? `${SUPABASE_URL}/storage/v1/object/public/job-photos/${p.storage_path}`
+      : (p.url || p.photo_url || '');
     return { id: p.id, url, storage_path: p.storage_path || '', photo_type: p.photo_type || null };
   });
 }
@@ -397,8 +395,7 @@ async function uploadPhoto(jobId, file, photoType) {
   const path = `${jobId}/${Date.now()}.${ext}`;
   const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
   if (upErr) { console.error('upload error', upErr); return { error: upErr.message || JSON.stringify(upErr) }; }
-  const url = sb.storage.from('job-photos').getPublicUrl(path).data?.publicUrl || '';
-  // Try inserting with url column; fall back silently if column doesn't exist
+  const url = `${SUPABASE_URL}/storage/v1/object/public/job-photos/${path}`;
   const base = { job_id: jobId, storage_path: path, created_at: new Date().toISOString() };
   if (photoType) base.photo_type = photoType;
   let { data: row, error: dbErr } = await sb.from('job_photos').insert({ ...base, url }).select().single();
@@ -2720,14 +2717,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
               <button onClick={async () => {
                 const storagePath = eq.source_photo_url || null;
                 if (storagePath) {
-                  const { data: sd } = await sb.storage.from('job-photos').createSignedUrl(storagePath, 3600);
-                  if (sd?.signedUrl) { setLightbox(sd.signedUrl); return; }
+                  setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${storagePath}`);
+                  return;
                 }
                 // Fallback: find first equipment photo for this job
                 const { data } = await sb.from('job_photos').select('storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment').order('created_at', { ascending: true });
                 if (!data || data.length === 0) { alert('No equipment photo found.'); return; }
-                const { data: sd2 } = await sb.storage.from('job-photos').createSignedUrl(data[0].storage_path, 3600);
-                if (sd2?.signedUrl) setLightbox(sd2.signedUrl); else alert('Photo unavailable.');
+                const fallbackPath = data[0].storage_path;
+                if (fallbackPath) setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${fallbackPath}`);
+                else alert('Photo unavailable.');
               }} className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>📷</button>
             )}
             <button onClick={() => setExpandedEquipId(expandedEquipId === eq.id ? null : eq.id)}
