@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 93;
+const APP_REV = 94;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2330,6 +2330,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const otherScanRef = useRef();
   const otherScanGalleryRef = useRef();
   const photoRef = useRef();
+  const collageUnitRef = useRef();
+  const collageTagRef = useRef();
+
+  const [collageState, setCollageState] = React.useState(null);
+  // null | { step:'unit' } | { step:'tag', unitFile:File, unitPreview:string }
 
   // Keep history in sync when parent refreshes job data (e.g. after voice note)
   useEffect(() => {
@@ -2610,6 +2615,96 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (!file) return;
     e.target.value = '';
     _launchScan(file, false);
+  }
+
+  function mergeImagesCanvas(file1, file2) {
+    function loadImg(f) {
+      return new Promise((res, rej) => {
+        const url = URL.createObjectURL(f);
+        const img = new Image();
+        img.onload = () => { URL.revokeObjectURL(url); res(img); };
+        img.onerror = rej;
+        img.src = url;
+      });
+    }
+    return Promise.all([loadImg(file1), loadImg(file2)]).then(([imgA, imgB]) => {
+      const H = Math.min(Math.max(imgA.height, imgB.height), 2000);
+      const scaleA = H / imgA.height, scaleB = H / imgB.height;
+      const wA = Math.round(imgA.width * scaleA), wB = Math.round(imgB.width * scaleB);
+      const gap = 6;
+      const canvas = document.createElement('canvas');
+      canvas.width = wA + gap + wB;
+      canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#111';
+      ctx.fillRect(0, 0, canvas.width, H);
+      ctx.drawImage(imgA, 0, 0, wA, H);
+      ctx.drawImage(imgB, wA + gap, 0, wB, H);
+      return new Promise(res => canvas.toBlob(blob => res(blob), 'image/jpeg', 0.88));
+    });
+  }
+
+  function startCollage() {
+    setCollageState({ step: 'unit' });
+    setTimeout(() => collageUnitRef.current && collageUnitRef.current.click(), 50);
+  }
+
+  function handleCollageUnit(e) {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) { setCollageState(null); return; }
+    const unitPreview = URL.createObjectURL(file);
+    setCollageState({ step: 'tag', unitFile: file, unitPreview });
+    setTimeout(() => collageTagRef.current && collageTagRef.current.click(), 50);
+  }
+
+  async function handleCollageTag(e) {
+    const tagFile = e.target.files[0];
+    e.target.value = '';
+    if (!tagFile || !collageState?.unitFile) { setCollageState(null); return; }
+    const { unitFile, unitPreview } = collageState;
+    setCollageState({ step: 'processing' });
+
+    const tempId = `local-${Date.now()}-${Math.random().toString(36).slice(2,6)}`;
+    setPhotos(prev => [...prev, { id: tempId, url: unitPreview, photo_type: 'equipment', _local: true }]);
+    setScanningCount(n => n + 1);
+
+    try {
+      const mergedBlob = await mergeImagesCanvas(unitFile, tagFile);
+      const mergedFile = new File([mergedBlob], `collage-${Date.now()}.jpg`, { type: 'image/jpeg' });
+
+      const uploadP = uploadPhoto(job.id, mergedFile, 'equipment').then(photo => {
+        if (photo && !photo.error) {
+          setPhotos(prev => prev.map(p => p.id === tempId ? photo : p));
+          URL.revokeObjectURL(unitPreview);
+        }
+        return photo;
+      }).catch(() => null);
+
+      const { b64, mediaType } = await readFileForScan(tagFile);
+      try {
+        const result = await scanNameplateFromB64(b64, mediaType);
+        const hasData = Object.values(result).some(v => v != null);
+        if (hasData) {
+          uploadP.then(photo => {
+            setScanQueue(q => [...q, { ...result, _photoUrl: photo?.storage_path || null }]);
+            setPendingScanRetry(null);
+          });
+        }
+      } catch (_) {
+        uploadP.then(photo => {
+          setPendingScanRetry({ b64, mediaType, _photoUrl: photo?.storage_path || null });
+        });
+      }
+    } catch (err) {
+      console.error('collage error', err);
+      setPhotos(prev => prev.filter(p => p.id !== tempId));
+      URL.revokeObjectURL(unitPreview);
+      alert('Could not create collage. Try again.');
+    } finally {
+      setScanningCount(n => n - 1);
+      setCollageState(null);
+    }
   }
 
   function runOtherScan(e) {
@@ -2943,10 +3038,28 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
                 🖼 UPLOAD
               </button>
+              <button onClick={startCollage} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                ⊞ COLLAGE
+              </button>
             </div>
           </div>
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
           <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
+          <input ref={collageUnitRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleCollageUnit} />
+          <input ref={collageTagRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleCollageTag} />
+          {collageState?.step === 'tag' && (
+            <div className="mono" style={{ fontSize:13, color:"var(--olive-bright)", padding:"6px 0 4px", display:"flex", alignItems:"center", gap:8 }}>
+              <img src={collageState.unitPreview} style={{ width:48, height:48, objectFit:"cover", borderRadius:6, border:"1px solid var(--brass)" }} />
+              UNIT PHOTO CAPTURED — now take the nameplate tag
+            </div>
+          )}
+          {collageState?.step === 'processing' && (
+            <div className="mono" style={{ fontSize:13, color:"var(--olive-bright)", padding:"6px 0 4px" }}>
+              ⊞ Building collage…
+            </div>
+          )}
           {thisJobEquipOpen && (
             <>
               {pendingScanRetry && (
