@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 92;
+const APP_REV = 93;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2720,11 +2720,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                   setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${storagePath}`);
                   return;
                 }
-                // Fallback: find first equipment photo for this job
-                const { data } = await sb.from('job_photos').select('storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment').order('created_at', { ascending: true });
+                // Fallback: match by closest creation time — scan photo taken ~same time equipment was saved
+                const { data } = await sb.from('job_photos').select('storage_path,created_at').eq('job_id', eq.job_id).eq('photo_type', 'equipment').order('created_at', { ascending: true });
                 if (!data || data.length === 0) { alert('No equipment photo found.'); return; }
-                const fallbackPath = data[0].storage_path;
-                if (fallbackPath) setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${fallbackPath}`);
+                const equipTime = new Date(eq.created_at || 0).getTime();
+                const best = data.reduce((b, p) => {
+                  const d = Math.abs(new Date(p.created_at).getTime() - equipTime);
+                  return d < b.d ? { p, d } : b;
+                }, { p: data[0], d: Infinity }).p;
+                if (best.storage_path) setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${best.storage_path}`);
                 else alert('Photo unavailable.');
               }} className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>📷</button>
             )}
