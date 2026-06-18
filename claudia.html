@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 94;
+const APP_REV = 95;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2330,11 +2330,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const otherScanRef = useRef();
   const otherScanGalleryRef = useRef();
   const photoRef = useRef();
-  const collageUnitRef = useRef();
-  const collageTagRef = useRef();
-
   const [collageState, setCollageState] = React.useState(null);
-  // null | { step:'unit' } | { step:'tag', unitFile:File, unitPreview:string }
+  // null | { step:'unit' } | { step:'tag', unitFile:File, unitPreview:string } | { step:'processing' }
 
   // Keep history in sync when parent refreshes job data (e.g. after voice note)
   useEffect(() => {
@@ -2617,6 +2614,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     _launchScan(file, false);
   }
 
+  const collageUnitCamRef = useRef();
+  const collageUnitGalRef = useRef();
+  const collageTagCamRef = useRef();
+  const collageTagGalRef = useRef();
+
   function mergeImagesCanvas(file1, file2) {
     function loadImg(f) {
       return new Promise((res, rej) => {
@@ -2629,24 +2631,18 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     }
     return Promise.all([loadImg(file1), loadImg(file2)]).then(([imgA, imgB]) => {
       const H = Math.min(Math.max(imgA.height, imgB.height), 2000);
-      const scaleA = H / imgA.height, scaleB = H / imgB.height;
-      const wA = Math.round(imgA.width * scaleA), wB = Math.round(imgB.width * scaleB);
-      const gap = 6;
+      const wA = Math.round(imgA.width * (H / imgA.height));
+      const wB = Math.round(imgB.width * (H / imgB.height));
       const canvas = document.createElement('canvas');
-      canvas.width = wA + gap + wB;
+      canvas.width = wA + 6 + wB;
       canvas.height = H;
       const ctx = canvas.getContext('2d');
       ctx.fillStyle = '#111';
       ctx.fillRect(0, 0, canvas.width, H);
       ctx.drawImage(imgA, 0, 0, wA, H);
-      ctx.drawImage(imgB, wA + gap, 0, wB, H);
+      ctx.drawImage(imgB, wA + 6, 0, wB, H);
       return new Promise(res => canvas.toBlob(blob => res(blob), 'image/jpeg', 0.88));
     });
-  }
-
-  function startCollage() {
-    setCollageState({ step: 'unit' });
-    setTimeout(() => collageUnitRef.current && collageUnitRef.current.click(), 50);
   }
 
   function handleCollageUnit(e) {
@@ -2655,7 +2651,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (!file) { setCollageState(null); return; }
     const unitPreview = URL.createObjectURL(file);
     setCollageState({ step: 'tag', unitFile: file, unitPreview });
-    setTimeout(() => collageTagRef.current && collageTagRef.current.click(), 50);
   }
 
   async function handleCollageTag(e) {
@@ -3038,21 +3033,79 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
                 🖼 UPLOAD
               </button>
-              <button onClick={startCollage} className="head"
+              <button onClick={() => setCollageState({ step: 'unit' })} className="head"
                 style={{ fontSize:14, fontWeight:600, padding:"5px 10px", borderRadius:6,
-                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  background: collageState ? "var(--brass)" : "var(--panel)",
+                  border:"1px solid var(--line)", color: collageState ? "var(--bg)" : "var(--muted)" }}>
                 ⊞ COLLAGE
               </button>
             </div>
           </div>
           <input ref={scanRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={runScan} />
           <input ref={scanGalleryRef} type="file" accept="image/*" style={{ display:'none' }} onChange={runScan} />
-          <input ref={collageUnitRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleCollageUnit} />
-          <input ref={collageTagRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleCollageTag} />
-          {collageState?.step === 'tag' && (
-            <div className="mono" style={{ fontSize:13, color:"var(--olive-bright)", padding:"6px 0 4px", display:"flex", alignItems:"center", gap:8 }}>
-              <img src={collageState.unitPreview} style={{ width:48, height:48, objectFit:"cover", borderRadius:6, border:"1px solid var(--brass)" }} />
-              UNIT PHOTO CAPTURED — now take the nameplate tag
+          <input ref={collageUnitCamRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={handleCollageUnit} />
+          <input ref={collageUnitGalRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleCollageUnit} />
+          <input ref={collageTagCamRef} type="file" accept="image/*" capture="environment" style={{ display:'none' }} onChange={handleCollageTag} />
+          <input ref={collageTagGalRef} type="file" accept="image/*" style={{ display:'none' }} onChange={handleCollageTag} />
+          {collageState && collageState.step !== 'processing' && (
+            <div style={{ border:"1px solid var(--brass)", borderRadius:9, padding:12, marginBottom:10, background:"rgba(200,185,122,0.06)" }}>
+              {collageState.step === 'unit' && (
+                <>
+                  <div className="mono" style={{ fontSize:12, color:"var(--brass)", marginBottom:8, letterSpacing:1 }}>
+                    ⊞ COLLAGE — STEP 1 OF 2 · FULL UNIT SHOT
+                  </div>
+                  <div className="body" style={{ fontSize:13, color:"var(--muted)", marginBottom:10 }}>
+                    Take a wide photo of the entire unit where it sits.
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={() => collageUnitCamRef.current.click()} className="head"
+                      style={{ flex:1, padding:10, borderRadius:7, fontSize:14, fontWeight:700,
+                        background:"var(--brass)", color:"var(--bg)", border:"none" }}>
+                      📷 CAMERA
+                    </button>
+                    <button onClick={() => collageUnitGalRef.current.click()} className="head"
+                      style={{ flex:1, padding:10, borderRadius:7, fontSize:14, fontWeight:700,
+                        background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                      🖼 GALLERY
+                    </button>
+                    <button onClick={() => setCollageState(null)} className="mono"
+                      style={{ padding:"10px 14px", borderRadius:7, fontSize:14,
+                        background:"none", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                      ✕
+                    </button>
+                  </div>
+                </>
+              )}
+              {collageState.step === 'tag' && (
+                <>
+                  <div className="mono" style={{ fontSize:12, color:"var(--brass)", marginBottom:8, letterSpacing:1 }}>
+                    ⊞ COLLAGE — STEP 2 OF 2 · NAMEPLATE TAG
+                  </div>
+                  <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:10 }}>
+                    <img src={collageState.unitPreview} style={{ width:60, height:60, objectFit:"cover", borderRadius:6, border:"1px solid var(--brass)" }} />
+                    <div className="body" style={{ fontSize:13, color:"var(--muted)" }}>
+                      Unit photo captured. Now take a close-up of the nameplate tag.
+                    </div>
+                  </div>
+                  <div style={{ display:"flex", gap:8 }}>
+                    <button onClick={() => collageTagCamRef.current.click()} className="head"
+                      style={{ flex:1, padding:10, borderRadius:7, fontSize:14, fontWeight:700,
+                        background:"var(--brass)", color:"var(--bg)", border:"none" }}>
+                      📷 CAMERA
+                    </button>
+                    <button onClick={() => collageTagGalRef.current.click()} className="head"
+                      style={{ flex:1, padding:10, borderRadius:7, fontSize:14, fontWeight:700,
+                        background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                      🖼 GALLERY
+                    </button>
+                    <button onClick={() => { if (collageState.unitPreview) URL.revokeObjectURL(collageState.unitPreview); setCollageState(null); }} className="mono"
+                      style={{ padding:"10px 14px", borderRadius:7, fontSize:14,
+                        background:"none", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                      ✕
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
           {collageState?.step === 'processing' && (
