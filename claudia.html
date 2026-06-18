@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 90;
+const APP_REV = 91;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -382,14 +382,14 @@ async function fetchPhotos(jobId) {
   const { data, error } = await sb.from('job_photos')
     .select('*').eq('job_id', jobId).order('created_at', { ascending: true });
   if (error) { console.warn('fetchPhotos error', error); return []; }
-  return Promise.all((data||[]).map(async p => {
-    let url = '';
-    if (p.storage_path) {
-      const { data: sd } = await sb.storage.from('job-photos').createSignedUrl(p.storage_path, 86400);
-      url = sd?.signedUrl || '';
-    }
+  return (data||[]).map(p => {
+    // Prefer stored URL (backward compat); derive from storage_path when absent
+    const stored = p.url || p.photo_url || '';
+    const url = stored || (p.storage_path
+      ? (sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl || '')
+      : '');
     return { id: p.id, url, storage_path: p.storage_path || '', photo_type: p.photo_type || null };
-  }));
+  });
 }
 
 async function uploadPhoto(jobId, file, photoType) {
@@ -397,13 +397,15 @@ async function uploadPhoto(jobId, file, photoType) {
   const path = `${jobId}/${Date.now()}.${ext}`;
   const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
   if (upErr) { console.error('upload error', upErr); return { error: upErr.message || JSON.stringify(upErr) }; }
-  const { data: sd } = await sb.storage.from('job-photos').createSignedUrl(path, 86400);
-  const url = sd?.signedUrl || '';
-  const insertRow = { job_id: jobId, storage_path: path, created_at: new Date().toISOString() };
-  if (photoType) insertRow.photo_type = photoType;
-  const { data: row, error: dbErr } = await sb.from('job_photos')
-    .insert(insertRow)
-    .select().single();
+  const url = sb.storage.from('job-photos').getPublicUrl(path).data?.publicUrl || '';
+  // Try inserting with url column; fall back silently if column doesn't exist
+  const base = { job_id: jobId, storage_path: path, created_at: new Date().toISOString() };
+  if (photoType) base.photo_type = photoType;
+  let { data: row, error: dbErr } = await sb.from('job_photos').insert({ ...base, url }).select().single();
+  if (dbErr && (dbErr.code === 'PGRST204' || (dbErr.message||'').includes('url'))) {
+    const r2 = await sb.from('job_photos').insert(base).select().single();
+    row = r2.data; dbErr = r2.error;
+  }
   if (dbErr) { console.error('job_photos insert error', dbErr); return { error: dbErr.message || JSON.stringify(dbErr) }; }
   return row ? { id: row.id, url, storage_path: path, photo_type: photoType || null } : null;
 }
