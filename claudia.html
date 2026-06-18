@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 88;
+const APP_REV = 89;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -382,12 +382,14 @@ async function fetchPhotos(jobId) {
   const { data, error } = await sb.from('job_photos')
     .select('*').eq('job_id', jobId).order('created_at', { ascending: true });
   if (error) { console.warn('fetchPhotos error', error); return []; }
-  return (data||[]).map(p => {
-    const url = p.storage_path
-      ? (sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl || '')
-      : (p.url || p.photo_url || '');
+  return Promise.all((data||[]).map(async p => {
+    let url = '';
+    if (p.storage_path) {
+      const { data: sd } = await sb.storage.from('job-photos').createSignedUrl(p.storage_path, 86400);
+      url = sd?.signedUrl || '';
+    }
     return { id: p.id, url, storage_path: p.storage_path || '', photo_type: p.photo_type || null };
-  });
+  }));
 }
 
 async function uploadPhoto(jobId, file, photoType) {
@@ -395,8 +397,8 @@ async function uploadPhoto(jobId, file, photoType) {
   const path = `${jobId}/${Date.now()}.${ext}`;
   const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
   if (upErr) { console.error('upload error', upErr); return { error: upErr.message || JSON.stringify(upErr) }; }
-  const { data: urlData } = sb.storage.from('job-photos').getPublicUrl(path);
-  const url = urlData.publicUrl;
+  const { data: sd } = await sb.storage.from('job-photos').createSignedUrl(path, 86400);
+  const url = sd?.signedUrl || '';
   const insertRow = { job_id: jobId, storage_path: path, created_at: new Date().toISOString() };
   if (photoType) insertRow.photo_type = photoType;
   const { data: row, error: dbErr } = await sb.from('job_photos')
@@ -2583,15 +2585,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         const hasData = Object.values(result).some(v => v != null);
         if (hasData) {
           uploadP.then(photo => {
-            const entry = { ...result, _photoUrl: photo?.url || null };
+            const entry = { ...result, _photoUrl: photo?.storage_path || null };
             isOther ? setOtherScanQueue(q => [...q, entry]) : setScanQueue(q => [...q, entry]);
             isOther ? setPendingOtherScanRetry(null) : setPendingScanRetry(null);
           });
         }
       }).catch(() => {
-        // No signal — save b64 + photoUrl for retry button
+        // No signal — save b64 + storage_path for retry button
         uploadP.then(photo => {
-          const retry = { b64, mediaType, _photoUrl: photo?.url || null };
+          const retry = { b64, mediaType, _photoUrl: photo?.storage_path || null };
           isOther ? setPendingOtherScanRetry(retry) : setPendingScanRetry(retry);
         });
       })
@@ -2710,12 +2712,16 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           <div style={{ display:"flex", gap:6 }}>
             {eq.job_id && eq.job_id !== job.id && (
               <button onClick={async () => {
-                if (eq.source_photo_url) { setLightbox(eq.source_photo_url); return; }
-                const { data } = await sb.from('job_photos').select('url,storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment').order('created_at', { ascending: true });
+                const storagePath = eq.source_photo_url || null;
+                if (storagePath) {
+                  const { data: sd } = await sb.storage.from('job-photos').createSignedUrl(storagePath, 3600);
+                  if (sd?.signedUrl) { setLightbox(sd.signedUrl); return; }
+                }
+                // Fallback: find first equipment photo for this job
+                const { data } = await sb.from('job_photos').select('storage_path').eq('job_id', eq.job_id).eq('photo_type', 'equipment').order('created_at', { ascending: true });
                 if (!data || data.length === 0) { alert('No equipment photo found.'); return; }
-                const p = data[0];
-                const url = p.storage_path ? sb.storage.from('job-photos').getPublicUrl(p.storage_path).data?.publicUrl : (p.url || null);
-                if (url) setLightbox(url); else alert('Photo unavailable.');
+                const { data: sd2 } = await sb.storage.from('job-photos').createSignedUrl(data[0].storage_path, 3600);
+                if (sd2?.signedUrl) setLightbox(sd2.signedUrl); else alert('Photo unavailable.');
               }} className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>📷</button>
             )}
             <button onClick={() => setExpandedEquipId(expandedEquipId === eq.id ? null : eq.id)}
