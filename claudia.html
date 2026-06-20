@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 101;
+const APP_REV = 102;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -614,6 +614,13 @@ async function fetchActiveCrewAssignments() {
   return data || [];
 }
 
+async function fetchUnreadNotifications(userId) {
+  const { data } = await sb.from('notifications')
+    .select('*').eq('user_id', userId).eq('read', false)
+    .order('created_at', { ascending: false });
+  return data || [];
+}
+
 /* ── Components ────────────────────────────────────────────────────────────── */
 function StatusPill({ status, overdue, scheduled }) {
   const c = overdue ? "#b5432f" : scheduled ? "var(--green)" : "var(--muted)";
@@ -745,6 +752,7 @@ function App() {
   const [chores, setChores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [rlsWarning, setRlsWarning] = useState(false);
+  const [pendingNotifs, setPendingNotifs] = useState([]);
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
@@ -957,8 +965,18 @@ Command: "${transcript}"`
       const mine = assignments.find(a => a.user_id === currentUser.id && a.status === 'On Site');
       if (mine) setSelectedId(mine.job_id);
     });
+    fetchUnreadNotifications(currentUser.id).then(notifs => {
+      if (notifs.length > 0) setPendingNotifs(notifs);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
+
+  async function dismissNotifs() {
+    if (!currentUser?.id) return;
+    await sb.from('notifications').update({ read: true })
+      .eq('user_id', currentUser.id).eq('read', false);
+    setPendingNotifs([]);
+  }
 
   /* ── CRUD ── */
   async function addJob(job) {
@@ -1593,6 +1611,19 @@ Command: "${transcript}"`
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLock={() => { setShowSettings(false); lockDevice(); }} />}
       {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
+      {pendingNotifs.length > 0 && (
+        <Sheet onClose={dismissNotifs} title="NOTIFICATIONS">
+          {pendingNotifs.map(n => (
+            <div key={n.id} className="mono"
+              style={{ fontSize:14, color:"var(--text)", padding:"12px 0", borderBottom:"1px solid var(--line)" }}>
+              {n.message}
+            </div>
+          ))}
+          <button onClick={dismissNotifs} className="head"
+            style={{ width:"100%", marginTop:14, padding:14, borderRadius:9, fontSize:14, fontWeight:700,
+              background:"var(--olive-bright)", color:"var(--bg)" }}>OK</button>
+        </Sheet>
+      )}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </div>
@@ -2279,6 +2310,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [addLogEnd, setAddLogEnd] = useState('');
   const [activeCrew, setActiveCrew] = useState([]); // other-job In Route/On Site assignments, for crew location display
   const [onSiteCheck, setOnSiteCheck] = useState(null); // array of crew users to confirm 'On Site' for, or null
+  const [pendingWrapUpJobId, setPendingWrapUpJobId] = useState(null);
+  const [wrapUpMembers, setWrapUpMembers] = useState(null); // [{u, done: bool}] | null
+  const [wrapUpQueue, setWrapUpQueue] = useState(null);     // [user] | null — sequential "what's next"
   const [editingCrew, setEditingCrew] = useState(null); // user id being edited, or null
   const [showCompleteCheck, setShowCompleteCheck] = useState(null); // job id to prompt completion for, or null
   const [editCrewStatus, setEditCrewStatus] = useState('In Route');
@@ -2417,6 +2451,49 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (targets.length > 0 && job.status !== 'On Site') onUpdate({ status: 'On Site', _skipNote: true });
   }
 
+  async function doCrewWrapUp(jobId) {
+    setPendingWrapUpJobId(null);
+    const freshCrew = await fetchJobCrew(jobId);
+    const others = users.filter(u =>
+      u.id !== currentUser?.id &&
+      freshCrew.find(c => c.user_id === u.id && c.status === 'On Site')
+    );
+    if (others.length > 0) setWrapUpMembers(others.map(u => ({ u, done: true })));
+  }
+
+  function confirmWrapUp() {
+    const doneUsers = (wrapUpMembers || []).filter(m => m.done).map(m => m.u);
+    setWrapUpMembers(null);
+    if (doneUsers.length > 0) setWrapUpQueue(doneUsers);
+  }
+
+  async function routeCrewMember(u, targetJob) {
+    const at = new Date().toISOString();
+    if (targetJob) {
+      await clearJobCrewStatus(job.id, u.id);
+      await upsertJobCrewStatus(targetJob.id, u.id, 'In Route');
+      await sb.from('job_notes').insert({
+        job_id: targetJob.id,
+        content: `Status → In Route (${u.name}) — assigned by ${currentUser?.name || 'office'}`,
+        source: 'system', created_at: at, user_id: currentUser?.id || null,
+      });
+      await sb.from('notifications').insert({
+        user_id: u.id,
+        message: `${currentUser?.name || 'Someone'} has marked you In Route to ${targetJob.customer}${targetJob.site_address ? ' — ' + targetJob.site_address : ''}`,
+        read: false, created_at: at,
+      });
+    } else {
+      await clearJobCrewStatus(job.id, u.id);
+      await sb.from('notifications').insert({
+        user_id: u.id,
+        message: `${currentUser?.name || 'Someone'} has marked you done at this job — head back to shop`,
+        read: false, created_at: at,
+      });
+    }
+    setCrew(prev => prev.filter(c => c.user_id !== u.id));
+    setWrapUpQueue(prev => prev.slice(1));
+  }
+
   function openCrewEdit(u, c, elsewhere) {
     setEditingCrew(u.id);
     setEditCrewStatus(c?.status || elsewhere?.status || 'none');
@@ -2440,7 +2517,16 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       }).select().single();
       if (targetJobId === job.id) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
       const targetJob = targetJobId === job.id ? job : (jobs||[]).find(j => j.id === targetJobId);
-      if (CREW_FIELD_STATUSES.includes(targetJob?.status)) setShowCompleteCheck(targetJobId);
+      if (u.id === currentUser?.id) {
+        if (CREW_FIELD_STATUSES.includes(targetJob?.status)) {
+          setShowCompleteCheck(targetJobId);
+          setPendingWrapUpJobId(targetJobId);
+        } else {
+          doCrewWrapUp(targetJobId);
+        }
+      } else if (CREW_FIELD_STATUSES.includes(targetJob?.status)) {
+        setShowCompleteCheck(targetJobId);
+      }
     } else {
       const statusAt = new Date(editCrewDateTime).toISOString();
       const targetJobId = editCrewJobId || job.id;
@@ -3235,16 +3321,68 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             <div style={{ display:"flex", flexDirection:"column", gap:8 }}>
               {['Completed/Needs Billing','Completed/Paid','In Progress','On Hold'].map(s => (
                 <button key={s} onClick={async () => {
-                  if (showCompleteCheck === job.id) {
+                  const wrapJobId = showCompleteCheck;
+                  if (wrapJobId === job.id) {
                     onUpdate({ status: s });
                   } else {
-                    await sb.from('jobs').update({ current_status: s, updated_at: new Date().toISOString() }).eq('id', showCompleteCheck);
+                    await sb.from('jobs').update({ current_status: s, updated_at: new Date().toISOString() }).eq('id', wrapJobId);
                   }
                   setShowCompleteCheck(null);
+                  if (pendingWrapUpJobId) doCrewWrapUp(wrapJobId);
                 }} className="head"
                   style={{ padding:14, borderRadius:9, fontSize:14, fontWeight:700,
                     background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
                   {s.toUpperCase()}
+                </button>
+              ))}
+            </div>
+          </Sheet>
+        )}
+
+        {wrapUpMembers && (
+          <Sheet onClose={() => setWrapUpMembers(null)} title="WRAPPING UP">
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
+              Are these crew members also done at this job?
+            </div>
+            {wrapUpMembers.map((m, i) => (
+              <div key={m.u.id} onClick={() => setWrapUpMembers(prev => prev.map((x,j) => j===i ? {...x, done:!x.done} : x))}
+                style={{ display:"flex", alignItems:"center", gap:14, padding:"10px 0",
+                  borderBottom:"1px solid var(--line)", cursor:"pointer" }}>
+                <div style={{ width:22, height:22, borderRadius:5, flexShrink:0,
+                  background: m.done ? "var(--olive-bright)" : "transparent",
+                  border: `2px solid ${m.done ? "var(--olive-bright)" : "var(--muted)"}`,
+                  display:"flex", alignItems:"center", justifyContent:"center" }}>
+                  {m.done && <span style={{ color:"var(--bg)", fontSize:14, fontWeight:900 }}>✓</span>}
+                </div>
+                <span className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)" }}>{m.u.name}</span>
+              </div>
+            ))}
+            <div style={{ display:"flex", gap:10, marginTop:14 }}>
+              <button onClick={confirmWrapUp} className="head"
+                style={{ flex:1, padding:14, borderRadius:9, fontSize:14, fontWeight:700,
+                  background:"var(--olive-bright)", color:"var(--bg)" }}>CONFIRM</button>
+              <button onClick={() => setWrapUpMembers(null)} className="head"
+                style={{ padding:"14px 18px", borderRadius:9, fontSize:14,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>SKIP</button>
+            </div>
+          </Sheet>
+        )}
+
+        {wrapUpQueue && wrapUpQueue.length > 0 && (
+          <Sheet onClose={() => setWrapUpQueue(null)} title={`WHAT'S NEXT FOR ${(wrapUpQueue[0].name||'').toUpperCase()}?`}>
+            <button onClick={() => routeCrewMember(wrapUpQueue[0], null)} className="head"
+              style={{ width:"100%", marginBottom:10, padding:14, borderRadius:9, fontSize:14, fontWeight:700,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              🏠 BACK TO SHOP
+            </button>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>SEND TO JOB</div>
+            <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:340, overflowY:"auto" }}>
+              {(jobs||[]).filter(j => j.id !== job.id && j.status !== 'Closed').map(j => (
+                <button key={j.id} onClick={() => routeCrewMember(wrapUpQueue[0], j)} className="head"
+                  style={{ padding:"12px 14px", borderRadius:8, fontSize:13, fontWeight:700, textAlign:"left",
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                  <div>{j.customer}</div>
+                  {j.site_address && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{j.site_address}</div>}
                 </button>
               ))}
             </div>
