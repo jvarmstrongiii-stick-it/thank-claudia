@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 99;
+const APP_REV = 100;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2578,6 +2578,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   async function handlePhotoInput(e) {
     const files = Array.from(e.target.files);
     if (!files.length) return;
+    const heicFiles = files.filter(f => /\.(heic|heif)$/i.test(f.name) || f.type === 'image/heic' || f.type === 'image/heif');
+    if (heicFiles.length > 0) {
+      alert('HEIC/HEIF photos can\'t be displayed in this app.\n\nOn iPhone: Settings → Camera → Formats → Most Compatible\nOn Android: turn off HEIC in your camera settings.\n\nRetake or re-export the photo as JPEG and try again.');
+      e.target.value = '';
+      return;
+    }
     setUploading(true);
     let errors = [];
     for (const file of files) {
