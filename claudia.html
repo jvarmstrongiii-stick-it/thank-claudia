@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 100;
+const APP_REV = 101;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2465,6 +2465,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       if (targetJobId === job.id) {
         setCrewLog(prev => [...prev, { id: noteRow?.id, content: noteContent, at: statusAt }]);
         if (job.status !== editCrewStatus) onUpdate({ status: editCrewStatus, _skipNote: true });
+        if (editCrewStatus === 'On Site' && u.id === currentUser?.id) {
+          const freshCrew = await fetchJobCrew(job.id);
+          setCrew(freshCrew);
+          const others = users.filter(o => o.id !== currentUser.id &&
+            freshCrew.find(c => c.user_id === o.id)?.status === 'In Route');
+          if (others.length > 0) setOnSiteCheck(others);
+        }
       } else {
         const targetJob = (jobs||[]).find(j => j.id === targetJobId);
         if (targetJob && targetJob.status !== editCrewStatus) {
