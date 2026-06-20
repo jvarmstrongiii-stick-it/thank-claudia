@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 102;
+const APP_REV = 103;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2562,6 +2562,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         const targetJob = (jobs||[]).find(j => j.id === targetJobId);
         if (targetJob && targetJob.status !== editCrewStatus) {
           await sb.from('jobs').update({ current_status: editCrewStatus, updated_at: new Date().toISOString() }).eq('id', targetJobId);
+        }
+        if (u.id === currentUser?.id) {
+          const wasOnSite = crew.find(c => c.user_id === u.id)?.status === 'On Site';
+          if (wasOnSite) doCrewWrapUp(job.id);
         }
       }
     }
