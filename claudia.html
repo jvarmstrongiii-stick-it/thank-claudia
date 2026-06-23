@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 111;
+const APP_REV = 112;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -904,6 +904,26 @@ function LastLeaveSheet({ job, onPick, onClose }) {
   );
 }
 
+function LeavingSheet({ clockSession, jobs, onInRoute, onClockOut, onClose }) {
+  const clockJob = clockSession?.jobId ? (jobs || []).find(j => j.id === clockSession.jobId) : null;
+  return (
+    <Sheet title={clockJob ? `LEAVING — ${(clockJob.customer || '').toUpperCase()}` : 'LEAVING'} onClose={onClose}>
+      <button onClick={onInRoute} className="head"
+        style={{ width:"100%", marginBottom:10, padding:"16px 14px", borderRadius:9, fontSize:14, fontWeight:700,
+          textAlign:"left", background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
+        <div>IN ROUTE TO ANOTHER JOB</div>
+        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:3, fontWeight:400 }}>pick where you're headed next</div>
+      </button>
+      <button onClick={onClockOut} className="head"
+        style={{ width:"100%", padding:"16px 14px", borderRadius:9, fontSize:14, fontWeight:700,
+          textAlign:"left", background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+        <div>CLOCKING OUT</div>
+        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:3, fontWeight:400 }}>done for the day or heading to shop</div>
+      </button>
+    </Sheet>
+  );
+}
+
 function MoveJobSheet({ clockSession, jobs, onMove, onClose }) {
   const currentJobId = clockSession?.jobId;
   const openJobs = (jobs || [])
@@ -996,6 +1016,7 @@ function App() {
   const [showClockIn, setShowClockIn] = useState(false);
   const [showClockOut, setShowClockOut] = useState(false);
   const [showMoveJob, setShowMoveJob] = useState(false);
+  const [showLeaving, setShowLeaving] = useState(false);
   const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
 
   function showToast(msg, isError=false) {
@@ -1631,8 +1652,13 @@ Command: "${transcript}"`
           return (
             <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"8px 12px",
               background:"var(--panel-2)", borderRadius:8, border:"1px solid var(--olive)" }}>
-              <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>
-                {clockJob ? clockJob.customer : 'SHOP'} · {clockSession.status.toUpperCase()}
+              <div>
+                <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
+                  {clockJob ? clockJob.customer : 'SHOP'}
+                </div>
+                <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginTop:2 }}>
+                  {clockSession.status.toUpperCase()}
+                </div>
               </div>
               <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} />
               {clockSession.status === 'In Route' && clockSession.jobId && (
@@ -1642,17 +1668,10 @@ Command: "${transcript}"`
                   ON SITE
                 </button>
               )}
-              {clockSession.status === 'On Site' && (
-                <button onClick={() => setShowMoveJob(true)} className="head"
-                  style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
-                    background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
-                  IN ROUTE
-                </button>
-              )}
-              <button onClick={() => setShowClockOut(true)} className="head"
+              <button onClick={() => setShowLeaving(true)} className="head"
                 style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
-                CLOCK OUT
+                LEAVING THIS JOB
               </button>
             </div>
           );
@@ -1983,6 +2002,12 @@ Command: "${transcript}"`
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLock={() => { setShowSettings(false); lockDevice(); }} />}
       {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
+      {showLeaving && clockSession && (
+        <LeavingSheet clockSession={clockSession} jobs={jobs}
+          onInRoute={() => { setShowLeaving(false); setShowMoveJob(true); }}
+          onClockOut={() => { setShowLeaving(false); setShowClockOut(true); }}
+          onClose={() => setShowLeaving(false)} />
+      )}
       {showClockOut && clockSession && (
         <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={clockOut} onClose={() => setShowClockOut(false)} />
       )}
