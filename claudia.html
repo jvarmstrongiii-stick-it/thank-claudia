@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 118;
+const APP_REV = 119;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3565,7 +3565,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         </button>
 
         <div style={{ marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
-          <a href={`tel:${(job.phone||"").replace(/[^0-9]/g,"")}`} style={{ color:"var(--olive-bright)", textDecoration:"none", fontSize:16, fontWeight:600 }} className="head">{job.phone||"—"}</a>
+          {job.phone
+            ? <a href={`tel:${job.phone.replace(/[^0-9]/g,"")}`} style={{ color:"var(--olive-bright)", textDecoration:"none", fontSize:16, fontWeight:600 }} className="head">{job.phone}</a>
+            : null
+          }
           {job.email && (
             <a href={`mailto:${job.email}`} style={{ display:"block", color:"var(--muted)", textDecoration:"none", fontSize:14, marginTop:4 }}>{job.email}</a>
           )}
