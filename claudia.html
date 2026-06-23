@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 104;
+const APP_REV = 105;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2468,11 +2468,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (doneUsers.length > 0) setWrapUpQueue(doneUsers);
   }
 
-  async function startTravelCheck(targetJobId) {
-    const freshCrew = await fetchJobCrew(job.id);
+  function startTravelCheck(targetJobId) {
     const others = users.filter(u =>
       u.id !== currentUser?.id &&
-      freshCrew.find(c => c.user_id === u.id && c.status === 'On Site')
+      activeCrew.some(a => a.user_id === u.id && a.status === 'On Site')
     );
     if (others.length > 0) setTravelCheck({ queue: others, targetJobId });
   }
@@ -2590,6 +2589,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           const others = users.filter(o => o.id !== currentUser.id &&
             freshCrew.find(c => c.user_id === o.id)?.status === 'In Route');
           if (others.length > 0) setOnSiteCheck(others);
+        }
+        if (editCrewStatus === 'In Route' && u.id === currentUser?.id) {
+          startTravelCheck(targetJobId);
         }
       } else {
         const targetJob = (jobs||[]).find(j => j.id === targetJobId);
