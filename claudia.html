@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 103;
+const APP_REV = 106;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -108,6 +108,9 @@ const CURRENT_USER_KEY  = "tmc_current_user";
 const DEVICE_AUTH_KEY   = "tmc_device_auth";
 // ↓ Change this to update the passphrase for all devices (they'll be asked again on next visit)
 const DEVICE_PASSPHRASE = "TMCmech";
+// per-user clock session keys
+function clockKey(uid) { return `tmc_clock_session_${uid}`; }
+function clockTodayKey(uid) { return `tmc_clock_today_${uid}`; }
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
@@ -621,6 +624,30 @@ async function fetchUnreadNotifications(userId) {
   return data || [];
 }
 
+/* ── Clock session helpers ─────────────────────────────────────────────────── */
+function loadClockSession(userId) {
+  if (!userId) return null;
+  try { return JSON.parse(localStorage.getItem(clockKey(userId))); } catch { return null; }
+}
+function saveClockSession(userId, session) {
+  if (!userId) return;
+  if (session) localStorage.setItem(clockKey(userId), JSON.stringify(session));
+  else localStorage.removeItem(clockKey(userId));
+}
+function getTodayMs(userId) {
+  if (!userId) return 0;
+  try {
+    const d = JSON.parse(localStorage.getItem(clockTodayKey(userId)));
+    if (!d || d.date !== todayISO()) return 0;
+    return d.totalMs || 0;
+  } catch { return 0; }
+}
+function addTodayMs(userId, ms) {
+  if (!userId) return;
+  const prev = getTodayMs(userId);
+  localStorage.setItem(clockTodayKey(userId), JSON.stringify({ date: todayISO(), totalMs: prev + ms }));
+}
+
 /* ── Components ────────────────────────────────────────────────────────────── */
 function StatusPill({ status, overdue, scheduled }) {
   const c = overdue ? "#b5432f" : scheduled ? "var(--green)" : "var(--muted)";
@@ -729,6 +756,132 @@ function Splash({ onSelect }) {
   );
 }
 
+/* ── Clock components ──────────────────────────────────────────────────────── */
+function ClockTimer({ startedAt, todayMs }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  const total = todayMs + (now - new Date(startedAt).getTime());
+  const h = Math.floor(total / 3600000);
+  const m = Math.floor((total % 3600000) / 60000);
+  return (
+    <span className="mono" style={{ fontSize:12, color:"var(--olive-bright)", fontWeight:700 }}>
+      {h}:{String(m).padStart(2,'0')}
+    </span>
+  );
+}
+
+function ClockGate({ userName, onClockIn, onBrowse }) {
+  return (
+    <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", flexDirection:"column",
+      alignItems:"center", justifyContent:"center", gap:16, padding:32, background:"var(--bg)" }}>
+      <div className="head" style={{ fontSize:24, fontWeight:700, lineHeight:1 }}>
+        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+      </div>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:4, letterSpacing:"0.1em" }}>{userName}</div>
+      <div style={{ height:24 }} />
+      <button onClick={onClockIn} className="head"
+        style={{ width:"100%", maxWidth:340, padding:20, fontSize:18, fontWeight:700, borderRadius:12,
+          background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+        CLOCK IN
+      </button>
+      <button onClick={onBrowse} className="head"
+        style={{ width:"100%", maxWidth:340, padding:20, fontSize:15, fontWeight:700, borderRadius:12,
+          background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+        BROWSE AFTER HOURS
+      </button>
+    </div>
+  );
+}
+
+function ClockInSheet({ jobs, onConfirm, onClose }) {
+  const [step, setStep] = useState(1);
+  const [status, setStatus] = useState(null);
+  const openJobs = (jobs || [])
+    .filter(j => j.status !== 'Completed/Paid' && j.status !== 'Closed')
+    .slice().sort((a, b) => (a.customer || '').localeCompare(b.customer || ''));
+
+  if (step === 1) return (
+    <Sheet title="CLOCK IN" onClose={onClose}>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:18 }}>WHERE ARE YOU HEADED?</div>
+      <div style={{ display:"flex", gap:12 }}>
+        <button onClick={() => { setStatus('In Route'); setStep(2); }} className="head"
+          style={{ flex:1, padding:18, fontSize:16, fontWeight:700, borderRadius:10,
+            background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--text)" }}>
+          IN ROUTE
+        </button>
+        <button onClick={() => { setStatus('On Site'); setStep(2); }} className="head"
+          style={{ flex:1, padding:18, fontSize:16, fontWeight:700, borderRadius:10,
+            background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+          ON SITE
+        </button>
+      </div>
+    </Sheet>
+  );
+
+  return (
+    <Sheet title={`CLOCK IN — ${status.toUpperCase()}`} onClose={onClose}>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:12 }}>PICK A JOB</div>
+      <button onClick={() => onConfirm('shop', status)} className="head"
+        style={{ width:"100%", padding:"14px 16px", marginBottom:8, borderRadius:9, fontSize:15, fontWeight:700,
+          textAlign:"left", background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
+        SHOP
+      </button>
+      <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:380, overflowY:"auto" }}>
+        {openJobs.map(j => (
+          <button key={j.id} onClick={() => onConfirm(j.id, status)} className="head"
+            style={{ padding:"12px 14px", borderRadius:8, fontSize:14, fontWeight:700, textAlign:"left",
+              background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+            <div>{j.customer}</div>
+            {siteAddr(j) && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{siteAddr(j)}</div>}
+          </button>
+        ))}
+      </div>
+    </Sheet>
+  );
+}
+
+function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
+  const [jobStatus, setJobStatus] = useState(null);
+  const job = clockSession?.jobId ? (jobs || []).find(j => j.id === clockSession.jobId) : null;
+  return (
+    <Sheet title={job ? `CLOCKING OUT — ${(job.customer || '').toUpperCase()}` : 'CLOCK OUT — SHOP'} onClose={onClose}>
+      {job && (
+        <React.Fragment>
+          <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>UPDATE JOB STATUS (OPTIONAL)</div>
+          <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:16 }}>
+            {['In Progress','On Hold','Completed/Needs Billing','Completed/Paid'].map(s => (
+              <button key={s} onClick={() => setJobStatus(jobStatus === s ? null : s)} className="head"
+                style={{ padding:"12px 14px", borderRadius:8, fontSize:14, fontWeight:700, textAlign:"left",
+                  background: jobStatus === s ? "var(--olive-bright)" : "var(--panel)",
+                  color: jobStatus === s ? "var(--bg)" : "var(--text)",
+                  border: jobStatus === s ? "none" : "1px solid var(--line)" }}>
+                {s}
+              </button>
+            ))}
+          </div>
+        </React.Fragment>
+      )}
+      <div style={{ display:"flex", gap:10 }}>
+        <button onClick={() => onClockOut(jobStatus)} className="head"
+          style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+            background:"var(--olive-bright)", color:"var(--bg)" }}>
+          CLOCK OUT
+        </button>
+        {job && (
+          <button onClick={() => onClockOut(null)} className="head"
+            style={{ padding:"14px 18px", borderRadius:9, fontSize:14,
+              background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+            SKIP STATUS
+          </button>
+        )}
+      </div>
+    </Sheet>
+  );
+}
+
 /* ── App ───────────────────────────────────────────────────────────────────── */
 function App() {
   const [deviceAuthorized, setDeviceAuthorized] = useState(
@@ -785,6 +938,15 @@ function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [users, setUsers] = useState(FALLBACK_USERS);
   const [expandedCustomers, setExpandedCustomers] = useState(new Set());
+  const [clockSession, setClockSession] = useState(() => {
+    try {
+      const u = JSON.parse(localStorage.getItem(CURRENT_USER_KEY));
+      return u ? loadClockSession(u.id) : null;
+    } catch { return null; }
+  });
+  const [browseMode, setBrowseMode] = useState(false);
+  const [showClockIn, setShowClockIn] = useState(false);
+  const [showClockOut, setShowClockOut] = useState(false);
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -930,10 +1092,14 @@ Command: "${transcript}"`
   function selectUser(user) {
     localStorage.setItem(CURRENT_USER_KEY, JSON.stringify(user));
     setCurrentUser(user);
+    setClockSession(loadClockSession(user.id));
+    setBrowseMode(false);
   }
   function switchUser() {
     localStorage.removeItem(CURRENT_USER_KEY);
     setCurrentUser(null);
+    setClockSession(null);
+    setBrowseMode(false);
   }
 
   const refresh = useCallback(async () => {
@@ -976,6 +1142,59 @@ Command: "${transcript}"`
     await sb.from('notifications').update({ read: true })
       .eq('user_id', currentUser.id).eq('read', false);
     setPendingNotifs([]);
+  }
+
+  /* ── Clock in/out ── */
+  async function clockIn(jobId, status) {
+    const at = new Date().toISOString();
+    if (jobId !== 'shop') {
+      await upsertJobCrewStatus(jobId, currentUser.id, status);
+      const job = jobs.find(j => j.id === jobId);
+      const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
+      if (job && wIdx(job.status) < wIdx('In Progress')) {
+        await updateJob(jobId, { status: 'In Progress', _skipNote: true });
+      }
+      await sb.from('job_notes').insert({
+        job_id: jobId, content: `${currentUser.name} clocked in — ${status}`,
+        source: 'system', created_at: at, user_id: currentUser.id,
+      });
+    }
+    const session = { jobId: jobId === 'shop' ? null : jobId, status, startedAt: at };
+    saveClockSession(currentUser.id, session);
+    setClockSession(session);
+    setShowClockIn(false);
+  }
+
+  async function clockOut(jobStatus) {
+    if (!clockSession) return;
+    const { jobId, startedAt } = clockSession;
+    if (jobId) {
+      await clearJobCrewStatus(jobId, currentUser.id);
+      if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
+      const at = new Date().toISOString();
+      await sb.from('job_notes').insert({
+        job_id: jobId,
+        content: `${currentUser.name} clocked out${jobStatus ? ` — job: ${jobStatus}` : ''}`,
+        source: 'system', created_at: at, user_id: currentUser.id,
+      });
+    }
+    addTodayMs(currentUser.id, Date.now() - new Date(startedAt).getTime());
+    saveClockSession(currentUser.id, null);
+    setClockSession(null);
+    setShowClockOut(false);
+  }
+
+  async function flipToOnSite() {
+    if (!clockSession?.jobId) return;
+    await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site');
+    const job = jobs.find(j => j.id === clockSession.jobId);
+    const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
+    if (job && wIdx(job.status) < wIdx('In Progress')) {
+      await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
+    }
+    const session = { ...clockSession, status: 'On Site' };
+    saveClockSession(currentUser.id, session);
+    setClockSession(session);
   }
 
   /* ── CRUD ── */
@@ -1200,6 +1419,13 @@ Command: "${transcript}"`
   /* ── Render ── */
   if (!deviceAuthorized) return <PassphraseGate onAuthorize={authorizeDevice} />;
   if (!currentUser) return <Splash onSelect={selectUser} />;
+  if (!clockSession && !browseMode) return (
+    <React.Fragment>
+      <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} />
+      {showClockIn && <ClockInSheet jobs={jobs} onConfirm={clockIn} onClose={() => setShowClockIn(false)} />}
+      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+    </React.Fragment>
+  );
 
   const selected = jobs.find(j => j.id === selectedId);
   if (adding) return (
@@ -1296,6 +1522,42 @@ Command: "${transcript}"`
           </button>
           <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginLeft:2 }}>r{APP_REV}</div>
         </div>
+        {/* Clock status bar */}
+        {clockSession && (() => {
+          const clockJob = clockSession.jobId ? jobs.find(j => j.id === clockSession.jobId) : null;
+          return (
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"8px 12px",
+              background:"var(--panel-2)", borderRadius:8, border:"1px solid var(--olive)" }}>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>
+                {clockJob ? clockJob.customer : 'SHOP'} · {clockSession.status.toUpperCase()}
+              </div>
+              <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} />
+              {clockSession.status === 'In Route' && clockSession.jobId && (
+                <button onClick={flipToOnSite} className="head"
+                  style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                    background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                  ON SITE
+                </button>
+              )}
+              <button onClick={() => setShowClockOut(true)} className="head"
+                style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                CLOCK OUT
+              </button>
+            </div>
+          );
+        })()}
+        {browseMode && (
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"6px 12px",
+            background:"var(--panel-2)", borderRadius:8, border:"1px solid var(--line)" }}>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.08em" }}>AFTER HOURS BROWSING</div>
+            <button onClick={() => setBrowseMode(false)} className="head"
+              style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              EXIT BROWSE
+            </button>
+          </div>
+        )}
       </div>
 
       {/* empty state — not an error */}
@@ -1611,6 +1873,9 @@ Command: "${transcript}"`
 
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onLock={() => { setShowSettings(false); lockDevice(); }} />}
       {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
+      {showClockOut && clockSession && (
+        <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={clockOut} onClose={() => setShowClockOut(false)} />
+      )}
       {pendingNotifs.length > 0 && (
         <Sheet onClose={dismissNotifs} title="NOTIFICATIONS">
           {pendingNotifs.map(n => (
@@ -2549,17 +2814,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         source: 'system', created_at: at, user_id: currentUser?.id || null,
       }).select().single();
       if (targetJobId === job.id) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
-      const targetJob = targetJobId === job.id ? job : (jobs||[]).find(j => j.id === targetJobId);
-      if (u.id === currentUser?.id) {
-        if (CREW_FIELD_STATUSES.includes(targetJob?.status)) {
-          setShowCompleteCheck(targetJobId);
-          setPendingWrapUpJobId(targetJobId);
-        } else {
-          doCrewWrapUp(targetJobId);
-        }
-      } else if (CREW_FIELD_STATUSES.includes(targetJob?.status)) {
-        setShowCompleteCheck(targetJobId);
-      }
     } else {
       const statusAt = new Date(editCrewDateTime).toISOString();
       const targetJobId = editCrewJobId || job.id;
@@ -2583,22 +2837,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       }).select().single();
       if (targetJobId === job.id) {
         setCrewLog(prev => [...prev, { id: noteRow?.id, content: noteContent, at: statusAt }]);
-        if (job.status !== editCrewStatus) onUpdate({ status: editCrewStatus, _skipNote: true });
-        if (editCrewStatus === 'On Site' && u.id === currentUser?.id) {
-          const freshCrew = await fetchJobCrew(job.id);
-          setCrew(freshCrew);
-          const others = users.filter(o => o.id !== currentUser.id &&
-            freshCrew.find(c => c.user_id === o.id)?.status === 'In Route');
-          if (others.length > 0) setOnSiteCheck(others);
-        }
-      } else {
-        const targetJob = (jobs||[]).find(j => j.id === targetJobId);
-        if (targetJob && targetJob.status !== editCrewStatus) {
-          await sb.from('jobs').update({ current_status: editCrewStatus, updated_at: new Date().toISOString() }).eq('id', targetJobId);
-        }
-        if (u.id === currentUser?.id && editCrewStatus === 'In Route') {
-          startTravelCheck(targetJobId);
-        }
       }
     }
     setEditingCrew(null);
