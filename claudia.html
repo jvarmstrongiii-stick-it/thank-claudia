@@ -882,6 +882,28 @@ function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
   );
 }
 
+function LastLeaveSheet({ job, onPick, onClose }) {
+  return (
+    <Sheet title={`LAST ONE OUT — ${(job.customer || '').toUpperCase()}`} onClose={onClose}>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>IS THIS JOB DONE?</div>
+      <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
+        {['Completed/Needs Billing','Completed/Paid','On Hold','In Progress'].map(s => (
+          <button key={s} onClick={() => onPick(s)} className="head"
+            style={{ padding:"12px 14px", borderRadius:8, fontSize:14, fontWeight:700, textAlign:"left",
+              background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+            {s}
+          </button>
+        ))}
+      </div>
+      <button onClick={onClose} className="head"
+        style={{ width:"100%", padding:"11px 0", borderRadius:8, fontSize:13, fontWeight:600,
+          background:"transparent", border:"1px solid var(--line)", color:"var(--muted)" }}>
+        SKIP — LEAVE STATUS AS IS
+      </button>
+    </Sheet>
+  );
+}
+
 function MoveJobSheet({ clockSession, jobs, onMove, onClose }) {
   const currentJobId = clockSession?.jobId;
   const openJobs = (jobs || [])
@@ -974,6 +996,7 @@ function App() {
   const [showClockIn, setShowClockIn] = useState(false);
   const [showClockOut, setShowClockOut] = useState(false);
   const [showMoveJob, setShowMoveJob] = useState(false);
+  const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1232,7 +1255,12 @@ Command: "${transcript}"`
   async function moveToInRoute(newJobId) {
     try {
       const { jobId: oldJobId, startedAt } = clockSession;
-      if (oldJobId) await clearJobCrewStatus(oldJobId, currentUser.id);
+      let isLastOut = false;
+      if (oldJobId) {
+        await clearJobCrewStatus(oldJobId, currentUser.id);
+        const remaining = await fetchJobCrew(oldJobId);
+        isLastOut = remaining.filter(c => c.status === 'On Site').length === 0;
+      }
       const at = new Date().toISOString();
       if (newJobId !== 'shop') {
         const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route');
@@ -1246,6 +1274,10 @@ Command: "${transcript}"`
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setShowMoveJob(false);
+      if (isLastOut && oldJobId) {
+        const oldJob = jobs.find(j => j.id === oldJobId);
+        if (oldJob) setLastLeaveJob(oldJob);
+      }
     } catch(e) {
       showToast('Move failed — ' + (e.message || 'check connection'), true);
     }
@@ -1947,6 +1979,12 @@ Command: "${transcript}"`
       )}
       {showMoveJob && clockSession && (
         <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={moveToInRoute} onClose={() => setShowMoveJob(false)} />
+      )}
+      {lastLeaveJob && (
+        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
+          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
+          setLastLeaveJob(null);
+        }} onClose={() => setLastLeaveJob(null)} />
       )}
       {pendingNotifs.length > 0 && (
         <Sheet onClose={dismissNotifs} title="NOTIFICATIONS">
