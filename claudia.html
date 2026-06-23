@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 117;
+const APP_REV = 118;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1636,7 +1636,7 @@ Command: "${transcript}"`
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
-      {toast && <Toast msg={toast.msg} isError={toast.isError} />}}
+      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
   );
