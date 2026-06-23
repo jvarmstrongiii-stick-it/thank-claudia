@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 112;
+const APP_REV = 113;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -773,7 +773,7 @@ function ClockTimer({ startedAt, todayMs }) {
   );
 }
 
-function ClockGate({ userName, onClockIn, onBrowse }) {
+function ClockGate({ userName, onClockIn, onBrowse, onUndo }) {
   return (
     <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", gap:16, padding:32, background:"var(--bg)" }}>
@@ -792,6 +792,14 @@ function ClockGate({ userName, onClockIn, onBrowse }) {
           background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
         BROWSE AFTER HOURS
       </button>
+      {onUndo && (
+        <button onClick={onUndo} className="mono"
+          style={{ marginTop:8, display:"flex", alignItems:"center", gap:6, padding:"8px 16px",
+            borderRadius:20, background:"var(--panel)", border:"1px solid var(--line)",
+            color:"var(--muted)", fontSize:12 }}>
+          ↩ UNDO LAST ACTION
+        </button>
+      )}
     </div>
   );
 }
@@ -1018,6 +1026,8 @@ function App() {
   const [showMoveJob, setShowMoveJob] = useState(false);
   const [showLeaving, setShowLeaving] = useState(false);
   const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
+  const [clockUndo, setClockUndo] = useState(null);
+  // clockUndo: { prevSession, restore: [{jobId,status}], clear: [{jobId}] }
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1216,6 +1226,16 @@ Command: "${transcript}"`
   }
 
   /* ── Clock in/out ── */
+  async function undoClockAction() {
+    if (!clockUndo) return;
+    const { prevSession, restore, clear } = clockUndo;
+    for (const { jobId, status } of (restore || [])) await upsertJobCrewStatus(jobId, currentUser.id, status);
+    for (const { jobId } of (clear || [])) await clearJobCrewStatus(jobId, currentUser.id);
+    saveClockSession(currentUser.id, prevSession);
+    setClockSession(prevSession);
+    setClockUndo(null);
+  }
+
   async function clockIn(jobId, status) {
     try {
       const at = new Date().toISOString();
@@ -1233,6 +1253,7 @@ Command: "${transcript}"`
         });
       }
       const session = { jobId: jobId === 'shop' ? null : jobId, status, startedAt: at };
+      setClockUndo({ prevSession: null, restore: [], clear: jobId !== 'shop' ? [{ jobId }] : [] });
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setShowClockIn(false);
@@ -1244,24 +1265,26 @@ Command: "${transcript}"`
   async function clockOut(jobStatus) {
     if (!clockSession) return;
     const { jobId, startedAt } = clockSession;
+    const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [] };
     if (jobId) {
       await clearJobCrewStatus(jobId, currentUser.id);
       if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
       const at = new Date().toISOString();
       await sb.from('job_notes').insert({
-        job_id: jobId,
-        content: `Status → Cleared (${currentUser.name})`,
+        job_id: jobId, content: `Status → Cleared (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
       });
     }
     addTodayMs(currentUser.id, Date.now() - new Date(startedAt).getTime());
     saveClockSession(currentUser.id, null);
     setClockSession(null);
+    setClockUndo(undo);
     setShowClockOut(false);
   }
 
   async function flipToOnSite() {
     if (!clockSession?.jobId) return;
+    const undo = { prevSession: clockSession, restore: [{ jobId: clockSession.jobId, status: 'In Route' }], clear: [] };
     await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site');
     const job = jobs.find(j => j.id === clockSession.jobId);
     const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
@@ -1276,11 +1299,17 @@ Command: "${transcript}"`
     const session = { ...clockSession, status: 'On Site' };
     saveClockSession(currentUser.id, session);
     setClockSession(session);
+    setClockUndo(undo);
   }
 
   async function moveToInRoute(newJobId) {
     try {
       const { jobId: oldJobId, startedAt } = clockSession;
+      const undo = {
+        prevSession: clockSession,
+        restore: oldJobId ? [{ jobId: oldJobId, status: clockSession.status }] : [],
+        clear: newJobId !== 'shop' ? [{ jobId: newJobId }] : [],
+      };
       let isLastOut = false;
       const at = new Date().toISOString();
       if (oldJobId) {
@@ -1303,6 +1332,7 @@ Command: "${transcript}"`
       const session = { jobId: newJobId === 'shop' ? null : newJobId, status: 'In Route', startedAt };
       saveClockSession(currentUser.id, session);
       setClockSession(session);
+      setClockUndo(undo);
       setShowMoveJob(false);
       if (isLastOut && oldJobId) {
         const oldJob = jobs.find(j => j.id === oldJobId);
@@ -1544,7 +1574,7 @@ Command: "${transcript}"`
     );
     return (
       <React.Fragment>
-        <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} />
+        <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} onUndo={clockUndo ? undoClockAction : null} />
         {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       </React.Fragment>
     );
@@ -1673,6 +1703,15 @@ Command: "${transcript}"`
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
                 LEAVING THIS JOB
               </button>
+              {clockUndo && (
+                <button onClick={undoClockAction} className="mono"
+                  title="Undo last clock action"
+                  style={{ width:28, height:28, borderRadius:"50%", display:"flex", alignItems:"center",
+                    justifyContent:"center", background:"var(--panel)", border:"1px solid var(--line)",
+                    color:"var(--muted)", fontSize:15, padding:0, flexShrink:0 }}>
+                  ↩
+                </button>
+              )}
             </div>
           );
         })()}
