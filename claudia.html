@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 115;
+const APP_REV = 116;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1257,6 +1257,7 @@ Command: "${transcript}"`
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setShowClockIn(false);
+      if (jobId !== 'shop') setSelectedId(jobId);
     } catch(e) {
       showToast('Clock in failed — ' + (e.message || 'check connection'), true);
     }
@@ -1609,7 +1610,14 @@ Command: "${transcript}"`
         currentUser={currentUser}
         users={users}
         jobs={jobs}
-        browseMode={browseMode} />
+        browseMode={browseMode}
+        clockSession={clockSession}
+        onFlipToOnSite={flipToOnSite}
+        onLeaving={() => setShowLeaving(true)}
+        clockUndo={clockUndo}
+        onUndoClock={undoClockAction}
+        getTodayMs={() => getTodayMs(currentUser.id)}
+        onJobSelect={setSelectedId} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
@@ -2720,7 +2728,8 @@ function DuplicateEquipmentSheet({ scan, existing, onOverride, onKeep }) {
 }
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
-function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users, jobs, browseMode }) {
+function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users, jobs, browseMode,
+                     clockSession, onFlipToOnSite, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showResched, setShowResched] = useState(false);
@@ -3432,6 +3441,47 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>EDIT</button>
       </div>
       {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
+      {/* Clock status bar in job detail */}
+      {clockSession && (() => {
+        const clockJob = clockSession.jobId ? jobs.find(j => j.id === clockSession.jobId) : null;
+        return (
+          <div style={{ margin:"0 16px 0", padding:"8px 12px", marginTop:8,
+            background:"var(--panel-2)", borderRadius:8, border:"1px solid var(--olive)",
+            display:"flex", alignItems:"center", gap:8 }}>
+            <button onClick={() => clockJob && onJobSelect && onJobSelect(clockJob.id)}
+              style={{ textAlign:"left", background:"none", border:"none", padding:0, cursor: clockJob ? "pointer" : "default" }}>
+              <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
+                {clockJob ? clockJob.customer : 'SHOP'}
+              </div>
+              <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginTop:2 }}>
+                {clockSession.status.toUpperCase()}
+              </div>
+            </button>
+            <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs ? getTodayMs() : 0} />
+            {clockSession.status === 'In Route' && clockSession.jobId && (
+              <button onClick={onFlipToOnSite} className="head"
+                style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                ON SITE
+              </button>
+            )}
+            <button onClick={onLeaving} className="head"
+              style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+              LEAVING THIS JOB
+            </button>
+            {clockUndo && (
+              <button onClick={onUndoClock} className="mono"
+                title="Undo last clock action"
+                style={{ width:44, height:44, borderRadius:"50%", display:"flex", alignItems:"center",
+                  justifyContent:"center", background:"var(--panel)", border:"2px solid var(--olive)",
+                  color:"var(--olive-bright)", fontSize:22, padding:0, flexShrink:0 }}>
+                ↩
+              </button>
+            )}
+          </div>
+        );
+      })()}
       <div style={{ padding:16 }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", gap:10 }}>
           <div className="head" style={{ fontSize:24, fontWeight:700, lineHeight:1.1 }}>{job.customer}</div>
