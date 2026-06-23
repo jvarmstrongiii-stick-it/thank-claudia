@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 114;
+const APP_REV = 115;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3441,6 +3441,48 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         {(job.location && siteAddr(job).trim() === custAddr(job).trim()) ? (
           <div className="head" style={{ fontSize:15, fontWeight:600, color:"var(--brass-bright)", marginTop:6 }}>📍 {job.location}</div>
         ) : null}
+
+        {/* Compact time summary */}
+        {(() => {
+          const today = todayISO();
+          const techsToday = users.filter(u => {
+            const periods = (crewTimeline[u.name] || []).filter(p => p.start.slice(0,10) === today);
+            return periods.length > 0;
+          });
+          if (techsToday.length === 0) return null;
+          return (
+            <div style={{ marginTop:12, padding:"10px 14px", background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:8, letterSpacing:"0.08em" }}>TODAY'S TIME</div>
+              {techsToday.map(u => {
+                const periods = (crewTimeline[u.name] || []).filter(p => p.start.slice(0,10) === today);
+                const driveMs = periods.filter(p => p.status === 'In Route')
+                  .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+                const onSiteMs = periods.filter(p => p.status === 'On Site')
+                  .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+                const totalMs = driveMs + onSiteMs;
+                const isOngoing = periods.some(p => p.ongoing);
+                return (
+                  <div key={u.id} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", paddingTop:6,
+                    borderTop: u !== techsToday[0] ? "1px solid var(--line)" : "none", marginTop: u !== techsToday[0] ? 6 : 0 }}>
+                    <div className="head" style={{ fontSize:14, fontWeight:700, color:"var(--text)" }}>
+                      {u.name}{isOngoing ? <span style={{ color:"var(--green)", marginLeft:6, fontSize:11 }}>●</span> : null}
+                    </div>
+                    <div style={{ textAlign:"right" }}>
+                      <div className="mono" style={{ fontSize:14, fontWeight:700, color:"var(--olive-bright)" }}>
+                        {fmtElapsed(totalMs)}
+                      </div>
+                      {(driveMs > 0 && onSiteMs > 0) && (
+                        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>
+                          {fmtElapsed(driveMs)} drive · {fmtElapsed(onSiteMs)} on site
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         <div style={{ marginTop:14, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
           <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>JOB VALUE</span>
