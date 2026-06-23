@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 110;
+const APP_REV = 111;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1207,7 +1207,7 @@ Command: "${transcript}"`
           await updateJob(jobId, { status: 'In Progress', _skipNote: true });
         }
         await sb.from('job_notes').insert({
-          job_id: jobId, content: `${currentUser.name} clocked in — ${status}`,
+          job_id: jobId, content: `Status → ${status} (${currentUser.name})`,
           source: 'system', created_at: at, user_id: currentUser.id,
         });
       }
@@ -1229,7 +1229,7 @@ Command: "${transcript}"`
       const at = new Date().toISOString();
       await sb.from('job_notes').insert({
         job_id: jobId,
-        content: `${currentUser.name} clocked out${jobStatus ? ` — job: ${jobStatus}` : ''}`,
+        content: `Status → Cleared (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
       });
     }
@@ -1247,6 +1247,11 @@ Command: "${transcript}"`
     if (job && wIdx(job.status) < wIdx('In Progress')) {
       await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
     }
+    const at = new Date().toISOString();
+    await sb.from('job_notes').insert({
+      job_id: clockSession.jobId, content: `Status → On Site (${currentUser.name})`,
+      source: 'system', created_at: at, user_id: currentUser.id,
+    });
     const session = { ...clockSession, status: 'On Site' };
     saveClockSession(currentUser.id, session);
     setClockSession(session);
@@ -1256,17 +1261,21 @@ Command: "${transcript}"`
     try {
       const { jobId: oldJobId, startedAt } = clockSession;
       let isLastOut = false;
+      const at = new Date().toISOString();
       if (oldJobId) {
         await clearJobCrewStatus(oldJobId, currentUser.id);
+        await sb.from('job_notes').insert({
+          job_id: oldJobId, content: `Status → Cleared (${currentUser.name})`,
+          source: 'system', created_at: at, user_id: currentUser.id,
+        });
         const remaining = await fetchJobCrew(oldJobId);
         isLastOut = remaining.filter(c => c.status === 'On Site').length === 0;
       }
-      const at = new Date().toISOString();
       if (newJobId !== 'shop') {
         const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route');
         if (!ok) { showToast('Could not update crew status — check connection', true); return; }
         await sb.from('job_notes').insert({
-          job_id: newJobId, content: `${currentUser.name} → In Route`,
+          job_id: newJobId, content: `Status → In Route (${currentUser.name})`,
           source: 'system', created_at: at, user_id: currentUser.id,
         });
       }
