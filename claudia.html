@@ -2313,6 +2313,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [pendingWrapUpJobId, setPendingWrapUpJobId] = useState(null);
   const [wrapUpMembers, setWrapUpMembers] = useState(null); // [{u, done: bool}] | null
   const [wrapUpQueue, setWrapUpQueue] = useState(null);     // [user] | null — sequential "what's next"
+  const [travelCheck, setTravelCheck] = useState(null);    // { queue: [user], targetJobId } | null
   const [editingCrew, setEditingCrew] = useState(null); // user id being edited, or null
   const [showCompleteCheck, setShowCompleteCheck] = useState(null); // job id to prompt completion for, or null
   const [editCrewStatus, setEditCrewStatus] = useState('In Route');
@@ -2467,6 +2468,38 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (doneUsers.length > 0) setWrapUpQueue(doneUsers);
   }
 
+  async function startTravelCheck(targetJobId) {
+    const freshCrew = await fetchJobCrew(job.id);
+    const others = users.filter(u =>
+      u.id !== currentUser?.id &&
+      freshCrew.find(c => c.user_id === u.id && c.status === 'On Site')
+    );
+    if (others.length > 0) setTravelCheck({ queue: others, targetJobId });
+  }
+
+  async function answerTravelCheck(comingAlong) {
+    if (!travelCheck || travelCheck.queue.length === 0) { setTravelCheck(null); return; }
+    const [person, ...rest] = travelCheck.queue;
+    if (comingAlong) {
+      const at = new Date().toISOString();
+      const targetJob = (jobs||[]).find(j => j.id === travelCheck.targetJobId);
+      await clearJobCrewStatus(job.id, person.id);
+      await upsertJobCrewStatus(travelCheck.targetJobId, person.id, 'In Route');
+      await sb.from('job_notes').insert({
+        job_id: travelCheck.targetJobId,
+        content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+        source: 'system', created_at: at, user_id: currentUser?.id || null,
+      });
+      await sb.from('notifications').insert({
+        user_id: person.id,
+        message: `${currentUser.name} has marked you In Route to ${targetJob?.customer || 'a job'}${targetJob?.site_address ? ' — ' + targetJob.site_address : ''}`,
+        read: false, created_at: at,
+      });
+      setCrew(prev => prev.filter(c => c.user_id !== person.id));
+    }
+    setTravelCheck(rest.length > 0 ? { ...travelCheck, queue: rest } : null);
+  }
+
   async function routeCrewMember(u, targetJob) {
     const at = new Date().toISOString();
     if (targetJob) {
@@ -2563,9 +2596,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         if (targetJob && targetJob.status !== editCrewStatus) {
           await sb.from('jobs').update({ current_status: editCrewStatus, updated_at: new Date().toISOString() }).eq('id', targetJobId);
         }
-        if (u.id === currentUser?.id) {
-          const wasOnSite = crew.find(c => c.user_id === u.id)?.status === 'On Site';
-          if (wasOnSite) doCrewWrapUp(job.id);
+        if (u.id === currentUser?.id && editCrewStatus === 'In Route') {
+          startTravelCheck(targetJobId);
         }
       }
     }
@@ -3392,6 +3424,29 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             </div>
           </Sheet>
         )}
+
+        {travelCheck && travelCheck.queue.length > 0 && (() => {
+          const person = travelCheck.queue[0];
+          const targetJob = (jobs||[]).find(j => j.id === travelCheck.targetJobId);
+          return (
+            <Sheet onClose={() => setTravelCheck(null)} title="HEADING OUT">
+              <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:6 }}>
+                Is {person.name} going with you{targetJob ? ` to ${targetJob.customer}` : ''}?
+              </div>
+              {targetJob?.site_address && (
+                <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:16 }}>{targetJob.site_address}</div>
+              )}
+              <div style={{ display:"flex", gap:10 }}>
+                <button onClick={() => answerTravelCheck(true)} className="head"
+                  style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
+                    background:"var(--olive-bright)", color:"var(--bg)" }}>YES</button>
+                <button onClick={() => answerTravelCheck(false)} className="head"
+                  style={{ flex:1, padding:14, borderRadius:9, fontSize:14, fontWeight:700,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>NO</button>
+              </div>
+            </Sheet>
+          );
+        })()}
 
         {showWarrantySheet && (
           <WarrantySheet
