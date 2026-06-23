@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 116;
+const APP_REV = 117;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1618,7 +1618,25 @@ Command: "${transcript}"`
         onUndoClock={undoClockAction}
         getTodayMs={() => getTodayMs(currentUser.id)}
         onJobSelect={setSelectedId} />
-      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      {showLeaving && clockSession && (
+        <LeavingSheet clockSession={clockSession} jobs={jobs}
+          onInRoute={() => { setShowLeaving(false); setShowMoveJob(true); }}
+          onClockOut={() => { setShowLeaving(false); setShowClockOut(true); }}
+          onClose={() => setShowLeaving(false)} />
+      )}
+      {showClockOut && clockSession && (
+        <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={clockOut} onClose={() => setShowClockOut(false)} />
+      )}
+      {showMoveJob && clockSession && (
+        <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={moveToInRoute} onClose={() => setShowMoveJob(false)} />
+      )}
+      {lastLeaveJob && (
+        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
+          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
+          setLastLeaveJob(null);
+        }} onClose={() => setLastLeaveJob(null)} />
+      )}
+      {toast && <Toast msg={toast.msg} isError={toast.isError} />}}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
   );
