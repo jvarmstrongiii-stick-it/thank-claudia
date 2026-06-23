@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 106;
+const APP_REV = 108;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1146,23 +1146,28 @@ Command: "${transcript}"`
 
   /* ── Clock in/out ── */
   async function clockIn(jobId, status) {
-    const at = new Date().toISOString();
-    if (jobId !== 'shop') {
-      await upsertJobCrewStatus(jobId, currentUser.id, status);
-      const job = jobs.find(j => j.id === jobId);
-      const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-      if (job && wIdx(job.status) < wIdx('In Progress')) {
-        await updateJob(jobId, { status: 'In Progress', _skipNote: true });
+    try {
+      const at = new Date().toISOString();
+      if (jobId !== 'shop') {
+        const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status);
+        if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
+        const job = jobs.find(j => j.id === jobId);
+        const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
+        if (job && wIdx(job.status) < wIdx('In Progress')) {
+          await updateJob(jobId, { status: 'In Progress', _skipNote: true });
+        }
+        await sb.from('job_notes').insert({
+          job_id: jobId, content: `${currentUser.name} clocked in — ${status}`,
+          source: 'system', created_at: at, user_id: currentUser.id,
+        });
       }
-      await sb.from('job_notes').insert({
-        job_id: jobId, content: `${currentUser.name} clocked in — ${status}`,
-        source: 'system', created_at: at, user_id: currentUser.id,
-      });
+      const session = { jobId: jobId === 'shop' ? null : jobId, status, startedAt: at };
+      saveClockSession(currentUser.id, session);
+      setClockSession(session);
+      setShowClockIn(false);
+    } catch(e) {
+      showToast('Clock in failed — ' + (e.message || 'check connection'), true);
     }
-    const session = { jobId: jobId === 'shop' ? null : jobId, status, startedAt: at };
-    saveClockSession(currentUser.id, session);
-    setClockSession(session);
-    setShowClockIn(false);
   }
 
   async function clockOut(jobStatus) {
@@ -3783,68 +3788,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                         {locationJob.site_address && <div>{locationJob.site_address}</div>}
                       </div>
                     )}
-                    {!browseMode && (
-                    <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
-                      {isMe && !c && !elsewhere && (
-                        <>
-                          <button onClick={() => setMyCrewStatus('In Route')} className="head"
-                            style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
-                              background: c?.status === 'In Route' ? "var(--olive-bright)" : "var(--panel)",
-                              color: c?.status === 'In Route' ? "var(--bg)" : "var(--text)",
-                              border:"1px solid var(--line)" }}>IN ROUTE</button>
-                          <button onClick={() => setMyCrewStatus('On Site')} className="head"
-                            style={{ fontSize:12, fontWeight:700, padding:"8px 11px", borderRadius:6,
-                              background: c?.status === 'On Site' ? "var(--green)" : "var(--panel)",
-                              color: c?.status === 'On Site' ? "#fff" : "var(--text)",
-                              border:"1px solid var(--line)" }}>ON SITE</button>
-                        </>
-                      )}
-                      <button onClick={() => isEditing ? setEditingCrew(null) : openCrewEdit(u, c, elsewhere)} className="mono"
-                        style={{ fontSize:16, color:"var(--muted)", padding:"8px 6px" }}>{isEditing ? '✕' : '✎'}</button>
-                    </div>
-                    )}
                   </div>
-                  {isEditing && (
-                    <div className="fade-in" style={{ marginTop:10, padding:12, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8 }}>
-                      <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>STATUS</div>
-                      <div style={{ display:"flex", gap:6, marginBottom:10 }}>
-                        {['In Route','On Site','none'].map(s => (
-                          <button key={s} onClick={() => setEditCrewStatus(s)} className="head"
-                            style={{ flex:1, fontSize:12, fontWeight:700, padding:"9px 6px", borderRadius:6,
-                              background: editCrewStatus === s ? "var(--olive-bright)" : "var(--bg)",
-                              color: editCrewStatus === s ? "var(--bg)" : "var(--text)",
-                              border:"1px solid var(--line)" }}>{s === 'none' ? 'NONE' : s.toUpperCase()}</button>
-                        ))}
-                      </div>
-                      {editCrewStatus !== 'none' && (
-                        <>
-                          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>WHEN</div>
-                          <input type="datetime-local" value={editCrewDateTime}
-                            onChange={e => setEditCrewDateTime(e.target.value)}
-                            style={{ marginBottom:10 }} />
-                          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>JOB</div>
-                          <select value={editCrewJobId || job.id} onChange={e => setEditCrewJobId(e.target.value)}
-                            style={{ marginBottom:10 }}>
-                            {(jobs||[]).filter(j => j.status !== 'Closed' || j.id === job.id)
-                              .slice().sort((a,b) => (a.customer||'').localeCompare(b.customer||''))
-                              .map(j => (
-                                <option key={j.id} value={j.id}>
-                                  {j.customer}{j.site_address ? ` — ${j.site_address}` : ''}
-                                </option>
-                              ))}
-                          </select>
-                        </>
-                      )}
-                      <div style={{ display:"flex", gap:8 }}>
-                        <button onClick={() => saveCrewEdit(u)} className="head"
-                          style={{ flex:1, padding:"11px 0", borderRadius:8, fontSize:14, fontWeight:700,
-                            background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
-                        <button onClick={() => setEditingCrew(null)} className="head"
-                          style={{ padding:"11px 16px", borderRadius:8, fontSize:14, fontWeight:600,
-                            background:"transparent", border:"1px solid var(--line)", color:"var(--text)" }}>CANCEL</button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               );
             })}
