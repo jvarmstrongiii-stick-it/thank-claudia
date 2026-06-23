@@ -1419,13 +1419,20 @@ Command: "${transcript}"`
   /* ── Render ── */
   if (!deviceAuthorized) return <PassphraseGate onAuthorize={authorizeDevice} />;
   if (!currentUser) return <Splash onSelect={selectUser} />;
-  if (!clockSession && !browseMode) return (
-    <React.Fragment>
-      <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} />
-      {showClockIn && <ClockInSheet jobs={jobs} onConfirm={clockIn} onClose={() => setShowClockIn(false)} />}
-      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
-    </React.Fragment>
-  );
+  if (!clockSession && !browseMode) {
+    if (showClockIn) return (
+      <React.Fragment>
+        <ClockInSheet jobs={jobs} onConfirm={clockIn} onClose={() => setShowClockIn(false)} />
+        {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      </React.Fragment>
+    );
+    return (
+      <React.Fragment>
+        <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} />
+        {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      </React.Fragment>
+    );
+  }
 
   const selected = jobs.find(j => j.id === selectedId);
   if (adding) return (
@@ -1455,7 +1462,8 @@ Command: "${transcript}"`
         focusPhotos={focusPhotos}
         currentUser={currentUser}
         users={users}
-        jobs={jobs} />
+        jobs={jobs}
+        browseMode={browseMode} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
@@ -2537,7 +2545,7 @@ function DuplicateEquipmentSheet({ scan, existing, onOverride, onKeep }) {
 }
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
-function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users, jobs }) {
+function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users, jobs, browseMode }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showResched, setShowResched] = useState(false);
@@ -3775,6 +3783,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                         {locationJob.site_address && <div>{locationJob.site_address}</div>}
                       </div>
                     )}
+                    {!browseMode && (
                     <div style={{ display:"flex", gap:6, flexShrink:0, alignItems:"center" }}>
                       {isMe && !c && !elsewhere && (
                         <>
@@ -3793,6 +3802,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                       <button onClick={() => isEditing ? setEditingCrew(null) : openCrewEdit(u, c, elsewhere)} className="mono"
                         style={{ fontSize:16, color:"var(--muted)", padding:"8px 6px" }}>{isEditing ? '✕' : '✎'}</button>
                     </div>
+                    )}
                   </div>
                   {isEditing && (
                     <div className="fade-in" style={{ marginTop:10, padding:12, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8 }}>
