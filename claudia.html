@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 121;
+const APP_REV = 122;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1028,6 +1028,7 @@ function App() {
   const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
   const [clockUndo, setClockUndo] = useState(null);
   // clockUndo: { prevSession, restore: [{jobId,status}], clear: [{jobId}] }
+  const [closeJobPromptId, setCloseJobPromptId] = useState(null); // job id to prompt closing after Completed/Paid
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1392,6 +1393,7 @@ Command: "${transcript}"`
         await sb.from('jobs').update({ assigned_to: currentUser.id }).eq('id', id);
       }
       if (patch.status === "Completed/Needs Billing") spawnBillingChore({ ...job, ...patch });
+      if (patch.status === "Completed/Paid") setCloseJobPromptId(id);
     }
     setJobs(js => js.map(j => j.id === id ? { ...j, ...patch } : j));
   }
@@ -1424,6 +1426,10 @@ Command: "${transcript}"`
       .update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', choreId);
     if (error) { showToast("Error updating chore", true); return; }
     setChores(cs => cs.map(c => c.id === choreId ? { ...c, done: !chore.done } : c));
+    // Billing chore checked off → advance job to Completed/Paid
+    if (!chore.done && chore.kind === 'billing' && chore.job_id) {
+      await updateJob(chore.job_id, { status: 'Completed/Paid' });
+    }
   }
 
   async function editChore(choreId, fields) {
@@ -1442,19 +1448,21 @@ Command: "${transcript}"`
 
   async function spawnBillingChore(job) {
     if (chores.some(c => c.job_id === job.id && c.kind === 'billing')) return;
+    const tyler = users.find(u => u.name && u.name.toLowerCase() === 'tyler');
     const { data, error } = await sb.from('chores').insert({
       description: `Create bill for ${job.customer}`,
       job_id: job.id,
+      assigned_to: tyler?.id || null,
       priority: 'billing', status: 'open',
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).select().single();
     if (error) { showToast(`Chore error: ${error.message}`, true); console.error('spawnBillingChore', error); return; }
     if (data) {
       setChores(cs => [{
-        id: data.id, kind:'billing', job_id: job.id,
+        id: data.id, kind:'billing', job_id: job.id, assigned_to: tyler?.id || null,
         label: `Create bill for ${job.customer}`, created: todayISO(), done: false,
       }, ...cs]);
-      showToast("Billing chore created");
+      showToast("Billing chore created → assigned to Tyler");
     }
   }
 
@@ -1636,6 +1644,32 @@ Command: "${transcript}"`
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
+      {closeJobPromptId && (() => {
+        const promptJob = jobs.find(j => j.id === closeJobPromptId);
+        return (
+          <Sheet title="CLOSE JOB?" onClose={() => setCloseJobPromptId(null)}>
+            <div className="mono" style={{ fontSize:14, color:"var(--text)", marginBottom:20 }}>
+              {promptJob?.customer || 'This job'} is marked Completed/Paid.{'\n'}Would you like to close it?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                await updateJob(closeJobPromptId, { status: 'Closed' });
+                setCloseJobPromptId(null);
+                setSelectedId(null);
+              }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES — CLOSE IT
+              </button>
+              <button onClick={() => setCloseJobPromptId(null)} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — KEEP OPEN
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
@@ -2084,6 +2118,32 @@ Command: "${transcript}"`
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
+      {closeJobPromptId && (() => {
+        const promptJob = jobs.find(j => j.id === closeJobPromptId);
+        return (
+          <Sheet title="CLOSE JOB?" onClose={() => setCloseJobPromptId(null)}>
+            <div className="mono" style={{ fontSize:14, color:"var(--text)", marginBottom:20 }}>
+              {promptJob?.customer || 'This job'} is marked Completed/Paid.{'\n'}Would you like to close it?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                await updateJob(closeJobPromptId, { status: 'Closed' });
+                setCloseJobPromptId(null);
+                setSelectedId(null);
+              }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES — CLOSE IT
+              </button>
+              <button onClick={() => setCloseJobPromptId(null)} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — KEEP OPEN
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
       {pendingNotifs.length > 0 && (
         <Sheet onClose={dismissNotifs} title="NOTIFICATIONS">
           {pendingNotifs.map(n => (
