@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 133;
+const APP_REV = 134;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1241,6 +1241,7 @@ function App() {
   const [showLeaving, setShowLeaving] = useState(false);
   const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
   const [leavingCrewCheck, setLeavingCrewCheck] = useState(null); // { members:[user], newJobId, oldJobId }
+  const [joiningOnSiteCheck, setJoiningOnSiteCheck] = useState(null); // { members:[user], jobId }
   const [clockUndo, setClockUndo] = useState(null);
   // clockUndo: { prevSession, restore: [{jobId,status}], clear: [{jobId}] }
   const [orphanCrewEntry, setOrphanCrewEntry] = useState(null); // { job_id, status, status_at } — lost session to recover
@@ -1486,6 +1487,7 @@ Command: "${transcript}"`
       setClockSession(session);
       setShowClockIn(false);
       setSelectedId(jobId);
+      refresh();
     } catch(e) {
       showToast('Clock in failed — ' + (e.message || 'check connection'), true);
     }
@@ -1514,6 +1516,7 @@ Command: "${transcript}"`
     setClockSession(null);
     setClockUndo(undo);
     setShowClockOut(false);
+    refresh();
   }
 
   async function flipToOnSite() {
@@ -1530,10 +1533,15 @@ Command: "${transcript}"`
       job_id: clockSession.jobId, content: `Status → On Site (${currentUser.name})`,
       source: 'system', created_at: at, user_id: currentUser.id,
     });
+    const remaining = await fetchJobCrew(clockSession.jobId);
+    const othersInRoute = remaining.filter(c => c.status === 'In Route' && c.user_id !== currentUser.id);
+    const inRouteUsers = users.filter(u => othersInRoute.find(c => c.user_id === u.id));
+    if (inRouteUsers.length > 0) setJoiningOnSiteCheck({ members: inRouteUsers, jobId: clockSession.jobId });
     const session = { ...clockSession, status: 'On Site' };
     saveClockSession(currentUser.id, session);
     setClockSession(session);
     setClockUndo(undo);
+    refresh();
   }
 
   async function moveToInRoute(newJobId) {
@@ -1984,6 +1992,47 @@ Command: "${transcript}"`
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
                 NO — STAYING
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
+      {joiningOnSiteCheck && joiningOnSiteCheck.members.length > 0 && (() => {
+        const person = joiningOnSiteCheck.members[0];
+        const rest = joiningOnSiteCheck.members.slice(1);
+        const advance = () => rest.length > 0
+          ? setJoiningOnSiteCheck({ ...joiningOnSiteCheck, members: rest })
+          : setJoiningOnSiteCheck(null);
+        const { jobId: jsJobId } = joiningOnSiteCheck;
+        const jsJob = jobs.find(j => j.id === jsJobId);
+        return (
+          <Sheet title="ON SITE CHECK" onClose={() => setJoiningOnSiteCheck(null)}>
+            <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
+              Is {person.name} also on site?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                const at = new Date().toISOString();
+                await upsertJobCrewStatus(jsJobId, person.id, 'On Site');
+                await sb.from('job_notes').insert({
+                  job_id: jsJobId, content: `Status → On Site (${person.name}) — with ${currentUser.name}`,
+                  source: 'system', created_at: at, user_id: currentUser.id,
+                });
+                await sb.from('notifications').insert({
+                  user_id: person.id,
+                  message: `${currentUser.name} marked you On Site at ${jsJob?.customer || 'a job'}`,
+                  read: false, created_at: at,
+                });
+                advance();
+              }} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES
+              </button>
+              <button onClick={advance} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — STILL IN ROUTE
               </button>
             </div>
           </Sheet>
@@ -2519,6 +2568,47 @@ Command: "${transcript}"`
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
                 NO — STAYING
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
+      {joiningOnSiteCheck && joiningOnSiteCheck.members.length > 0 && (() => {
+        const person = joiningOnSiteCheck.members[0];
+        const rest = joiningOnSiteCheck.members.slice(1);
+        const advance = () => rest.length > 0
+          ? setJoiningOnSiteCheck({ ...joiningOnSiteCheck, members: rest })
+          : setJoiningOnSiteCheck(null);
+        const { jobId: jsJobId } = joiningOnSiteCheck;
+        const jsJob = jobs.find(j => j.id === jsJobId);
+        return (
+          <Sheet title="ON SITE CHECK" onClose={() => setJoiningOnSiteCheck(null)}>
+            <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
+              Is {person.name} also on site?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                const at = new Date().toISOString();
+                await upsertJobCrewStatus(jsJobId, person.id, 'On Site');
+                await sb.from('job_notes').insert({
+                  job_id: jsJobId, content: `Status → On Site (${person.name}) — with ${currentUser.name}`,
+                  source: 'system', created_at: at, user_id: currentUser.id,
+                });
+                await sb.from('notifications').insert({
+                  user_id: person.id,
+                  message: `${currentUser.name} marked you On Site at ${jsJob?.customer || 'a job'}`,
+                  read: false, created_at: at,
+                });
+                advance();
+              }} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES
+              </button>
+              <button onClick={advance} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — STILL IN ROUTE
               </button>
             </div>
           </Sheet>
