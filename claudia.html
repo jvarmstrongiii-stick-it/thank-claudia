@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 132;
+const APP_REV = 133;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1423,13 +1423,17 @@ Command: "${transcript}"`
     return () => { window.removeEventListener('focus', refresh); clearInterval(timer); };
   }, [currentUser, refresh]);
 
-  // On fresh app open, jump straight to the job a tech is currently on site at
+  // On fresh app open, jump straight to the job the tech is currently on
   useEffect(() => {
     if (!currentUser) return;
-    fetchActiveCrewAssignments().then(assignments => {
-      const mine = assignments.find(a => a.user_id === currentUser.id && a.status === 'On Site');
-      if (mine) setSelectedId(mine.job_id);
-    });
+    if (clockSession?.jobId) {
+      setSelectedId(clockSession.jobId);
+    } else {
+      fetchActiveCrewAssignments().then(assignments => {
+        const mine = assignments.find(a => a.user_id === currentUser.id && (a.status === 'On Site' || a.status === 'In Route'));
+        if (mine) setSelectedId(mine.job_id);
+      });
+    }
     fetchUnreadNotifications(currentUser.id).then(notifs => {
       if (notifs.length > 0) setPendingNotifs(notifs);
     });
@@ -1570,6 +1574,8 @@ Command: "${transcript}"`
       setClockSession(session);
       setClockUndo(undo);
       setShowMoveJob(false);
+      setSelectedId(newJobId);
+      refresh();
       if (isLastOut && oldJobId) {
         const oldJob = jobs.find(j => j.id === oldJobId);
         if (oldJob) setLastLeaveJob(oldJob);
