@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 124;
+const APP_REV = 125;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1209,6 +1209,7 @@ function App() {
   const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
   const [clockUndo, setClockUndo] = useState(null);
   // clockUndo: { prevSession, restore: [{jobId,status}], clear: [{jobId}] }
+  const [orphanCrewEntry, setOrphanCrewEntry] = useState(null); // { job_id, status, status_at } — lost session to recover
   const [closeJobPromptId, setCloseJobPromptId] = useState(null); // job id to prompt closing after Completed/Paid
   const [billingPaidPromptId, setBillingPaidPromptId] = useState(null); // job id to ask "is this paid?" after billing chore
 
@@ -1400,6 +1401,14 @@ Command: "${transcript}"`
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
+
+  // Check for orphaned crew session (localStorage cleared while still clocked in)
+  useEffect(() => {
+    if (!currentUser?.id || clockSession) { setOrphanCrewEntry(null); return; }
+    sb.from('job_crew').select('job_id, status, status_at')
+      .eq('user_id', currentUser.id).limit(1).maybeSingle()
+      .then(({ data }) => setOrphanCrewEntry(data || null));
+  }, [currentUser?.id, !!clockSession]);
 
   async function dismissNotifs() {
     if (!currentUser?.id) return;
@@ -1757,6 +1766,51 @@ Command: "${transcript}"`
   if (!deviceAuthorized) return <PassphraseGate onAuthorize={authorizeDevice} />;
   if (!currentUser) return <Splash onSelect={selectUser} />;
   if (!clockSession && !browseMode) {
+    if (orphanCrewEntry) {
+      const orphanJob = jobs.find(j => j.id === orphanCrewEntry.job_id);
+      return (
+        <React.Fragment>
+          <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", flexDirection:"column",
+            alignItems:"center", justifyContent:"center", gap:16, padding:32, background:"var(--bg)" }}>
+            <div className="head" style={{ fontSize:24, fontWeight:700 }}>
+              TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+            </div>
+            <div className="mono" style={{ fontSize:12, color:"var(--muted)", letterSpacing:"0.1em" }}>{currentUser.name}</div>
+            <div style={{ height:16 }} />
+            <div style={{ padding:20, background:"var(--panel)", border:"1px solid var(--olive)", borderRadius:12,
+              width:"100%", maxWidth:340, textAlign:"center" }}>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:8 }}>LOOKS LIKE YOU WERE STILL CLOCKED IN</div>
+              <div className="head" style={{ fontSize:18, fontWeight:700, color:"var(--green)" }}>
+                {orphanJob ? orphanJob.customer : 'Unknown Job'}
+              </div>
+              <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:4 }}>
+                {orphanCrewEntry.status.toUpperCase()}
+              </div>
+            </div>
+            <button onClick={() => {
+              const session = { jobId: orphanCrewEntry.job_id, status: orphanCrewEntry.status, startedAt: orphanCrewEntry.status_at };
+              saveClockSession(currentUser.id, session);
+              setClockSession(session);
+              setOrphanCrewEntry(null);
+              if (orphanCrewEntry.job_id) setSelectedId(orphanCrewEntry.job_id);
+            }} className="head"
+              style={{ width:"100%", maxWidth:340, padding:18, fontSize:16, fontWeight:700, borderRadius:12,
+                background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+              RESUME SESSION
+            </button>
+            <button onClick={async () => {
+              if (orphanCrewEntry.job_id) await clearJobCrewStatus(orphanCrewEntry.job_id, currentUser.id);
+              setOrphanCrewEntry(null);
+            }} className="head"
+              style={{ width:"100%", maxWidth:340, padding:14, fontSize:14, fontWeight:700, borderRadius:12,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              I ALREADY CLOCKED OUT
+            </button>
+          </div>
+          {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+        </React.Fragment>
+      );
+    }
     if (showClockIn) return (
       <React.Fragment>
         <ClockInSheet jobs={jobs} onConfirm={clockIn} onClose={() => setShowClockIn(false)} />
