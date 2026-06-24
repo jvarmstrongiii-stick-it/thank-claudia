@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 128;
+const APP_REV = 129;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -988,8 +988,9 @@ function ClockGate({ userName, onClockIn, onBrowse, onUndo }) {
 function ClockInSheet({ jobs, onConfirm, onClose }) {
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState(null);
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === 'TMC SHOP' && j.status !== 'Completed/Paid' && j.status !== 'Closed');
   const openJobs = (jobs || [])
-    .filter(j => j.status !== 'Completed/Paid' && j.status !== 'Closed')
+    .filter(j => j.status !== 'Completed/Paid' && j.status !== 'Closed' && j.customer?.toUpperCase() !== 'TMC SHOP')
     .slice().sort((a, b) => (a.customer || '').localeCompare(b.customer || ''));
 
   if (step === 1) return (
@@ -1013,11 +1014,13 @@ function ClockInSheet({ jobs, onConfirm, onClose }) {
   return (
     <Sheet title={`CLOCK IN — ${status.toUpperCase()}`} onClose={onClose}>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:12 }}>PICK A JOB</div>
-      <button onClick={() => onConfirm('shop', status)} className="head"
-        style={{ width:"100%", padding:"14px 16px", marginBottom:8, borderRadius:9, fontSize:15, fontWeight:700,
-          textAlign:"left", background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
-        SHOP
-      </button>
+      {shopJob && (
+        <button onClick={() => onConfirm(shopJob.id, status)} className="head"
+          style={{ width:"100%", padding:"14px 16px", marginBottom:8, borderRadius:9, fontSize:15, fontWeight:700,
+            textAlign:"left", background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
+          SHOP
+        </button>
+      )}
       <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:380, overflowY:"auto" }}>
         {openJobs.map(j => (
           <button key={j.id} onClick={() => onConfirm(j.id, status)} className="head"
@@ -1115,16 +1118,19 @@ function LeavingSheet({ clockSession, jobs, onInRoute, onClockOut, onClose }) {
 
 function MoveJobSheet({ clockSession, jobs, onMove, onClose }) {
   const currentJobId = clockSession?.jobId;
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === 'TMC SHOP' && j.status !== 'Closed');
   const openJobs = (jobs || [])
-    .filter(j => j.status !== 'Completed/Paid' && j.status !== 'Closed' && j.id !== currentJobId)
+    .filter(j => j.status !== 'Completed/Paid' && j.status !== 'Closed' && j.id !== currentJobId && j.customer?.toUpperCase() !== 'TMC SHOP')
     .slice().sort((a, b) => (a.customer || '').localeCompare(b.customer || ''));
   return (
     <Sheet title="IN ROUTE — WHERE TO?" onClose={onClose}>
-      <button onClick={() => onMove('shop')} className="head"
-        style={{ width:"100%", padding:"14px 16px", marginBottom:8, borderRadius:9, fontSize:15, fontWeight:700,
-          textAlign:"left", background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
-        SHOP
-      </button>
+      {shopJob && (
+        <button onClick={() => onMove(shopJob.id)} className="head"
+          style={{ width:"100%", padding:"14px 16px", marginBottom:8, borderRadius:9, fontSize:15, fontWeight:700,
+            textAlign:"left", background:"var(--panel)", border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>
+          SHOP
+        </button>
+      )}
       <div style={{ display:"flex", flexDirection:"column", gap:6, maxHeight:380, overflowY:"auto" }}>
         {openJobs.map(j => (
           <button key={j.id} onClick={() => onMove(j.id)} className="head"
@@ -1432,25 +1438,23 @@ Command: "${transcript}"`
   async function clockIn(jobId, status) {
     try {
       const at = new Date().toISOString();
-      if (jobId !== 'shop') {
-        const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status);
-        if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
-        const job = jobs.find(j => j.id === jobId);
-        const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-        if (job && wIdx(job.status) < wIdx('In Progress')) {
-          await updateJob(jobId, { status: 'In Progress', _skipNote: true });
-        }
-        await sb.from('job_notes').insert({
-          job_id: jobId, content: `Status → ${status} (${currentUser.name})`,
-          source: 'system', created_at: at, user_id: currentUser.id,
-        });
+      const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status);
+      if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
+      const job = jobs.find(j => j.id === jobId);
+      const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
+      if (job && job.customer?.toUpperCase() !== 'TMC SHOP' && wIdx(job.status) < wIdx('In Progress')) {
+        await updateJob(jobId, { status: 'In Progress', _skipNote: true });
       }
-      const session = { jobId: jobId === 'shop' ? null : jobId, status, startedAt: at };
-      setClockUndo({ prevSession: null, restore: [], clear: jobId !== 'shop' ? [{ jobId }] : [] });
+      await sb.from('job_notes').insert({
+        job_id: jobId, content: `Status → ${status} (${currentUser.name})`,
+        source: 'system', created_at: at, user_id: currentUser.id,
+      });
+      const session = { jobId, status, startedAt: at };
+      setClockUndo({ prevSession: null, restore: [], clear: [{ jobId }] });
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setShowClockIn(false);
-      if (jobId !== 'shop') setSelectedId(jobId);
+      setSelectedId(jobId);
     } catch(e) {
       showToast('Clock in failed — ' + (e.message || 'check connection'), true);
     }
@@ -1471,7 +1475,8 @@ Command: "${transcript}"`
       const remaining = await fetchJobCrew(jobId);
       const stillOnSite = remaining.filter(c => c.status === 'On Site');
       const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
-      if (othersOnSite.length > 0) setLeavingCrewCheck({ members: othersOnSite, newJobId: 'shop', oldJobId: jobId });
+      const shopJob = jobs.find(j => j.customer?.toUpperCase() === 'TMC SHOP' && j.status !== 'Closed');
+      if (othersOnSite.length > 0) setLeavingCrewCheck({ members: othersOnSite, newJobId: shopJob?.id || null, oldJobId: jobId });
     }
     addTodayMs(currentUser.id, Date.now() - new Date(startedAt).getTime());
     saveClockSession(currentUser.id, null);
@@ -1506,7 +1511,7 @@ Command: "${transcript}"`
       const undo = {
         prevSession: clockSession,
         restore: oldJobId ? [{ jobId: oldJobId, status: clockSession.status }] : [],
-        clear: newJobId !== 'shop' ? [{ jobId: newJobId }] : [],
+        clear: [{ jobId: newJobId }],
       };
       let isLastOut = false;
       const at = new Date().toISOString();
@@ -1522,15 +1527,13 @@ Command: "${transcript}"`
         const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
         if (othersOnSite.length > 0) setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId });
       }
-      if (newJobId !== 'shop') {
-        const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route');
-        if (!ok) { showToast('Could not update crew status — check connection', true); return; }
-        await sb.from('job_notes').insert({
-          job_id: newJobId, content: `Status → In Route (${currentUser.name})`,
-          source: 'system', created_at: at, user_id: currentUser.id,
-        });
-      }
-      const session = { jobId: newJobId === 'shop' ? null : newJobId, status: 'In Route', startedAt };
+      const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route');
+      if (!ok) { showToast('Could not update crew status — check connection', true); return; }
+      await sb.from('job_notes').insert({
+        job_id: newJobId, content: `Status → In Route (${currentUser.name})`,
+        source: 'system', created_at: at, user_id: currentUser.id,
+      });
+      const session = { jobId: newJobId, status: 'In Route', startedAt };
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setClockUndo(undo);
@@ -1902,7 +1905,7 @@ Command: "${transcript}"`
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
                 const { newJobId, oldJobId } = leavingCrewCheck;
-                if (newJobId && newJobId !== 'shop') {
+                if (newJobId) {
                   const at = new Date().toISOString();
                   await clearJobCrewStatus(oldJobId, person.id);
                   await upsertJobCrewStatus(newJobId, person.id, 'In Route');
@@ -2434,7 +2437,7 @@ Command: "${transcript}"`
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
                 const { newJobId, oldJobId } = leavingCrewCheck;
-                if (newJobId && newJobId !== 'shop') {
+                if (newJobId) {
                   const at = new Date().toISOString();
                   await clearJobCrewStatus(oldJobId, person.id);
                   await upsertJobCrewStatus(newJobId, person.id, 'In Route');
