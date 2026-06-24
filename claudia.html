@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 126;
+const APP_REV = 127;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1998,10 +1998,13 @@ Command: "${transcript}"`
                 </div>
               </div>
               <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} />
-              {clockSession.status === 'In Route' && clockSession.jobId && (
-                <button onClick={flipToOnSite} className="head"
+              {clockSession.jobId && (
+                <button onClick={clockSession.status === 'In Route' ? flipToOnSite : undefined} className="head"
                   style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                    background: clockSession.status === 'On Site' ? "var(--olive-bright)" : "var(--panel)",
+                    color: clockSession.status === 'On Site' ? "var(--bg)" : "var(--text)",
+                    border: clockSession.status === 'On Site' ? "none" : "1px solid var(--line)",
+                    cursor: clockSession.status === 'On Site' ? "default" : "pointer" }}>
                   ON SITE
                 </button>
               )}
@@ -3827,10 +3830,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
               </div>
             </button>
             <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs ? getTodayMs() : 0} />
-            {clockSession.status === 'In Route' && clockSession.jobId && (
-              <button onClick={onFlipToOnSite} className="head"
+            {clockSession.jobId && (
+              <button onClick={clockSession.status === 'In Route' ? onFlipToOnSite : undefined} className="head"
                 style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
-                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                  background: clockSession.status === 'On Site' ? "var(--olive-bright)" : "var(--panel)",
+                  color: clockSession.status === 'On Site' ? "var(--bg)" : "var(--text)",
+                  border: clockSession.status === 'On Site' ? "none" : "1px solid var(--line)",
+                  cursor: clockSession.status === 'On Site' ? "default" : "pointer" }}>
                 ON SITE
               </button>
             )}
