@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 122;
+const APP_REV = 123;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1029,6 +1029,7 @@ function App() {
   const [clockUndo, setClockUndo] = useState(null);
   // clockUndo: { prevSession, restore: [{jobId,status}], clear: [{jobId}] }
   const [closeJobPromptId, setCloseJobPromptId] = useState(null); // job id to prompt closing after Completed/Paid
+  const [billingPaidPromptId, setBillingPaidPromptId] = useState(null); // job id to ask "is this paid?" after billing chore
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1426,9 +1427,9 @@ Command: "${transcript}"`
       .update({ status: newStatus, updated_at: new Date().toISOString() }).eq('id', choreId);
     if (error) { showToast("Error updating chore", true); return; }
     setChores(cs => cs.map(c => c.id === choreId ? { ...c, done: !chore.done } : c));
-    // Billing chore checked off → advance job to Completed/Paid
+    // Billing chore checked off → ask if paid first
     if (!chore.done && chore.kind === 'billing' && chore.job_id) {
-      await updateJob(chore.job_id, { status: 'Completed/Paid' });
+      setBillingPaidPromptId(chore.job_id);
     }
   }
 
@@ -1644,6 +1645,34 @@ Command: "${transcript}"`
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
+      {billingPaidPromptId && (() => {
+        const bpJob = jobs.find(j => j.id === billingPaidPromptId);
+        return (
+          <Sheet title="IS THIS PAID?" onClose={() => setBillingPaidPromptId(null)}>
+            <div className="mono" style={{ fontSize:14, color:"var(--text)", marginBottom:20 }}>
+              Has {bpJob?.customer || 'this job'} paid the bill?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                setBillingPaidPromptId(null);
+                await updateJob(billingPaidPromptId, { status: 'Completed/Paid' });
+              }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES — PAID
+              </button>
+              <button onClick={async () => {
+                setBillingPaidPromptId(null);
+                await updateJob(billingPaidPromptId, { status: 'Billed/Waiting for Payment' });
+              }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — WAITING
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
       {closeJobPromptId && (() => {
         const promptJob = jobs.find(j => j.id === closeJobPromptId);
         return (
@@ -2118,6 +2147,34 @@ Command: "${transcript}"`
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
+      {billingPaidPromptId && (() => {
+        const bpJob = jobs.find(j => j.id === billingPaidPromptId);
+        return (
+          <Sheet title="IS THIS PAID?" onClose={() => setBillingPaidPromptId(null)}>
+            <div className="mono" style={{ fontSize:14, color:"var(--text)", marginBottom:20 }}>
+              Has {bpJob?.customer || 'this job'} paid the bill?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                setBillingPaidPromptId(null);
+                await updateJob(billingPaidPromptId, { status: 'Completed/Paid' });
+              }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES — PAID
+              </button>
+              <button onClick={async () => {
+                setBillingPaidPromptId(null);
+                await updateJob(billingPaidPromptId, { status: 'Billed/Waiting for Payment' });
+              }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — WAITING
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
       {closeJobPromptId && (() => {
         const promptJob = jobs.find(j => j.id === closeJobPromptId);
         return (
