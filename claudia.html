@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 127;
+const APP_REV = 128;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1207,6 +1207,7 @@ function App() {
   const [showMoveJob, setShowMoveJob] = useState(false);
   const [showLeaving, setShowLeaving] = useState(false);
   const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
+  const [leavingCrewCheck, setLeavingCrewCheck] = useState(null); // { members:[user], newJobId, oldJobId }
   const [clockUndo, setClockUndo] = useState(null);
   // clockUndo: { prevSession, restore: [{jobId,status}], clear: [{jobId}] }
   const [orphanCrewEntry, setOrphanCrewEntry] = useState(null); // { job_id, status, status_at } — lost session to recover
@@ -1467,6 +1468,10 @@ Command: "${transcript}"`
         job_id: jobId, content: `Status → Cleared (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
       });
+      const remaining = await fetchJobCrew(jobId);
+      const stillOnSite = remaining.filter(c => c.status === 'On Site');
+      const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
+      if (othersOnSite.length > 0) setLeavingCrewCheck({ members: othersOnSite, newJobId: 'shop', oldJobId: jobId });
     }
     addTodayMs(currentUser.id, Date.now() - new Date(startedAt).getTime());
     saveClockSession(currentUser.id, null);
@@ -1512,7 +1517,10 @@ Command: "${transcript}"`
           source: 'system', created_at: at, user_id: currentUser.id,
         });
         const remaining = await fetchJobCrew(oldJobId);
-        isLastOut = remaining.filter(c => c.status === 'On Site').length === 0;
+        const stillOnSite = remaining.filter(c => c.status === 'On Site');
+        isLastOut = stillOnSite.length === 0;
+        const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
+        if (othersOnSite.length > 0) setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId });
       }
       if (newJobId !== 'shop') {
         const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route');
@@ -1880,6 +1888,50 @@ Command: "${transcript}"`
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
+      {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
+        const person = leavingCrewCheck.members[0];
+        const rest = leavingCrewCheck.members.slice(1);
+        const advance = () => rest.length > 0
+          ? setLeavingCrewCheck({ ...leavingCrewCheck, members: rest })
+          : setLeavingCrewCheck(null);
+        return (
+          <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
+            <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
+              Is {person.name} coming with you?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                const { newJobId, oldJobId } = leavingCrewCheck;
+                if (newJobId && newJobId !== 'shop') {
+                  const at = new Date().toISOString();
+                  await clearJobCrewStatus(oldJobId, person.id);
+                  await upsertJobCrewStatus(newJobId, person.id, 'In Route');
+                  const newJob = jobs.find(j => j.id === newJobId);
+                  await sb.from('job_notes').insert({
+                    job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+                    source: 'system', created_at: at, user_id: currentUser.id,
+                  });
+                  await sb.from('notifications').insert({
+                    user_id: person.id,
+                    message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
+                    read: false, created_at: at,
+                  });
+                }
+                advance();
+              }} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES
+              </button>
+              <button onClick={advance} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — STAYING
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
       {billingPaidPromptId && (() => {
         const bpJob = jobs.find(j => j.id === billingPaidPromptId);
         return (
@@ -2368,6 +2420,50 @@ Command: "${transcript}"`
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
+      {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
+        const person = leavingCrewCheck.members[0];
+        const rest = leavingCrewCheck.members.slice(1);
+        const advance = () => rest.length > 0
+          ? setLeavingCrewCheck({ ...leavingCrewCheck, members: rest })
+          : setLeavingCrewCheck(null);
+        return (
+          <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
+            <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
+              Is {person.name} coming with you?
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={async () => {
+                const { newJobId, oldJobId } = leavingCrewCheck;
+                if (newJobId && newJobId !== 'shop') {
+                  const at = new Date().toISOString();
+                  await clearJobCrewStatus(oldJobId, person.id);
+                  await upsertJobCrewStatus(newJobId, person.id, 'In Route');
+                  const newJob = jobs.find(j => j.id === newJobId);
+                  await sb.from('job_notes').insert({
+                    job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+                    source: 'system', created_at: at, user_id: currentUser.id,
+                  });
+                  await sb.from('notifications').insert({
+                    user_id: person.id,
+                    message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
+                    read: false, created_at: at,
+                  });
+                }
+                advance();
+              }} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES
+              </button>
+              <button onClick={advance} className="head"
+                style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO — STAYING
+              </button>
+            </div>
+          </Sheet>
+        );
+      })()}
       {billingPaidPromptId && (() => {
         const bpJob = jobs.find(j => j.id === billingPaidPromptId);
         return (
