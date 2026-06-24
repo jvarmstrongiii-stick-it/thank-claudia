@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 123;
+const APP_REV = 124;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -770,6 +770,187 @@ function ClockTimer({ startedAt, todayMs }) {
     <span className="mono" style={{ fontSize:12, color:"var(--olive-bright)", fontWeight:700 }}>
       {h}:{String(m).padStart(2,'0')}
     </span>
+  );
+}
+
+function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose }) {
+  const job = jobs.find(j => j.id === jobId);
+  const [receipts, setReceipts] = useState([]);
+  const [laborRows, setLaborRows] = useState([]); // [{name, driveMs, onSiteMs}]
+  const [loading, setLoading] = useState(true);
+  const [addingReceipt, setAddingReceipt] = useState(false);
+  const [rVendor, setRVendor] = useState('');
+  const [rAmount, setRAmount] = useState('');
+  const [rSaving, setRSaving] = useState(false);
+  const fileRef = useRef();
+
+  useEffect(() => {
+    async function load() {
+      const [{ data: rcpts }, { data: notes }] = await Promise.all([
+        sb.from('receipts').select('*').eq('job_id', jobId).order('created_at'),
+        sb.from('job_notes').select('*').eq('job_id', jobId).eq('source', 'system').order('created_at'),
+      ]);
+      setReceipts(rcpts || []);
+      // Build labor summary from notes timeline
+      const timeline = buildCrewTimeline(notes || [], [], users);
+      const rows = users
+        .filter(u => timeline[u.name])
+        .map(u => {
+          const periods = timeline[u.name] || [];
+          const driveMs = periods.filter(p => p.status === 'In Route')
+            .reduce((s, p) => s + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+          const onSiteMs = periods.filter(p => p.status === 'On Site')
+            .reduce((s, p) => s + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+          return { name: u.name, driveMs, onSiteMs };
+        })
+        .filter(r => r.driveMs + r.onSiteMs > 0);
+      setLaborRows(rows);
+      setLoading(false);
+    }
+    load();
+  }, [jobId]);
+
+  async function saveReceipt(storagePath) {
+    if (!rAmount && !rVendor) return;
+    setRSaving(true);
+    const { data } = await sb.from('receipts').insert({
+      job_id: jobId, amount: Number(rAmount) || null, vendor: rVendor || null,
+      date: todayISO(), storage_path: storagePath || null,
+      created_at: new Date().toISOString(),
+    }).select().single();
+    if (data) setReceipts(r => [...r, data]);
+    setRVendor(''); setRAmount(''); setAddingReceipt(false); setRSaving(false);
+  }
+
+  async function handleReceiptFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRSaving(true);
+    const path = `${jobId}/receipt-${Date.now()}.${(file.name||'jpg').split('.').pop()}`;
+    const { error } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
+    if (!error) await saveReceipt(path); else { setRSaving(false); }
+    e.target.value = '';
+  }
+
+  async function deleteReceipt(r) {
+    if (r.storage_path) await sb.storage.from('job-photos').remove([r.storage_path]);
+    await sb.from('receipts').delete().eq('id', r.id);
+    setReceipts(rs => rs.filter(x => x.id !== r.id));
+  }
+
+  const totalReceiptAmt = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
+
+  return (
+    <Sheet title="BEFORE YOU CLOSE" onClose={onClose}>
+      {loading ? (
+        <div className="mono" style={{ fontSize:13, color:"var(--muted)", textAlign:"center", padding:20 }}>Loading…</div>
+      ) : (
+        <React.Fragment>
+          {/* Labor summary */}
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.08em", marginBottom:8 }}>LABOR</div>
+          {laborRows.length === 0 ? (
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:16 }}>No time logged</div>
+          ) : (
+            <div style={{ marginBottom:16 }}>
+              {laborRows.map(r => (
+                <div key={r.name} style={{ display:"flex", justifyContent:"space-between", alignItems:"center",
+                  padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
+                  <div className="head" style={{ fontSize:14, fontWeight:700 }}>{r.name}</div>
+                  <div style={{ textAlign:"right" }}>
+                    <div className="mono" style={{ fontSize:13, color:"var(--olive-bright)" }}>
+                      {fmtElapsed(r.onSiteMs)} on site
+                    </div>
+                    {r.driveMs > 0 && (
+                      <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>{fmtElapsed(r.driveMs)} drive</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Receipts */}
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.08em" }}>
+              PARTS RECEIPTS{receipts.length > 0 ? ` (${receipts.length})` : ''}
+            </div>
+            {receipts.length > 0 && (
+              <div className="mono" style={{ fontSize:13, color:"var(--olive-bright)", fontWeight:700 }}>
+                {money(totalReceiptAmt)}
+              </div>
+            )}
+          </div>
+          {receipts.length === 0 && !addingReceipt && (
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>None on file</div>
+          )}
+          {receipts.map(r => (
+            <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8,
+              padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
+              {r.storage_path && (
+                <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`}
+                  alt="receipt" style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
+              )}
+              <div style={{ flex:1 }}>
+                <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}</div>
+                <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                  {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}
+                </div>
+              </div>
+              <button onClick={() => deleteReceipt(r)} className="mono"
+                style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
+            </div>
+          ))}
+
+          {addingReceipt ? (
+            <div style={{ marginTop:10, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
+              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                <input placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)}
+                  style={{ flex:2 }} />
+                <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
+                  onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => fileRef.current.click()} className="head" disabled={rSaving}
+                  style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
+                    background:"var(--panel)", color:"var(--muted)", fontSize:13 }}>
+                  📷 SNAP
+                </button>
+                <button onClick={() => saveReceipt(null)} className="head" disabled={rSaving || (!rVendor && !rAmount)}
+                  style={{ flex:1, padding:"8px 0", borderRadius:6, border:"none",
+                    background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
+                  {rSaving ? 'SAVING…' : 'SAVE'}
+                </button>
+                <button onClick={() => setAddingReceipt(false)} className="mono"
+                  style={{ padding:"8px 10px", borderRadius:6, border:"1px solid var(--line)",
+                    background:"var(--panel)", color:"var(--muted)", fontSize:14 }}>✕</button>
+              </div>
+              <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+                onChange={handleReceiptFile} />
+            </div>
+          ) : (
+            <button onClick={() => setAddingReceipt(true)} className="head"
+              style={{ marginTop:8, width:"100%", padding:"8px 0", borderRadius:6,
+                border:"1px dashed var(--line)", background:"none", color:"var(--muted)", fontSize:13 }}>
+              + ADD RECEIPT
+            </button>
+          )}
+
+          {/* Actions */}
+          <div style={{ display:"flex", gap:12, marginTop:20 }}>
+            <button onClick={onConfirm} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+              CLOSE JOB
+            </button>
+            <button onClick={onClose} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              NOT YET
+            </button>
+          </div>
+        </React.Fragment>
+      )}
+    </Sheet>
   );
 }
 
@@ -1673,32 +1854,15 @@ Command: "${transcript}"`
           </Sheet>
         );
       })()}
-      {closeJobPromptId && (() => {
-        const promptJob = jobs.find(j => j.id === closeJobPromptId);
-        return (
-          <Sheet title="CLOSE JOB?" onClose={() => setCloseJobPromptId(null)}>
-            <div className="mono" style={{ fontSize:14, color:"var(--text)", marginBottom:20 }}>
-              {promptJob?.customer || 'This job'} is marked Completed/Paid.{'\n'}Would you like to close it?
-            </div>
-            <div style={{ display:"flex", gap:12 }}>
-              <button onClick={async () => {
-                await updateJob(closeJobPromptId, { status: 'Closed' });
-                setCloseJobPromptId(null);
-                setSelectedId(null);
-              }} className="head"
-                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
-                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
-                YES — CLOSE IT
-              </button>
-              <button onClick={() => setCloseJobPromptId(null)} className="head"
-                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
-                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                NO — KEEP OPEN
-              </button>
-            </div>
-          </Sheet>
-        );
-      })()}
+      {closeJobPromptId && (
+        <CloseJobSheet jobId={closeJobPromptId} jobs={jobs} users={users}
+          onConfirm={async () => {
+            await updateJob(closeJobPromptId, { status: 'Closed' });
+            setCloseJobPromptId(null);
+            setSelectedId(null);
+          }}
+          onClose={() => setCloseJobPromptId(null)} />
+      )}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
@@ -2175,32 +2339,15 @@ Command: "${transcript}"`
           </Sheet>
         );
       })()}
-      {closeJobPromptId && (() => {
-        const promptJob = jobs.find(j => j.id === closeJobPromptId);
-        return (
-          <Sheet title="CLOSE JOB?" onClose={() => setCloseJobPromptId(null)}>
-            <div className="mono" style={{ fontSize:14, color:"var(--text)", marginBottom:20 }}>
-              {promptJob?.customer || 'This job'} is marked Completed/Paid.{'\n'}Would you like to close it?
-            </div>
-            <div style={{ display:"flex", gap:12 }}>
-              <button onClick={async () => {
-                await updateJob(closeJobPromptId, { status: 'Closed' });
-                setCloseJobPromptId(null);
-                setSelectedId(null);
-              }} className="head"
-                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
-                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
-                YES — CLOSE IT
-              </button>
-              <button onClick={() => setCloseJobPromptId(null)} className="head"
-                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
-                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                NO — KEEP OPEN
-              </button>
-            </div>
-          </Sheet>
-        );
-      })()}
+      {closeJobPromptId && (
+        <CloseJobSheet jobId={closeJobPromptId} jobs={jobs} users={users}
+          onConfirm={async () => {
+            await updateJob(closeJobPromptId, { status: 'Closed' });
+            setCloseJobPromptId(null);
+            setSelectedId(null);
+          }}
+          onClose={() => setCloseJobPromptId(null)} />
+      )}
       {pendingNotifs.length > 0 && (
         <Sheet onClose={dismissNotifs} title="NOTIFICATIONS">
           {pendingNotifs.map(n => (
@@ -2910,6 +3057,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [editCrewStatus, setEditCrewStatus] = useState('In Route');
   const [editCrewDateTime, setEditCrewDateTime] = useState('');
   const [editCrewJobId, setEditCrewJobId] = useState(null);
+  const [receipts, setReceipts] = useState([]);
+  const [addingReceipt, setAddingReceipt] = useState(false);
+  const [rVendor, setRVendor] = useState('');
+  const [rAmount, setRAmount] = useState('');
+  const [rSaving, setRSaving] = useState(false);
+  const receiptFileRef = useRef();
   const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
   const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(() => !getSectionCollapse().thisJobEquip);
   const [otherEquipOpen, setOtherEquipOpenRaw] = useState(() => !getSectionCollapse().otherEquip);
@@ -2971,6 +3124,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
 
   useEffect(() => {
     fetchPhotos(job.id).then(setPhotos);
+    sb.from('receipts').select('*').eq('job_id', job.id).order('created_at')
+      .then(({ data }) => setReceipts(data || []));
   }, [job.id]);
 
   useEffect(() => {
@@ -3562,6 +3717,32 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
   const crewTimeline = buildCrewTimeline(crewLog, crew, users);
 
+  async function saveJobReceipt(storagePath) {
+    if (!rAmount && !rVendor) return;
+    setRSaving(true);
+    const { data } = await sb.from('receipts').insert({
+      job_id: job.id, amount: Number(rAmount) || null, vendor: rVendor || null,
+      date: todayISO(), storage_path: storagePath || null,
+      created_at: new Date().toISOString(),
+    }).select().single();
+    if (data) setReceipts(r => [...r, data]);
+    setRVendor(''); setRAmount(''); setAddingReceipt(false); setRSaving(false);
+  }
+  async function handleJobReceiptFile(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setRSaving(true);
+    const path = `${job.id}/receipt-${Date.now()}.${(file.name||'jpg').split('.').pop()}`;
+    const { error } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
+    if (!error) await saveJobReceipt(path); else setRSaving(false);
+    e.target.value = '';
+  }
+  async function deleteJobReceipt(r) {
+    if (r.storage_path) await sb.storage.from('job-photos').remove([r.storage_path]);
+    await sb.from('receipts').delete().eq('id', r.id);
+    setReceipts(rs => rs.filter(x => x.id !== r.id));
+  }
+
   return (
     <div className="fade-in" style={{ paddingBottom:40 }}>
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12 }}>
@@ -3711,6 +3892,69 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           <textarea value={notes} onChange={e => setNotes(e.target.value)}
             onBlur={() => { if (notes !== (job.notes||'')) onUpdate({ notes }); }}
             rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
+        </div>
+
+        {/* Receipts */}
+        <div style={{ marginTop:16 }}>
+          <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6 }}>
+              RECEIPTS{receipts.length > 0 ? ` (${receipts.length})` : ''}
+              {receipts.length > 0 && (
+                <span style={{ color:"var(--olive-bright)", marginLeft:4 }}>
+                  · {money(receipts.reduce((s,r) => s + Number(r.amount||0), 0))}
+                </span>
+              )}
+            </div>
+            <button onClick={() => setAddingReceipt(a => !a)} className="head"
+              style={{ fontSize:12, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              {addingReceipt ? '✕' : '+ ADD'}
+            </button>
+          </div>
+          {receipts.map(r => (
+            <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8,
+              padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
+              {r.storage_path && (
+                <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`}
+                  alt="receipt" style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
+              )}
+              <div style={{ flex:1 }}>
+                <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}</div>
+                <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                  {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}
+                </div>
+              </div>
+              <button onClick={() => deleteJobReceipt(r)} className="mono"
+                style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
+            </div>
+          ))}
+          {receipts.length === 0 && !addingReceipt && (
+            <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>None yet</div>
+          )}
+          {addingReceipt && (
+            <div style={{ marginTop:8, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
+              <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                <input placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)} style={{ flex:2 }} />
+                <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
+                  onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => receiptFileRef.current.click()} className="head" disabled={rSaving}
+                  style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
+                    background:"var(--panel)", color:"var(--muted)", fontSize:13 }}>
+                  📷 SNAP
+                </button>
+                <button onClick={() => saveJobReceipt(null)} className="head"
+                  disabled={rSaving || (!rVendor && !rAmount)}
+                  style={{ flex:2, padding:"8px 0", borderRadius:6, border:"none",
+                    background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
+                  {rSaving ? 'SAVING…' : 'SAVE RECEIPT'}
+                </button>
+              </div>
+              <input ref={receiptFileRef} type="file" accept="image/*" capture="environment"
+                style={{ display:"none" }} onChange={handleJobReceiptFile} />
+            </div>
+          )}
         </div>
 
         {/* Photo strip */}
