@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 129;
+const APP_REV = 130;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1905,9 +1905,9 @@ Command: "${transcript}"`
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
                 const { newJobId, oldJobId } = leavingCrewCheck;
+                const at = new Date().toISOString();
+                await clearJobCrewStatus(oldJobId, person.id);
                 if (newJobId) {
-                  const at = new Date().toISOString();
-                  await clearJobCrewStatus(oldJobId, person.id);
                   await upsertJobCrewStatus(newJobId, person.id, 'In Route');
                   const newJob = jobs.find(j => j.id === newJobId);
                   await sb.from('job_notes').insert({
@@ -2437,9 +2437,9 @@ Command: "${transcript}"`
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
                 const { newJobId, oldJobId } = leavingCrewCheck;
+                const at = new Date().toISOString();
+                await clearJobCrewStatus(oldJobId, person.id);
                 if (newJobId) {
-                  const at = new Date().toISOString();
-                  await clearJobCrewStatus(oldJobId, person.id);
                   await upsertJobCrewStatus(newJobId, person.id, 'In Route');
                   const newJob = jobs.find(j => j.id === newJobId);
                   await sb.from('job_notes').insert({
