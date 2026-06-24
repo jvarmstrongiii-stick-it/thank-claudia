@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 130;
+const APP_REV = 131;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -773,7 +773,7 @@ function ClockTimer({ startedAt, todayMs }) {
   );
 }
 
-function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose }) {
+function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
   const job = jobs.find(j => j.id === jobId);
   const [receipts, setReceipts] = useState([]);
   const [laborRows, setLaborRows] = useState([]); // [{name, driveMs, onSiteMs}]
@@ -813,13 +813,15 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose }) {
   async function saveReceipt(storagePath) {
     if (!rAmount && !rVendor) return;
     setRSaving(true);
-    const { data } = await sb.from('receipts').insert({
+    const { data, error } = await sb.from('receipts').insert({
       job_id: jobId, amount: Number(rAmount) || null, vendor: rVendor || null,
       date: todayISO(), storage_path: storagePath || null,
       created_at: new Date().toISOString(),
     }).select().single();
+    setRSaving(false);
+    if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
     if (data) setReceipts(r => [...r, data]);
-    setRVendor(''); setRAmount(''); setAddingReceipt(false); setRSaving(false);
+    setRVendor(''); setRAmount(''); setAddingReceipt(false);
   }
 
   async function handleReceiptFile(e) {
@@ -828,7 +830,8 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose }) {
     setRSaving(true);
     const path = `${jobId}/receipt-${Date.now()}.${(file.name||'jpg').split('.').pop()}`;
     const { error } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
-    if (!error) await saveReceipt(path); else { setRSaving(false); }
+    if (error) { showToast?.('Photo upload failed: ' + error.message, true); setRSaving(false); }
+    else await saveReceipt(path);
     e.target.value = '';
   }
 
@@ -1872,7 +1875,8 @@ Command: "${transcript}"`
         clockUndo={clockUndo}
         onUndoClock={undoClockAction}
         getTodayMs={() => getTodayMs(currentUser.id)}
-        onJobSelect={setSelectedId} />
+        onJobSelect={setSelectedId}
+        showToast={showToast} />
       {showLeaving && clockSession && (
         <LeavingSheet clockSession={clockSession} jobs={jobs}
           onInRoute={() => { setShowLeaving(false); setShowMoveJob(true); }}
@@ -1970,7 +1974,8 @@ Command: "${transcript}"`
             setCloseJobPromptId(null);
             setSelectedId(null);
           }}
-          onClose={() => setCloseJobPromptId(null)} />
+          onClose={() => setCloseJobPromptId(null)}
+          showToast={showToast} />
       )}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
@@ -2502,7 +2507,8 @@ Command: "${transcript}"`
             setCloseJobPromptId(null);
             setSelectedId(null);
           }}
-          onClose={() => setCloseJobPromptId(null)} />
+          onClose={() => setCloseJobPromptId(null)}
+          showToast={showToast} />
       )}
       {pendingNotifs.length > 0 && (
         <Sheet onClose={dismissNotifs} title="NOTIFICATIONS">
@@ -3166,7 +3172,7 @@ function DuplicateEquipmentSheet({ scan, existing, onOverride, onKeep }) {
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
 function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users, jobs, browseMode,
-                     clockSession, onFlipToOnSite, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect }) {
+                     clockSession, onFlipToOnSite, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect, showToast }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showResched, setShowResched] = useState(false);
@@ -3876,13 +3882,15 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   async function saveJobReceipt(storagePath) {
     if (!rAmount && !rVendor) return;
     setRSaving(true);
-    const { data } = await sb.from('receipts').insert({
+    const { data, error } = await sb.from('receipts').insert({
       job_id: job.id, amount: Number(rAmount) || null, vendor: rVendor || null,
       date: todayISO(), storage_path: storagePath || null,
       created_at: new Date().toISOString(),
     }).select().single();
+    setRSaving(false);
+    if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
     if (data) setReceipts(r => [...r, data]);
-    setRVendor(''); setRAmount(''); setAddingReceipt(false); setRSaving(false);
+    setRVendor(''); setRAmount(''); setAddingReceipt(false);
   }
   async function handleJobReceiptFile(e) {
     const file = e.target.files?.[0];
@@ -3890,7 +3898,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     setRSaving(true);
     const path = `${job.id}/receipt-${Date.now()}.${(file.name||'jpg').split('.').pop()}`;
     const { error } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
-    if (!error) await saveJobReceipt(path); else setRSaving(false);
+    if (error) { showToast?.('Photo upload failed: ' + error.message, true); setRSaving(false); }
+    else await saveJobReceipt(path);
     e.target.value = '';
   }
   async function deleteJobReceipt(r) {
