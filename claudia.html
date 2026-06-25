@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 138;
+const APP_REV = 144;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1011,7 +1011,6 @@ function ClockGate({ userName, onClockIn, onBrowse, onUndo, onSwitchUser }) {
       <div className="head" style={{ textAlign:"center", lineHeight:1.1 }}>
         <div style={{ fontSize:52, fontWeight:700 }}>TMC</div>
         <div style={{ fontSize:52, fontWeight:700, color:"var(--brass-bright)" }}>MECHANICAL</div>
-        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:4, letterSpacing:"0.08em" }}>r144</div>
       </div>
       <div style={{ textAlign:"center", marginTop:8 }}>
         <div className="mono" style={{ fontSize:18, color:"var(--muted)", letterSpacing:"0.12em" }}>{userName.toUpperCase()}</div>
