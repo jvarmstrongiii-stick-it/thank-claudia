@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 134;
+const APP_REV = 135;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -957,14 +957,21 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
   );
 }
 
-function ClockGate({ userName, onClockIn, onBrowse, onUndo }) {
+function ClockGate({ userName, onClockIn, onBrowse, onUndo, onSwitchUser }) {
   return (
     <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", gap:16, padding:32, background:"var(--bg)" }}>
       <div className="head" style={{ fontSize:24, fontWeight:700, lineHeight:1 }}>
         TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
       </div>
-      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:4, letterSpacing:"0.1em" }}>{userName}</div>
+      <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
+        <div className="mono" style={{ fontSize:12, color:"var(--muted)", letterSpacing:"0.1em" }}>{userName}</div>
+        <button onClick={onSwitchUser} className="mono"
+          style={{ fontSize:11, color:"var(--brass-bright)", background:"none", border:"none",
+            padding:0, textDecoration:"underline", cursor:"pointer", letterSpacing:"0.05em" }}>
+          not you?
+        </button>
+      </div>
       <div style={{ height:24 }} />
       <button onClick={onClockIn} className="head"
         style={{ width:"100%", maxWidth:340, padding:20, fontSize:18, fontWeight:700, borderRadius:12,
@@ -1878,7 +1885,7 @@ Command: "${transcript}"`
     );
     return (
       <React.Fragment>
-        <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} onUndo={clockUndo ? undoClockAction : null} />
+        <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} onUndo={clockUndo ? undoClockAction : null} onSwitchUser={() => { localStorage.removeItem(CURRENT_USER_KEY); setCurrentUser(null); }} />
         {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       </React.Fragment>
     );
