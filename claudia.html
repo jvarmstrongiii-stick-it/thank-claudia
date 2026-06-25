@@ -177,6 +177,12 @@ function nowTimeRounded15() {
   return `${pad(hours)}:${pad(mins)}`;
 }
 function siteAddr(j) { return j.site_address || j.address || ""; }
+function openMapsNav(job) {
+  if (!job || job.customer?.toUpperCase() === 'TMC SHOP') return;
+  const addr = siteAddr(job).trim();
+  if (!addr) return;
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr)}&travelmode=driving`, '_blank');
+}
 function custAddr(j) { return j.customer_address || j.address || ""; }
 function uid() { return "job_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function money(n) { return "$" + Number(n||0).toLocaleString("en-US"); }
@@ -1503,6 +1509,7 @@ Command: "${transcript}"`
       setShowClockIn(false);
       setSelectedId(jobId);
       refresh();
+      if (status === 'In Route') openMapsNav(job);
     } catch(e) {
       showToast('Clock in failed — ' + (e.message || 'check connection'), true);
     }
@@ -1599,6 +1606,7 @@ Command: "${transcript}"`
       setShowMoveJob(false);
       setSelectedId(newJobId);
       refresh();
+      openMapsNav(newJob);
       if (isLastOut && oldJobId) {
         const oldJob = jobs.find(j => j.id === oldJobId);
         if (oldJob) setLastLeaveJob(oldJob);
