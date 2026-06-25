@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 137;
+const APP_REV = 138;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -965,11 +965,11 @@ function ClockGate({ userName, onClockIn, onBrowse, onUndo, onSwitchUser }) {
         <div style={{ fontSize:52, fontWeight:700 }}>TMC</div>
         <div style={{ fontSize:52, fontWeight:700, color:"var(--brass-bright)" }}>MECHANICAL</div>
       </div>
-      <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:8 }}>
-        <div className="mono" style={{ fontSize:18, color:"var(--muted)", letterSpacing:"0.08em" }}>{userName}</div>
+      <div style={{ textAlign:"center", marginTop:8 }}>
+        <div className="mono" style={{ fontSize:18, color:"var(--muted)", letterSpacing:"0.12em" }}>{userName.toUpperCase()}</div>
         <button onClick={onSwitchUser} className="mono"
-          style={{ fontSize:16, color:"var(--brass-bright)", background:"none", border:"none",
-            padding:0, textDecoration:"underline", cursor:"pointer", letterSpacing:"0.05em" }}>
+          style={{ fontSize:13, color:"var(--brass-bright)", background:"none", border:"none",
+            padding:0, textDecoration:"underline", cursor:"pointer", letterSpacing:"0.05em", marginTop:4 }}>
           not you?
         </button>
       </div>
