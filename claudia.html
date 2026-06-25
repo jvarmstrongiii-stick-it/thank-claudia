@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 136;
+const APP_REV = 137;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -961,13 +961,14 @@ function ClockGate({ userName, onClockIn, onBrowse, onUndo, onSwitchUser }) {
   return (
     <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", gap:16, padding:32, background:"var(--bg)" }}>
-      <div className="head" style={{ fontSize:24, fontWeight:700, lineHeight:1 }}>
-        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+      <div className="head" style={{ textAlign:"center", lineHeight:1.1 }}>
+        <div style={{ fontSize:52, fontWeight:700 }}>TMC</div>
+        <div style={{ fontSize:52, fontWeight:700, color:"var(--brass-bright)" }}>MECHANICAL</div>
       </div>
-      <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:4 }}>
-        <div className="mono" style={{ fontSize:12, color:"var(--muted)", letterSpacing:"0.1em" }}>{userName}</div>
+      <div style={{ display:"flex", alignItems:"center", gap:10, marginTop:8 }}>
+        <div className="mono" style={{ fontSize:18, color:"var(--muted)", letterSpacing:"0.08em" }}>{userName}</div>
         <button onClick={onSwitchUser} className="mono"
-          style={{ fontSize:11, color:"var(--brass-bright)", background:"none", border:"none",
+          style={{ fontSize:16, color:"var(--brass-bright)", background:"none", border:"none",
             padding:0, textDecoration:"underline", cursor:"pointer", letterSpacing:"0.05em" }}>
           not you?
         </button>
