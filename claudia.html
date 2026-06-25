@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 144;
+const APP_REV = 145;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1309,6 +1309,9 @@ function App() {
   const [orphanCrewEntry, setOrphanCrewEntry] = useState(null); // { job_id, status, status_at } — lost session to recover
   const [closeJobPromptId, setCloseJobPromptId] = useState(null); // job id to prompt closing after Completed/Paid
   const [billingPaidPromptId, setBillingPaidPromptId] = useState(null); // job id to ask "is this paid?" after billing chore
+  const [fieldTimeConfirm, setFieldTimeConfirm] = useState(null); // { type:'clockIn'|'moveJob'|'flipOnSite', jobId?, status? }
+  const [fieldConfirmTime, setFieldConfirmTime] = useState(() => nowTimeHHMM());
+  const [pendingMapsJob, setPendingMapsJob] = useState(null); // job object awaiting "Want directions?" prompt
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1520,6 +1523,21 @@ Command: "${transcript}"`
   }
 
   /* ── Clock in/out ── */
+  function handleClockIn(jobId, status) {
+    setShowClockIn(false);
+    setFieldConfirmTime(nowTimeHHMM());
+    setFieldTimeConfirm({ type: 'clockIn', jobId, status });
+  }
+  function handleMoveToInRoute(newJobId) {
+    setShowMoveJob(false);
+    setFieldConfirmTime(nowTimeHHMM());
+    setFieldTimeConfirm({ type: 'moveJob', jobId: newJobId });
+  }
+  function handleFlipToOnSite() {
+    setFieldConfirmTime(nowTimeHHMM());
+    setFieldTimeConfirm({ type: 'flipOnSite' });
+  }
+
   async function undoClockAction() {
     if (!clockUndo) return;
     const { prevSession, restore, clear } = clockUndo;
@@ -1530,9 +1548,8 @@ Command: "${transcript}"`
     setClockUndo(null);
   }
 
-  async function clockIn(jobId, status) {
+  async function clockIn(jobId, status, at = new Date().toISOString()) {
     try {
-      const at = new Date().toISOString();
       const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status);
       if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
       const job = jobs.find(j => j.id === jobId);
@@ -1551,7 +1568,10 @@ Command: "${transcript}"`
       setShowClockIn(false);
       setSelectedId(jobId);
       refresh();
-      if (status === 'In Route') openMapsNav(job);
+      if (status === 'In Route') {
+        const addr = (siteAddr(job) || custAddr(job)).trim();
+        if (addr) setPendingMapsJob(job);
+      }
     } catch(e) {
       showToast('Clock in failed — ' + (e.message || 'check connection'), true);
     }
@@ -1583,7 +1603,7 @@ Command: "${transcript}"`
     refresh();
   }
 
-  async function flipToOnSite() {
+  async function flipToOnSite(at = new Date().toISOString()) {
     if (!clockSession?.jobId) return;
     const undo = { prevSession: clockSession, restore: [{ jobId: clockSession.jobId, status: 'In Route' }], clear: [] };
     await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site');
@@ -1592,7 +1612,6 @@ Command: "${transcript}"`
     if (job && wIdx(job.status) < wIdx('In Progress')) {
       await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
     }
-    const at = new Date().toISOString();
     await sb.from('job_notes').insert({
       job_id: clockSession.jobId, content: `Status → On Site (${currentUser.name})`,
       source: 'system', created_at: at, user_id: currentUser.id,
@@ -1608,7 +1627,7 @@ Command: "${transcript}"`
     refresh();
   }
 
-  async function moveToInRoute(newJobId) {
+  async function moveToInRoute(newJobId, at = new Date().toISOString()) {
     try {
       const { jobId: oldJobId, startedAt } = clockSession;
       const undo = {
@@ -1617,7 +1636,7 @@ Command: "${transcript}"`
         clear: [{ jobId: newJobId }],
       };
       let isLastOut = false;
-      const at = new Date().toISOString();
+      let hasCrew = false;
       if (oldJobId) {
         await clearJobCrewStatus(oldJobId, currentUser.id);
         await sb.from('job_notes').insert({
@@ -1628,7 +1647,10 @@ Command: "${transcript}"`
         const stillOnSite = remaining.filter(c => c.status === 'On Site');
         isLastOut = stillOnSite.length === 0;
         const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
-        if (othersOnSite.length > 0) setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId });
+        if (othersOnSite.length > 0) {
+          setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId, mapsJobId: newJobId });
+          hasCrew = true;
+        }
       }
       const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route');
       if (!ok) { showToast('Could not update crew status — check connection', true); return; }
@@ -1648,7 +1670,10 @@ Command: "${transcript}"`
       setShowMoveJob(false);
       setSelectedId(newJobId);
       refresh();
-      openMapsNav(newJob);
+      if (!hasCrew) {
+        const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
+        if (addr) setPendingMapsJob(newJob);
+      }
       if (isLastOut && oldJobId) {
         const oldJob = jobs.find(j => j.id === oldJobId);
         if (oldJob) setLastLeaveJob(oldJob);
@@ -1937,7 +1962,7 @@ Command: "${transcript}"`
     }
     if (showClockIn) return (
       <React.Fragment>
-        <ClockInSheet jobs={jobs} onConfirm={clockIn} onClose={() => setShowClockIn(false)} />
+        <ClockInSheet jobs={jobs} onConfirm={handleClockIn} onClose={() => setShowClockIn(false)} />
         {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       </React.Fragment>
     );
@@ -1980,7 +2005,7 @@ Command: "${transcript}"`
         jobs={jobs}
         browseMode={browseMode}
         clockSession={clockSession}
-        onFlipToOnSite={flipToOnSite}
+        onFlipToOnSite={handleFlipToOnSite}
         onLeaving={() => setShowLeaving(true)}
         clockUndo={clockUndo}
         onUndoClock={undoClockAction}
@@ -2008,7 +2033,7 @@ Command: "${transcript}"`
         <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={clockOut} onClose={() => setShowClockOut(false)} />
       )}
       {showMoveJob && clockSession && (
-        <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={moveToInRoute} onClose={() => setShowMoveJob(false)}
+        <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={handleMoveToInRoute} onClose={() => setShowMoveJob(false)}
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
@@ -2020,9 +2045,18 @@ Command: "${transcript}"`
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
         const rest = leavingCrewCheck.members.slice(1);
-        const advance = () => rest.length > 0
-          ? setLeavingCrewCheck({ ...leavingCrewCheck, members: rest })
-          : setLeavingCrewCheck(null);
+        const advance = () => {
+          if (rest.length > 0) {
+            setLeavingCrewCheck({ ...leavingCrewCheck, members: rest });
+          } else {
+            const mapsJobId = leavingCrewCheck.mapsJobId;
+            setLeavingCrewCheck(null);
+            if (mapsJobId) {
+              const mj = jobs.find(j => j.id === mapsJobId);
+              if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+            }
+          }
+        };
         return (
           <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
             <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
@@ -2141,6 +2175,67 @@ Command: "${transcript}"`
           onClose={() => setCloseJobPromptId(null)}
           showToast={showToast} />
       )}
+      {fieldTimeConfirm && (
+        <Sheet title="CONFIRM TIME" onClose={() => setFieldTimeConfirm(null)}>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
+            {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
+              : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
+              : 'MARKING ON SITE'}
+          </div>
+          <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
+            style={{ width:"100%", fontSize:36, fontWeight:700, padding:"12px 0", background:"transparent",
+              border:"none", borderBottom:"2px solid var(--olive-bright)", color:"var(--text)",
+              textAlign:"center", marginBottom:8, outline:"none" }} />
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", textAlign:"center", marginBottom:20 }}>
+            REWIND IF YOU FORGOT TO TAP
+          </div>
+          <div style={{ display:"flex", gap:12 }}>
+            <button onClick={() => {
+              const [hh, mm] = fieldConfirmTime.split(':');
+              const d = new Date(); d.setHours(+hh, +mm, 0, 0);
+              const at = d.toISOString();
+              const fc = fieldTimeConfirm;
+              setFieldTimeConfirm(null);
+              if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
+              else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
+              else flipToOnSite(at);
+            }} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+              CONFIRM
+            </button>
+            <button onClick={() => setFieldTimeConfirm(null)} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              CANCEL
+            </button>
+          </div>
+        </Sheet>
+      )}
+      {pendingMapsJob && (
+        <Sheet title="NAVIGATION" onClose={() => setPendingMapsJob(null)}>
+          <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:8 }}>
+            WANT DIRECTIONS TO {(pendingMapsJob.customer || '').toUpperCase()}?
+          </div>
+          {(siteAddr(pendingMapsJob) || custAddr(pendingMapsJob)) && (
+            <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:20 }}>
+              {siteAddr(pendingMapsJob) || custAddr(pendingMapsJob)}
+            </div>
+          )}
+          <div style={{ display:"flex", gap:12 }}>
+            <button onClick={() => { openMapsNav(pendingMapsJob); setPendingMapsJob(null); }} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+              YES — NAVIGATE
+            </button>
+            <button onClick={() => setPendingMapsJob(null)} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              NO THANKS
+            </button>
+          </div>
+        </Sheet>
+      )}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
@@ -2223,7 +2318,7 @@ Command: "${transcript}"`
               </div>
               <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} />
               {clockSession.jobId && (
-                <button onClick={clockSession.status === 'In Route' ? flipToOnSite : undefined} className="head"
+                <button onClick={clockSession.status === 'In Route' ? handleFlipToOnSite : undefined} className="head"
                   style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                     background: clockSession.status === 'On Site' ? "var(--olive-bright)" : "var(--panel)",
                     color: clockSession.status === 'On Site' ? "var(--bg)" : "var(--text)",
@@ -2584,7 +2679,7 @@ Command: "${transcript}"`
         <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={clockOut} onClose={() => setShowClockOut(false)} />
       )}
       {showMoveJob && clockSession && (
-        <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={moveToInRoute} onClose={() => setShowMoveJob(false)}
+        <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={handleMoveToInRoute} onClose={() => setShowMoveJob(false)}
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
@@ -2596,9 +2691,18 @@ Command: "${transcript}"`
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
         const rest = leavingCrewCheck.members.slice(1);
-        const advance = () => rest.length > 0
-          ? setLeavingCrewCheck({ ...leavingCrewCheck, members: rest })
-          : setLeavingCrewCheck(null);
+        const advance = () => {
+          if (rest.length > 0) {
+            setLeavingCrewCheck({ ...leavingCrewCheck, members: rest });
+          } else {
+            const mapsJobId = leavingCrewCheck.mapsJobId;
+            setLeavingCrewCheck(null);
+            if (mapsJobId) {
+              const mj = jobs.find(j => j.id === mapsJobId);
+              if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+            }
+          }
+        };
         return (
           <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
             <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
@@ -2716,6 +2820,67 @@ Command: "${transcript}"`
           }}
           onClose={() => setCloseJobPromptId(null)}
           showToast={showToast} />
+      )}
+      {fieldTimeConfirm && (
+        <Sheet title="CONFIRM TIME" onClose={() => setFieldTimeConfirm(null)}>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
+            {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
+              : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
+              : 'MARKING ON SITE'}
+          </div>
+          <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
+            style={{ width:"100%", fontSize:36, fontWeight:700, padding:"12px 0", background:"transparent",
+              border:"none", borderBottom:"2px solid var(--olive-bright)", color:"var(--text)",
+              textAlign:"center", marginBottom:8, outline:"none" }} />
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", textAlign:"center", marginBottom:20 }}>
+            REWIND IF YOU FORGOT TO TAP
+          </div>
+          <div style={{ display:"flex", gap:12 }}>
+            <button onClick={() => {
+              const [hh, mm] = fieldConfirmTime.split(':');
+              const d = new Date(); d.setHours(+hh, +mm, 0, 0);
+              const at = d.toISOString();
+              const fc = fieldTimeConfirm;
+              setFieldTimeConfirm(null);
+              if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
+              else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
+              else flipToOnSite(at);
+            }} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+              CONFIRM
+            </button>
+            <button onClick={() => setFieldTimeConfirm(null)} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              CANCEL
+            </button>
+          </div>
+        </Sheet>
+      )}
+      {pendingMapsJob && (
+        <Sheet title="NAVIGATION" onClose={() => setPendingMapsJob(null)}>
+          <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:8 }}>
+            WANT DIRECTIONS TO {(pendingMapsJob.customer || '').toUpperCase()}?
+          </div>
+          {(siteAddr(pendingMapsJob) || custAddr(pendingMapsJob)) && (
+            <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:20 }}>
+              {siteAddr(pendingMapsJob) || custAddr(pendingMapsJob)}
+            </div>
+          )}
+          <div style={{ display:"flex", gap:12 }}>
+            <button onClick={() => { openMapsNav(pendingMapsJob); setPendingMapsJob(null); }} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+              YES — NAVIGATE
+            </button>
+            <button onClick={() => setPendingMapsJob(null)} className="head"
+              style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              NO THANKS
+            </button>
+          </div>
+        </Sheet>
       )}
       {pendingNotifs.length > 0 && (
         <Sheet onClose={dismissNotifs} title="NOTIFICATIONS">
