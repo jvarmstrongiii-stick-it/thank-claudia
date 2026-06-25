@@ -178,8 +178,8 @@ function nowTimeRounded15() {
 }
 function siteAddr(j) { return j.site_address || j.address || ""; }
 function openMapsNav(job) {
-  if (!job || job.customer?.toUpperCase() === 'TMC SHOP') return;
-  const addr = siteAddr(job).trim();
+  if (!job) return;
+  const addr = (siteAddr(job) || custAddr(job)).trim();
   if (!addr) return;
   window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr)}&travelmode=driving`, '_blank');
 }
