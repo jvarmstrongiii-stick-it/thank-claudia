@@ -3377,6 +3377,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                      clockSession, onFlipToOnSite, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect, showToast, onDuplicate }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
+  const [showMapsPrompt, setShowMapsPrompt] = useState(false);
   const [showResched, setShowResched] = useState(false);
   const [date, setDate] = useState(job.scheduled_date);
   const [time, setTime] = useState(job.scheduled_time);
@@ -4966,12 +4967,40 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       {showStatus && (
         <Sheet onClose={() => setShowStatus(false)} title="UPDATE STATUS">
           {WORKFLOW_STATUSES.map(s => (
-            <button key={s} onClick={() => { onUpdate({ status:s }); setShowStatus(false); onBack(); }}
-              style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", padding:"14px 4px", borderBottom:"1px solid var(--line)", textAlign:"left" }}>
+            <button key={s} onClick={() => {
+              onUpdate({ status: s });
+              setShowStatus(false);
+              if (s === 'In Route' && (siteAddr(job) || custAddr(job)).trim()) {
+                setShowMapsPrompt(true);
+              } else {
+                onBack();
+              }
+            }} style={{ display:"flex", width:"100%", alignItems:"center", justifyContent:"space-between", padding:"14px 4px", borderBottom:"1px solid var(--line)", textAlign:"left" }}>
               <StatusPill status={s} />
               {job.status === s && <span style={{ color:"var(--olive-bright)" }}>✓</span>}
             </button>
           ))}
+        </Sheet>
+      )}
+
+      {showMapsPrompt && (
+        <Sheet onClose={() => setShowMapsPrompt(false)} title="IN ROUTE">
+          <div style={{ textAlign:"center", padding:"8px 0 20px" }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>WANT DIRECTIONS?</div>
+            <div className="head" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
+              {siteAddr(job) || custAddr(job)}
+            </div>
+            <button onClick={() => { openMapsNav(job); setShowMapsPrompt(false); }} className="head"
+              style={{ width:"100%", padding:16, marginBottom:10, borderRadius:10, fontSize:16, fontWeight:700,
+                background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+              YES — OPEN MAPS
+            </button>
+            <button onClick={() => setShowMapsPrompt(false)} className="head"
+              style={{ width:"100%", padding:14, borderRadius:10, fontSize:15, fontWeight:700,
+                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+              NO THANKS
+            </button>
+          </div>
         </Sheet>
       )}
 
