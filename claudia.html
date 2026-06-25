@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 135;
+const APP_REV = 136;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1048,9 +1048,11 @@ function ClockInSheet({ jobs, onConfirm, onClose }) {
 function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
   const [jobStatus, setJobStatus] = useState(null);
   const job = clockSession?.jobId ? (jobs || []).find(j => j.id === clockSession.jobId) : null;
+  const activeStatuses = ['New','Ready to Schedule','Scheduled','In Route','On Site','In Progress'];
+  const needsStatusUpdate = job && activeStatuses.includes(job.status);
   return (
     <Sheet title={job ? `CLOCKING OUT — ${(job.customer || '').toUpperCase()}` : 'CLOCK OUT — SHOP'} onClose={onClose}>
-      {job && (
+      {needsStatusUpdate && (
         <React.Fragment>
           <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>UPDATE JOB STATUS (OPTIONAL)</div>
           <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:16 }}>
@@ -1066,13 +1068,18 @@ function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
           </div>
         </React.Fragment>
       )}
+      {!needsStatusUpdate && job && (
+        <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:16 }}>
+          Job is {job.status} — no status change needed.
+        </div>
+      )}
       <div style={{ display:"flex", gap:10 }}>
-        <button onClick={() => onClockOut(jobStatus)} className="head"
+        <button onClick={() => onClockOut(needsStatusUpdate ? jobStatus : null)} className="head"
           style={{ flex:1, padding:14, borderRadius:9, fontSize:15, fontWeight:700,
             background:"var(--olive-bright)", color:"var(--bg)" }}>
           CLOCK OUT
         </button>
-        {job && (
+        {needsStatusUpdate && (
           <button onClick={() => onClockOut(null)} className="head"
             style={{ padding:"14px 18px", borderRadius:9, fontSize:14,
               background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
