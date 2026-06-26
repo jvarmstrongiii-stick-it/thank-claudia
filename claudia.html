@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 151;
+const APP_REV = 152;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -4338,8 +4338,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>EDIT</button>
       </div>
       {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
-      {/* Clock status bar in job detail */}
-      {clockSession && (() => {
+      {/* Clock status bar in job detail — only shown when this IS the clocked-in job */}
+      {clockSession && clockSession.jobId === job.id && (() => {
         const clockJob = clockSession.jobId ? jobs.find(j => j.id === clockSession.jobId) : null;
         return (
           <div style={{ margin:"0 16px 0", padding:"8px 12px", marginTop:8,
@@ -4405,7 +4405,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           const today = todayISO();
           const techsToday = users.filter(u => {
             const periods = (crewTimeline[u.name] || []).filter(p => p.start.slice(0,10) === today);
-            return periods.length > 0;
+            if (periods.length === 0) return false;
+            const totalMs = periods.reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+            return totalMs > 0;
           });
           if (techsToday.length === 0) return null;
           return (
