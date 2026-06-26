@@ -10,6 +10,24 @@
 4. **Deploy takes ~1 minute** after push to main — GitHub Actions copies `claudia.html` → `dist/index.html` → `gh-pages` branch. If Jack says the version number is wrong, check `APP_REV` first before assuming a deploy issue.
 5. **r-number in commit message** — prefix every commit message with `rNNN:` matching the new APP_REV value.
 
+## CLAUDE.md Self-Update Protocol
+
+**Before every commit**, scan the changes you just made and ask: would a brand-new session be confused or make a wrong assumption because of something introduced here? If yes, update CLAUDE.md in the same commit — not a follow-up.
+
+Things that qualify for documentation:
+- A new App-level state variable that interacts with render paths (e.g. `fieldTimeConfirm`, `pendingMapsJob`)
+- A new helper function whose name doesn't make its contract obvious (e.g. `handleClockIn` vs `clockIn`)
+- A new architectural pattern (new Sheet render path, new interceptor pattern, new data flow)
+- A new Supabase column, table, or constraint
+- A new gotcha discovered the hard way (e.g. missing Sheet in a return path, APP_REV not bumped)
+- A change to `APP_REV` — always update the "currently NNN" references in the Gotchas and Commit Rules sections above
+
+Things that do NOT need documenting: UI copy changes, style tweaks, bug fixes that don't change the architectural model.
+
+**Format:** add to the Recurring Gotchas table if it's a trap, add to Key Architecture Decisions if it's a pattern, add to the render path table below if it's a Sheet. Update the APP_REV number in the Critical section above.
+
+---
+
 ## claudia.html Render Architecture — Sheet Placement Rule
 
 `claudia.html` has **multiple independent early-return paths** in the App component. Any Sheet (modal overlay) that can be triggered from more than one path must be added to ALL paths where it could appear. Current paths:
