@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 145;
+const APP_REV = 146;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1046,9 +1046,10 @@ function ClockGate({ userName, onClockIn, onBrowse, onUndo, onSwitchUser }) {
 function ClockInSheet({ jobs, onConfirm, onClose }) {
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState(null);
-  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Completed/Paid' && j.status !== 'Closed');
+  const FIELD_DONE = ['Completed/Needs Billing','Billed/Waiting for Payment','Completed/Paid','Closed'];
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && !FIELD_DONE.includes(j.status));
   const openJobs = (jobs || [])
-    .filter(j => j.status !== 'Completed/Paid' && j.status !== 'Closed' && j.customer?.toUpperCase() !== TMC_SHOP_NAME)
+    .filter(j => !FIELD_DONE.includes(j.status) && j.customer?.toUpperCase() !== TMC_SHOP_NAME)
     .slice().sort((a, b) => (a.customer || '').localeCompare(b.customer || ''));
 
   if (step === 1) return (
@@ -1184,10 +1185,11 @@ function LeavingSheet({ clockSession, jobs, onInRoute, onClockOut, onClose }) {
 function MoveJobSheet({ clockSession, jobs, onMove, onClose, onNewJob }) {
   const currentJobId = clockSession?.jobId;
   const [q, setQ] = useState('');
-  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
+  const FIELD_DONE = ['Completed/Needs Billing','Billed/Waiting for Payment','Completed/Paid','Closed'];
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && !FIELD_DONE.includes(j.status));
   const STATUS_PRIORITY = { 'In Progress': 0, 'On Site': 1, 'In Route': 2, 'Scheduled': 3 };
   const openJobs = (jobs || [])
-    .filter(j => j.status !== 'Completed/Paid' && j.status !== 'Closed' && j.id !== currentJobId && j.customer?.toUpperCase() !== TMC_SHOP_NAME)
+    .filter(j => !FIELD_DONE.includes(j.status) && j.id !== currentJobId && j.customer?.toUpperCase() !== TMC_SHOP_NAME)
     .slice().sort((a, b) => {
       const pa = STATUS_PRIORITY[a.status] ?? 99;
       const pb = STATUS_PRIORITY[b.status] ?? 99;
