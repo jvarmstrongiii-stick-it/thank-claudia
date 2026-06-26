@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 146;
+const APP_REV = 147;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1087,6 +1087,7 @@ function ClockInSheet({ jobs, onConfirm, onClose }) {
               background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
             <div>{j.customer}</div>
             {siteAddr(j) && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{siteAddr(j)}</div>}
+            {j.original_ask && <div className="mono" style={{ fontSize:11, color:"var(--gold)", marginTop:2, fontWeight:400, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{j.original_ask}</div>}
           </button>
         ))}
       </div>
@@ -1227,6 +1228,7 @@ function MoveJobSheet({ clockSession, jobs, onMove, onClose, onNewJob }) {
               <span className="mono" style={{ fontSize:10, color:"var(--muted)" }}>{j.status}</span>
             </div>
             {siteAddr(j) && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{siteAddr(j)}</div>}
+            {j.original_ask && <div className="mono" style={{ fontSize:11, color:"var(--gold)", marginTop:2, fontWeight:400, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{j.original_ask}</div>}
           </button>
         ))}
         {filtered.length === 0 && <div className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"12px 0" }}>No jobs match</div>}
