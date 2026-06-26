@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 149;
+const APP_REV = 150;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3642,6 +3642,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [rSaving, setRSaving] = useState(false);
   const receiptFileRef = useRef();
   const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
+  const [showPhotoSheet, setShowPhotoSheet] = useState(false);
   const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(() => !getSectionCollapse().thisJobEquip);
   const [otherEquipOpen, setOtherEquipOpenRaw] = useState(() => !getSectionCollapse().otherEquip);
   const [crewStatusOpen, setCrewStatusOpenRaw] = useState(() => !getSectionCollapse().crewStatus);
@@ -4561,24 +4562,38 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             {uploading ? (
               <span className="mono" style={{ fontSize:14, color:"var(--muted)" }}>UPLOADING…</span>
             ) : (
-              <div style={{ display:"flex", gap:8 }}>
-                <button onClick={() => cameraRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 12px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
-                  📷 CAMERA
-                </button>
-                <button onClick={() => fileRef.current.click()} className="head"
-                  style={{ fontSize:14, fontWeight:600, padding:"5px 12px", borderRadius:6,
-                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-                  🖼 GALLERY
-                </button>
-              </div>
+              <button onClick={() => setShowPhotoSheet(true)} className="head"
+                style={{ fontSize:14, fontWeight:600, padding:"5px 12px", borderRadius:6,
+                  background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
+                📷 ADD PHOTO
+              </button>
             )}
           </div>
           <input ref={cameraRef} type="file" accept="image/*" capture="environment"
             style={{ display:'none' }} onChange={handlePhotoInput} />
           <input ref={fileRef} type="file" accept="image/*" multiple
             style={{ display:'none' }} onChange={handlePhotoInput} />
+          {showPhotoSheet && (
+            <Sheet title="ADD PHOTO" onClose={() => setShowPhotoSheet(false)}>
+              <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+                <button onClick={() => { setShowPhotoSheet(false); cameraRef.current.click(); }} className="head"
+                  style={{ width:"100%", padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                    background:"var(--panel)", border:"1px solid var(--olive)", color:"var(--olive-bright)" }}>
+                  📷 TAKE PHOTO
+                </button>
+                <button onClick={() => { setShowPhotoSheet(false); fileRef.current.click(); }} className="head"
+                  style={{ width:"100%", padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+                  🖼 CHOOSE FROM GALLERY
+                </button>
+                <button onClick={() => setShowPhotoSheet(false)} className="head"
+                  style={{ width:"100%", padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  CANCEL
+                </button>
+              </div>
+            </Sheet>
+          )}
           {photosOpen && (
             <>
               {photos.length === 0 && !uploading && (
