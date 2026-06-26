@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 153;
+const APP_REV = 154;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1141,12 +1141,9 @@ function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
   );
 }
 
-function LastLeaveSheet({ job, isLastOut, onPick, onClose }) {
-  const title = isLastOut
-    ? `LAST ONE OUT — ${(job.customer || '').toUpperCase()}`
-    : `LEAVING — ${(job.customer || '').toUpperCase()}`;
+function LastLeaveSheet({ job, onPick, onClose }) {
   return (
-    <Sheet title={title} onClose={onClose}>
+    <Sheet title={`LAST ONE OUT — ${(job.customer || '').toUpperCase()}`} onClose={onClose}>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>IS THIS JOB DONE?</div>
       <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
         {['Completed/Needs Billing','Completed/Paid','On Hold','In Progress'].map(s => (
@@ -1655,7 +1652,7 @@ Command: "${transcript}"`
         isLastOut = stillOnSite.length === 0;
         const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
         if (othersOnSite.length > 0) {
-          setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId, mapsJobId: newJobId });
+          setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId, mapsJobId: newJobId, someoneStayed: false });
           hasCrew = true;
         }
       }
@@ -1681,11 +1678,9 @@ Command: "${transcript}"`
         const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
         if (addr) setPendingMapsJob(newJob);
       }
-      if (oldJobId) {
+      if (isLastOut && oldJobId) {
         const oldJob = jobs.find(j => j.id === oldJobId);
-        if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
-          setLastLeaveJob({ job: oldJob, isLastOut });
-        }
+        if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
       }
     } catch(e) {
       showToast('Move failed — ' + (e.message || 'check connection'), true);
@@ -2083,20 +2078,25 @@ Command: "${transcript}"`
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
-        <LastLeaveSheet job={lastLeaveJob.job} isLastOut={lastLeaveJob.isLastOut} onPick={async s => {
-          await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
+        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
+          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
         const rest = leavingCrewCheck.members.slice(1);
-        const advance = () => {
+        const advance = (stayed = false) => {
+          const nextSomeoneStayed = leavingCrewCheck.someoneStayed || stayed;
           if (rest.length > 0) {
-            setLeavingCrewCheck({ ...leavingCrewCheck, members: rest });
+            setLeavingCrewCheck({ ...leavingCrewCheck, members: rest, someoneStayed: nextSomeoneStayed });
           } else {
-            const mapsJobId = leavingCrewCheck.mapsJobId;
+            const { mapsJobId, oldJobId } = leavingCrewCheck;
             setLeavingCrewCheck(null);
+            if (!nextSomeoneStayed && oldJobId) {
+              const oldJob = jobs.find(j => j.id === oldJobId);
+              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
+            }
             if (mapsJobId) {
               const mj = jobs.find(j => j.id === mapsJobId);
               if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
@@ -2126,14 +2126,14 @@ Command: "${transcript}"`
                     read: false, created_at: at,
                   });
                 }
-                advance();
+                advance(false);
                 refresh();
               }} className="head"
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
                 YES
               </button>
-              <button onClick={advance} className="head"
+              <button onClick={() => advance(true)} className="head"
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
                 NO — STAYING
@@ -2729,20 +2729,25 @@ Command: "${transcript}"`
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
-        <LastLeaveSheet job={lastLeaveJob.job} isLastOut={lastLeaveJob.isLastOut} onPick={async s => {
-          await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
+        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
+          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
         const rest = leavingCrewCheck.members.slice(1);
-        const advance = () => {
+        const advance = (stayed = false) => {
+          const nextSomeoneStayed = leavingCrewCheck.someoneStayed || stayed;
           if (rest.length > 0) {
-            setLeavingCrewCheck({ ...leavingCrewCheck, members: rest });
+            setLeavingCrewCheck({ ...leavingCrewCheck, members: rest, someoneStayed: nextSomeoneStayed });
           } else {
-            const mapsJobId = leavingCrewCheck.mapsJobId;
+            const { mapsJobId, oldJobId } = leavingCrewCheck;
             setLeavingCrewCheck(null);
+            if (!nextSomeoneStayed && oldJobId) {
+              const oldJob = jobs.find(j => j.id === oldJobId);
+              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
+            }
             if (mapsJobId) {
               const mj = jobs.find(j => j.id === mapsJobId);
               if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
@@ -2772,14 +2777,14 @@ Command: "${transcript}"`
                     read: false, created_at: at,
                   });
                 }
-                advance();
+                advance(false);
                 refresh();
               }} className="head"
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
                 YES
               </button>
-              <button onClick={advance} className="head"
+              <button onClick={() => advance(true)} className="head"
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
                 NO — STAYING
