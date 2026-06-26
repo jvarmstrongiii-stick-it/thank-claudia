@@ -458,7 +458,7 @@ EAS mobile builds are on hold. Do not assume any native build is current or runn
 
 | Issue | Severity | Detail |
 |-------|---------|--------|
-| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **148**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
+| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **149**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
 | **Push to main, always** | Critical | Jack's rollback strategy depends on numbered r-commits on `main`. Never leave work only on a feature branch. Use `git push origin HEAD:main` if the branch name differs. |
 | **claudia.html IS the app** | Critical | All user-facing changes must go in `claudia.html`. The Expo/RN app (`app/`, `components/`, `lib/`) is not deployed and not in active use. |
 | **DB column names differ from Expo types** | Critical | Live DB uses `flow_type`, `current_status`, `scheduled_at`, `site_address` — NOT `job_type`, `status`, `scheduled_time`, `address`. Never use Expo app column names when writing queries for claudia.html. |
@@ -466,6 +466,7 @@ EAS mobile builds are on hold. Do not assume any native build is current or runn
 | **`site_address` column may be missing** | High | Run `ALTER TABLE jobs ADD COLUMN site_address text; NOTIFY pgrst, 'reload schema';` if multi-property site picker or job saves fail with PGRST204 for `site_address`. |
 | **job_notes source constraint** | Medium | `job_notes.source` has CHECK constraint: allowed values are `'voice'`, `'text'`, `'system'`, `'user'`. Server-side triggers that write `source='system'` will fail the whole job insert if this constraint has been tightened. Verified expanded to include all four values. |
 | **Claude proxy CORS** | Medium | `claude-proxy` edge function CORS only allows `Authorization` and `Content-Type` headers. Pass `apikey` as a URL query param (`?apikey=...`) not a header — browser preflight rejects unknown headers. |
+| **Sheet z-index must exceed ClockGate** | High | `ClockGate` uses `zIndex:200` (full-screen fixed overlay). The `Sheet` component backdrop must be `zIndex:300` or higher or sheets will render invisibly behind ClockGate. Currently set to 300. |
 | **CSP eval warnings** | Low | Babel Standalone triggers browser CSP eval warnings. These are informational only — GitHub Pages sends no CSP headers, nothing is blocked. |
 | **Speech recognition lag** | High | `expo-speech-recognition` has an ~8-second processing lag. Threading issue, not yet resolved. (Expo app only — not relevant to claudia.html.) |
 | **backendUrl hardcoded to LAN IP** | Medium | `app.json` extra.backendUrl is `http://10.0.0.120:3001`. (Expo app only.) |
