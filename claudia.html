@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 147;
+const APP_REV = 148;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1973,6 +1973,43 @@ Command: "${transcript}"`
     return (
       <React.Fragment>
         <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} onUndo={clockUndo ? undoClockAction : null} onSwitchUser={() => { localStorage.removeItem(CURRENT_USER_KEY); setCurrentUser(null); }} />
+        {fieldTimeConfirm && (
+          <Sheet title="CONFIRM TIME" onClose={() => setFieldTimeConfirm(null)}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
+              {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
+                : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
+                : 'MARKING ON SITE'}
+            </div>
+            <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
+              style={{ width:"100%", fontSize:36, fontWeight:700, padding:"12px 0", background:"transparent",
+                border:"none", borderBottom:"2px solid var(--olive-bright)", color:"var(--text)",
+                textAlign:"center", marginBottom:8, outline:"none" }} />
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", textAlign:"center", marginBottom:20 }}>
+              REWIND IF YOU FORGOT TO TAP
+            </div>
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={() => {
+                const [hh, mm] = fieldConfirmTime.split(':');
+                const d = new Date(); d.setHours(+hh, +mm, 0, 0);
+                const at = d.toISOString();
+                const fc = fieldTimeConfirm;
+                setFieldTimeConfirm(null);
+                if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
+                else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
+                else flipToOnSite(at);
+              }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                CONFIRM
+              </button>
+              <button onClick={() => setFieldTimeConfirm(null)} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                CANCEL
+              </button>
+            </div>
+          </Sheet>
+        )}
         {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       </React.Fragment>
     );
