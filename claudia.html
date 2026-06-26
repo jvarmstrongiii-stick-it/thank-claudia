@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 150;
+const APP_REV = 151;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -245,7 +245,7 @@ function buildCrewTimeline(crewLog, crew, users) {
       const next = list[i+1];
       const end = next ? next.at : null;
       const endId = next ? next.id : null;
-      const ongoing = !end && !!current && current.status === e.status;
+      const ongoing = !end && !!current;
       periods.push({ status: e.status, start: e.at, startId: e.id, end, endId, ongoing });
     });
     if (periods.length) result[name] = periods;
