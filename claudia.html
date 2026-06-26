@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 152;
+const APP_REV = 153;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1141,9 +1141,12 @@ function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
   );
 }
 
-function LastLeaveSheet({ job, onPick, onClose }) {
+function LastLeaveSheet({ job, isLastOut, onPick, onClose }) {
+  const title = isLastOut
+    ? `LAST ONE OUT — ${(job.customer || '').toUpperCase()}`
+    : `LEAVING — ${(job.customer || '').toUpperCase()}`;
   return (
-    <Sheet title={`LAST ONE OUT — ${(job.customer || '').toUpperCase()}`} onClose={onClose}>
+    <Sheet title={title} onClose={onClose}>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>IS THIS JOB DONE?</div>
       <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:14 }}>
         {['Completed/Needs Billing','Completed/Paid','On Hold','In Progress'].map(s => (
@@ -1678,9 +1681,11 @@ Command: "${transcript}"`
         const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
         if (addr) setPendingMapsJob(newJob);
       }
-      if (isLastOut && oldJobId) {
+      if (oldJobId) {
         const oldJob = jobs.find(j => j.id === oldJobId);
-        if (oldJob) setLastLeaveJob(oldJob);
+        if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+          setLastLeaveJob({ job: oldJob, isLastOut });
+        }
       }
     } catch(e) {
       showToast('Move failed — ' + (e.message || 'check connection'), true);
@@ -2078,8 +2083,8 @@ Command: "${transcript}"`
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
-        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
-          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
+        <LastLeaveSheet job={lastLeaveJob.job} isLastOut={lastLeaveJob.isLastOut} onPick={async s => {
+          await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
@@ -2724,8 +2729,8 @@ Command: "${transcript}"`
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
-        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
-          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
+        <LastLeaveSheet job={lastLeaveJob.job} isLastOut={lastLeaveJob.isLastOut} onPick={async s => {
+          await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
           setLastLeaveJob(null);
         }} onClose={() => setLastLeaveJob(null)} />
       )}
