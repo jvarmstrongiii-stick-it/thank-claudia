@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef } = React;
 
-const APP_REV = 154;
+const APP_REV = 155;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2376,7 +2376,7 @@ Command: "${transcript}"`
               <button onClick={() => setShowLeaving(true)} className="head"
                 style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                   background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
-                LEAVING THIS JOB
+                HEADING OUT
               </button>
               {clockUndo && (
                 <button onClick={undoClockAction} className="head"
@@ -4378,7 +4378,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             <button onClick={onLeaving} className="head"
               style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                 background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
-              LEAVING THIS JOB
+              HEADING OUT
             </button>
             {clockUndo && (
               <button onClick={onUndoClock} className="head"
