@@ -88,9 +88,9 @@ setTimeout(function() {
 </script>
 <div id="root"><div id="pre-react" style="padding:20px;color:#93a046;font-family:monospace;font-size:14px">TMC Mechanical — Loading…</div></div>
 <script id="app-script" type="text/plain">
-const { useState, useEffect, useCallback, useRef } = React;
+const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 155;
+const APP_REV = 156;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1237,6 +1237,197 @@ function MoveJobSheet({ clockSession, jobs, onMove, onClose, onNewJob }) {
   );
 }
 
+/* ── HoursReport ────────────────────────────────────────────────────────────── */
+function HoursReport({ jobs, users, onClose }) {
+  const [weekOffset, setWeekOffset] = useState(0);
+  const [tab, setTab] = useState('user');
+  const [notes, setNotes] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expandedKey, setExpandedKey] = useState(null);
+
+  const weekStart = useMemo(() => {
+    const d = new Date();
+    const day = d.getDay();
+    d.setDate(d.getDate() - (day === 0 ? 6 : day - 1) + weekOffset * 7);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, [weekOffset]);
+
+  const weekEnd = useMemo(() => {
+    const d = new Date(weekStart);
+    d.setDate(d.getDate() + 7);
+    return d;
+  }, [weekStart]);
+
+  const weekLabel = useMemo(() => {
+    const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endDisplay = new Date(weekEnd); endDisplay.setDate(endDisplay.getDate() - 1);
+    return `${fmt(weekStart)} – ${fmt(endDisplay)}`;
+  }, [weekStart, weekEnd]);
+
+  useEffect(() => {
+    setLoading(true);
+    setNotes([]);
+    setExpandedKey(null);
+    sb.from('job_notes')
+      .select('id, job_id, content, created_at')
+      .eq('source', 'system')
+      .gte('created_at', weekStart.toISOString())
+      .lt('created_at', weekEnd.toISOString())
+      .order('created_at', { ascending: true })
+      .then(({ data }) => { setNotes(data || []); setLoading(false); });
+  }, [weekStart.getTime()]);
+
+  const { byUser, byJob } = useMemo(() => {
+    const byUser = {};
+    const byJob = {};
+    const notesByJobId = {};
+    notes.forEach(n => {
+      if (!notesByJobId[n.job_id]) notesByJobId[n.job_id] = [];
+      notesByJobId[n.job_id].push({ id: n.id, content: n.content, at: n.created_at });
+    });
+    const we = weekEnd.toISOString();
+    Object.entries(notesByJobId).forEach(([jobId, jobNotes]) => {
+      const timeline = buildCrewTimeline(jobNotes, [], users);
+      const job = jobs.find(j => j.id === jobId);
+      const label = job ? job.customer : 'Unknown';
+      Object.entries(timeline).forEach(([userName, periods]) => {
+        periods.forEach(p => {
+          const ms = new Date(p.end || we) - new Date(p.start);
+          if (ms <= 0) return;
+          if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
+          byUser[userName].totalMs += ms;
+          if (!byUser[userName].jobs[jobId]) byUser[userName].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
+          byUser[userName].jobs[jobId].totalMs += ms;
+          if (p.status === 'In Route') byUser[userName].jobs[jobId].driveMs += ms;
+          else byUser[userName].jobs[jobId].onSiteMs += ms;
+          if (!byJob[jobId]) byJob[jobId] = { label, totalMs: 0, users: {} };
+          byJob[jobId].totalMs += ms;
+          if (!byJob[jobId].users[userName]) byJob[jobId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
+          byJob[jobId].users[userName].totalMs += ms;
+          if (p.status === 'In Route') byJob[jobId].users[userName].driveMs += ms;
+          else byJob[jobId].users[userName].onSiteMs += ms;
+        });
+      });
+    });
+    return { byUser, byJob };
+  }, [notes, jobs, users, weekEnd]);
+
+  const rowStyle = { marginBottom: 8, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
+  const subRowStyle = (first) => ({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: first ? 'none' : '1px solid var(--line)' });
+
+  function SubBreakdown({ driveMs, onSiteMs, totalMs }) {
+    return (
+      <div style={{ textAlign: 'right' }}>
+        <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(totalMs)}</div>
+        {driveMs > 0 && onSiteMs > 0 && (
+          <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
+            {fmtElapsed(driveMs)} drive · {fmtElapsed(onSiteMs)} on site
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const sortedUsers = Object.entries(byUser).sort((a, b) => b[1].totalMs - a[1].totalMs);
+  const sortedJobs  = Object.entries(byJob).sort((a, b) => b[1].totalMs - a[1].totalMs);
+
+  return (
+    <div className="fade-in" style={{ minHeight: '100vh', background: 'var(--bg)' }}>
+      <div style={{ padding: '18px 16px 14px', borderBottom: '1px solid var(--line)', background: 'var(--panel)', position: 'sticky', top: 0, zIndex: 10 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onClose} className="head" style={{ fontSize: 22, color: 'var(--text)', background: 'none', border: 'none', padding: '0 6px', cursor: 'pointer' }}>‹</button>
+          <div className="head" style={{ fontSize: 20, fontWeight: 700 }}>HOURS</div>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12 }}>
+          <button onClick={() => setWeekOffset(o => o - 1)} className="head"
+            style={{ fontSize: 16, padding: '4px 12px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--text)', cursor: 'pointer' }}>‹</button>
+          <div className="mono" style={{ flex: 1, textAlign: 'center', fontSize: 13, color: 'var(--text)', letterSpacing: '0.05em' }}>{weekLabel}</div>
+          <button onClick={() => setWeekOffset(o => Math.min(o + 1, 0))} className="head"
+            style={{ fontSize: 16, padding: '4px 12px', background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 6,
+              color: weekOffset === 0 ? 'var(--muted)' : 'var(--text)', cursor: weekOffset === 0 ? 'default' : 'pointer',
+              opacity: weekOffset === 0 ? 0.4 : 1 }} disabled={weekOffset === 0}>›</button>
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          {['user', 'job'].map(t => (
+            <button key={t} onClick={() => { setTab(t); setExpandedKey(null); }} className="head"
+              style={{ flex: 1, padding: '9px 0', borderRadius: 7, fontSize: 13, fontWeight: 700,
+                background: tab === t ? 'var(--olive-bright)' : 'var(--panel)',
+                color: tab === t ? 'var(--bg)' : 'var(--muted)',
+                border: `1px solid ${tab === t ? 'var(--olive-bright)' : 'var(--line)'}`,
+                cursor: 'pointer' }}>
+              BY {t === 'user' ? 'TECH' : 'JOB'}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div style={{ padding: '12px 16px' }}>
+        {loading && <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13, letterSpacing: '0.1em' }}>LOADING…</div>}
+
+        {!loading && tab === 'user' && (
+          sortedUsers.length === 0
+            ? <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13 }}>No hours logged this week</div>
+            : sortedUsers.map(([userName, data]) => (
+              <div key={userName} style={rowStyle}>
+                <button onClick={() => setExpandedKey(expandedKey === userName ? null : userName)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                  <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{userName.toUpperCase()}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKey === userName ? '▲' : '▼'}</span>
+                  </div>
+                </button>
+                {expandedKey === userName && (
+                  <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
+                    {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
+                      <div key={jobId} style={subRowStyle(i === 0)}>
+                        <div className="head" style={{ fontSize: 13, color: 'var(--text)', flex: 1, paddingRight: 10 }}>{jd.label}</div>
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+        )}
+
+        {!loading && tab === 'job' && (
+          sortedJobs.length === 0
+            ? <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13 }}>No hours logged this week</div>
+            : sortedJobs.map(([jobId, data]) => (
+              <div key={jobId} style={rowStyle}>
+                <button onClick={() => setExpandedKey(expandedKey === jobId ? null : jobId)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                  <div style={{ textAlign: 'left' }}>
+                    <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{data.label}</div>
+                    <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>
+                      {Object.keys(data.users).length} TECH{Object.keys(data.users).length !== 1 ? 'S' : ''}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKey === jobId ? '▲' : '▼'}</span>
+                  </div>
+                </button>
+                {expandedKey === jobId && (
+                  <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
+                    {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
+                      <div key={uName} style={subRowStyle(i === 0)}>
+                        <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── App ───────────────────────────────────────────────────────────────────── */
 function App() {
   const [deviceAuthorized, setDeviceAuthorized] = useState(
@@ -1292,6 +1483,7 @@ function App() {
   const [focusPhotos, setFocusPhotos] = useState(false);
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showHours, setShowHours] = useState(false);
   const [users, setUsers] = useState(FALLBACK_USERS);
   const [expandedCustomers, setExpandedCustomers] = useState(new Set());
   const [clockSession, setClockSession] = useState(() => {
@@ -2033,6 +2225,7 @@ Command: "${transcript}"`
       </React.Fragment>
     );
   }
+  if (showHours) return <HoursReport jobs={jobs} users={users} onClose={() => setShowHours(false)} />;
   if (selected) return (
     <React.Fragment>
       <JobDetail job={selected}
@@ -2337,6 +2530,10 @@ Command: "${transcript}"`
             style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}
             title="Capacitor Calculator">
             μF
+          </button>
+          <button onClick={() => setShowHours(true)} className="mono"
+            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
+            HRS
           </button>
           <button onClick={() => setShowSettings(true)} className="mono"
             style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
