@@ -5,7 +5,7 @@
 ## Commit & Deploy Rules (non-negotiable)
 
 1. **ALWAYS push to `main`** — Jack keeps a numbered r-commit history on main for rollback. Never leave work only on a feature branch. Use `git push origin HEAD:main` or push directly to main.
-2. **ALWAYS bump `APP_REV`** on every single commit — it's `const APP_REV = NNN;` near the top of `claudia.html` (currently **161**). This is the visible version badge on the dashboard. Forgetting it means Jack sees a stale revision number and thinks deploys aren't working.
+2. **ALWAYS bump `APP_REV`** on every single commit — it's `const APP_REV = NNN;` near the top of `claudia.html` (currently **162**). This is the visible version badge on the dashboard. Forgetting it means Jack sees a stale revision number and thinks deploys aren't working.
 3. **Set git identity before first commit** in each session: `git config user.email "noreply@anthropic.com" && git config user.name "Claude"`
 4. **Deploy takes ~1 minute** after push to main — GitHub Actions copies `claudia.html` → `dist/index.html` → `gh-pages` branch. If Jack says the version number is wrong, check `APP_REV` first before assuming a deploy issue.
 5. **r-number in commit message** — prefix every commit message with `rNNN:` matching the new APP_REV value.
@@ -39,7 +39,7 @@ Things that do NOT need documenting: UI copy changes, style tweaks, bug fixes th
 | JobDetail (selected) | `selected` | ✓ | ✓ |
 | Browse/dashboard | default | ✓ | ✓ |
 
-When adding a new App-level Sheet, check all four paths.
+When adding a new App-level Sheet, check all four paths. `StaleClockSheet` (r162) is rendered in the **JobDetail (selected)** and **Browse/dashboard** paths only — it can only appear when `clockSession` is truthy (a session left open from a prior day), which by definition excludes the ClockGate path.
 
 ---
 
@@ -458,9 +458,10 @@ EAS mobile builds are on hold. Do not assume any native build is current or runn
 
 | Issue | Severity | Detail |
 |-------|---------|--------|
-| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **161**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
+| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **162**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
 | **Push to main, always** | Critical | Jack's rollback strategy depends on numbered r-commits on `main`. Never leave work only on a feature branch. Use `git push origin HEAD:main` if the branch name differs. |
 | **claudia.html IS the app** | Critical | All user-facing changes must go in `claudia.html`. The Expo/RN app (`app/`, `components/`, `lib/`) is not deployed and not in active use. |
+| **Bank a clock leg before resetting `legStartedAt`** | High | The daily total relies on `addTodayMs` being called for the finished leg at every transition that resets `legStartedAt` (`moveToInRoute`, `clockOut`). Reset the leg without banking and that time vanishes from TODAY'S TIME. In Route → On Site is the *same* leg — `flipToOnSite` must NOT reset `legStartedAt`. Never use the persisted `startedAt` for elapsed math (it survives across days → multi-day durations); use `legStartedAt`. |
 | **DB column names differ from Expo types** | Critical | Live DB uses `flow_type`, `current_status`, `scheduled_at`, `site_address` — NOT `job_type`, `status`, `scheduled_time`, `address`. Never use Expo app column names when writing queries for claudia.html. |
 | **PostgREST schema cache staleness** | High | After `ALTER TABLE`, PostgREST caches the old schema and returns `PGRST204 "Could not find the X column"` until refreshed. Fix: run `NOTIFY pgrst, 'reload schema';` in Supabase SQL Editor. May take 5-10 min to propagate across all replicas. |
 | **`site_address` column may be missing** | High | Run `ALTER TABLE jobs ADD COLUMN site_address text; NOTIFY pgrst, 'reload schema';` if multi-property site picker or job saves fail with PGRST204 for `site_address`. |
@@ -487,3 +488,6 @@ EAS mobile builds are on hold. Do not assume any native build is current or runn
 - **No auth:** All operations use the public anon key. RLS policies on the database side control access.
 - **Dark olive theme:** CSS variables in `<style>` block — `--bg`, `--panel`, `--line`, `--olive-bright`, `--text`, `--muted`, `--danger`. Do not introduce off-palette colors without updating that block.
 - **Hours report:** `showHours` App state (boolean) triggers an early-return that renders `HoursReport` instead of the dashboard. `HoursReport` fetches `job_notes` with `source='system'` for a week range, then uses `buildCrewTimeline` to compute per-tech and per-job time totals. Data source is the existing system notes (e.g. `Status → In Route (Name)`) — no schema changes needed. Week is Monday-based; `weekOffset` (0 = current week, -1 = last week, etc.) drives navigation.
+- **Clock session shape:** `clockSession` (localStorage per user) = `{ jobId, status, startedAt, legStartedAt }`. `startedAt` = original clock-in anchor for the whole shift; `legStartedAt` (r162) = start of the **current leg** (this job/visit). A "leg" is one continuous stretch of presence that ends when you **leave** (move to another job, or clock out). In Route → On Site on the *same* job is the *same* leg — `flipToOnSite` must NOT reset `legStartedAt`.
+- **Daily time accounting (leg-banking):** `addTodayMs(userId, ms)` accumulates completed legs into a per-day localStorage bucket (`getTodayMs` returns 0 once its stored `date !== todayISO()`, so it self-resets at midnight; both have a 16h sanity cap). The live `ClockTimer` shows `getTodayMs() + (now - legStartedAt)` = **total worked today**. **Invariant:** every transition that ends a leg must call `addTodayMs` for the finished leg *before* resetting `legStartedAt`, or that time silently vanishes from the daily total. Current bank points: `moveToInRoute` (banks old leg, r162) and `clockOut`. The shop-activity note elapsed is computed from `legStartedAt` so it reflects the shop visit, not the whole shift.
+- **Stale prior-day session (r162):** `staleClock` App state `{ session, sinceDate }`. A `useEffect` keyed on `currentUser?.id` (mount / user switch) flags a `clockSession` whose `startedAt` date `!== todayISO()` and shows `StaleClockSheet`. `clockOutStale(atISO)` closes the session and writes the `Status → Cleared` note at the chosen time (for HoursReport accuracy) but does **not** touch `addTodayMs` (that bucket is today's; the prior day's hours live in `job_notes`). `keepStaleClock()` re-anchors `startedAt`/`legStartedAt` to now so the day starts clean and the prompt won't re-fire.

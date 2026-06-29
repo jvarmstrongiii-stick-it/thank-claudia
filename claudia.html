@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 161;
+const APP_REV = 162;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -691,8 +691,9 @@ function getTodayMs(userId) {
 }
 function addTodayMs(userId, ms) {
   if (!userId) return;
+  const capped = Math.min(Math.max(0, ms), 16 * 3600000); // sanity cap: 0–16h per session leg
   const prev = getTodayMs(userId);
-  localStorage.setItem(clockTodayKey(userId), JSON.stringify({ date: todayISO(), totalMs: prev + ms }));
+  localStorage.setItem(clockTodayKey(userId), JSON.stringify({ date: todayISO(), totalMs: prev + capped }));
 }
 
 /* ── Components ────────────────────────────────────────────────────────────── */
@@ -810,7 +811,9 @@ function ClockTimer({ startedAt, todayMs }) {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const total = todayMs + (now - new Date(startedAt).getTime());
+  const legMs = Math.max(0, now - new Date(startedAt).getTime());
+  const safeLegMs = Math.min(legMs, 16 * 3600000); // cap single leg at 16h
+  const total = (todayMs || 0) + safeLegMs;
   const h = Math.floor(total / 3600000);
   const m = Math.floor((total % 3600000) / 60000);
   return (
@@ -1180,6 +1183,51 @@ function ShopActivitySheet({ startedAt, onSave, onSkip }) {
           SKIP
         </button>
       </div>
+    </Sheet>
+  );
+}
+
+function StaleClockSheet({ session, sinceDate, jobs, onClockOut, onKeepGoing }) {
+  const job = session?.jobId ? (jobs || []).find(j => j.id === session.jobId) : null;
+  const [time, setTime] = React.useState('17:00'); // default: end of that prior workday
+  const ref = session.startedAt || session.legStartedAt;
+  const startedLabel = new Date(ref).toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+  function doClockOut() {
+    const [hh, mm] = time.split(':');
+    const dt = new Date(sinceDate + 'T00:00:00');
+    dt.setHours(Number(hh), Number(mm), 0, 0);
+    onClockOut(dt.toISOString());
+  }
+  return (
+    <Sheet title="STILL CLOCKED IN" onClose={onKeepGoing}>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:6 }}>
+        YOU CLOCKED IN {startedLabel.toUpperCase()}
+      </div>
+      {job && (
+        <div className="head" style={{ fontSize:16, fontWeight:700, color:"var(--text)", marginBottom:10 }}>
+          {(job.customer || '').toUpperCase()}
+        </div>
+      )}
+      <div style={{ fontSize:14, color:"var(--text)", lineHeight:1.4, marginBottom:16 }}>
+        That session is from a previous day. Clock out at the time you actually left, or keep going if you're still on it.
+      </div>
+      <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, letterSpacing:"0.06em" }}>
+        CLOCK-OUT TIME (on {sinceDate})
+      </div>
+      <input type="time" value={time} onChange={e => setTime(e.target.value)}
+        style={{ width:"100%", boxSizing:"border-box", padding:"10px 12px", marginBottom:16,
+          borderRadius:8, border:"1px solid var(--line)", background:"var(--bg)",
+          color:"var(--text)", fontSize:16, fontFamily:"inherit" }} />
+      <button onClick={doClockOut} className="head"
+        style={{ width:"100%", marginBottom:10, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+          background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+        CLOCK OUT
+      </button>
+      <button onClick={onKeepGoing} className="head"
+        style={{ width:"100%", padding:13, fontSize:14, fontWeight:600, borderRadius:10,
+          background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
+        KEEP GOING — STILL WORKING
+      </button>
     </Sheet>
   );
 }
@@ -1556,6 +1604,7 @@ function App() {
   const [pendingMapsJob, setPendingMapsJob] = useState(null); // job object awaiting "Want directions?" prompt
   const [pendingShopActivity, setPendingShopActivity] = useState(null); // { shopJobId, startedAt, mapsJobId } — fires after leaving shop
   const [showMenu, setShowMenu] = useState(false);
+  const [staleClock, setStaleClock] = useState(null); // { session, sinceDate } — clock session left open from a prior day
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -1711,6 +1760,16 @@ Command: "${transcript}"`
     setBrowseMode(false);
   }
 
+  // Detect a clock session left open from a previous day → prompt to clock out or keep going.
+  // Runs on mount and on user switch (keyed on user id), so fresh same-day sessions never re-prompt.
+  useEffect(() => {
+    if (!currentUser || !clockSession) return;
+    const ref = clockSession.startedAt || clockSession.legStartedAt;
+    if (!ref) return;
+    const refDate = new Date(ref).toISOString().split("T")[0];
+    if (refDate !== todayISO()) setStaleClock({ session: clockSession, sinceDate: refDate });
+  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const refresh = useCallback(async () => {
     const [jobData, choreData, userData] = await Promise.all([fetchJobs(), fetchChores(), fetchUsers()]);
     if (jobData === null) {
@@ -1805,7 +1864,7 @@ Command: "${transcript}"`
         job_id: jobId, content: `Status → ${status} (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
       });
-      const session = { jobId, status, startedAt: at };
+      const session = { jobId, status, startedAt: at, legStartedAt: at };
       setClockUndo({ prevSession: null, restore: [], clear: [{ jobId }] });
       saveClockSession(currentUser.id, session);
       setClockSession(session);
@@ -1823,7 +1882,7 @@ Command: "${transcript}"`
 
   async function clockOut(jobStatus) {
     if (!clockSession) return;
-    const { jobId, startedAt } = clockSession;
+    const { jobId, startedAt, legStartedAt } = clockSession;
     const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [] };
     const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
     if (jobId) {
@@ -1840,17 +1899,47 @@ Command: "${transcript}"`
       const shopJob = jobs.find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
       if (othersOnSite.length > 0) {
         setLeavingCrewCheck({ members: othersOnSite, newJobId: shopJob?.id || null, oldJobId: jobId,
-          someoneStayed: false, fromShop: wasShop, shopStartedAt: startedAt });
+          someoneStayed: false, fromShop: wasShop, shopStartedAt: legStartedAt || startedAt });
       } else if (wasShop) {
-        setPendingShopActivity({ shopJobId: jobId, startedAt, mapsJobId: null });
+        setPendingShopActivity({ shopJobId: jobId, startedAt: legStartedAt || startedAt, mapsJobId: null });
       }
     }
-    addTodayMs(currentUser.id, Date.now() - new Date(startedAt).getTime());
+    addTodayMs(currentUser.id, Date.now() - new Date(legStartedAt || startedAt).getTime());
     saveClockSession(currentUser.id, null);
     setClockSession(null);
     setClockUndo(undo);
     setShowClockOut(false);
     refresh();
+  }
+
+  // Stale prior-day session: close it at the chosen time, writing the Cleared note for HoursReport.
+  // Does NOT touch addTodayMs (that bucket is keyed to today; the prior day's hours live in job_notes).
+  async function clockOutStale(atISO) {
+    const sess = staleClock?.session;
+    setStaleClock(null);
+    if (!sess || !currentUser) return;
+    if (sess.jobId) {
+      await clearJobCrewStatus(sess.jobId, currentUser.id);
+      await sb.from('job_notes').insert({
+        job_id: sess.jobId, content: `Status → Cleared (${currentUser.name})`,
+        source: 'system', created_at: atISO, user_id: currentUser.id,
+      });
+    }
+    saveClockSession(currentUser.id, null);
+    setClockSession(null);
+    refresh();
+  }
+
+  // Stale prior-day session: keep working. Re-anchor the session to now so today's total
+  // starts clean and the stale prompt doesn't fire again on reload.
+  function keepStaleClock() {
+    const sess = staleClock?.session;
+    setStaleClock(null);
+    if (!sess || !currentUser) return;
+    const now = new Date().toISOString();
+    const session = { ...sess, startedAt: now, legStartedAt: now };
+    saveClockSession(currentUser.id, session);
+    setClockSession(session);
   }
 
   async function flipToOnSite(at = new Date().toISOString()) {
@@ -1870,6 +1959,8 @@ Command: "${transcript}"`
     const othersInRoute = remaining.filter(c => c.status === 'In Route' && c.user_id !== currentUser.id);
     const inRouteUsers = users.filter(u => othersInRoute.find(c => c.user_id === u.id));
     if (inRouteUsers.length > 0) setJoiningOnSiteCheck({ members: inRouteUsers, jobId: clockSession.jobId });
+    // In Route → On Site is the same continuous leg — do NOT reset legStartedAt or bank,
+    // or the in-route minutes vanish from today's total.
     const session = { ...clockSession, status: 'On Site' };
     saveClockSession(currentUser.id, session);
     setClockSession(session);
@@ -1888,6 +1979,9 @@ Command: "${transcript}"`
       let isLastOut = false;
       let hasCrew = false;
       const wasShop = oldJobId && jobs.find(j => j.id === oldJobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
+      const shopLegStart = clockSession.legStartedAt || startedAt;
+      // bank the leg we're leaving into today's running total before the new leg starts
+      addTodayMs(currentUser.id, Date.now() - new Date(shopLegStart).getTime());
       if (oldJobId) {
         await clearJobCrewStatus(oldJobId, currentUser.id);
         await sb.from('job_notes').insert({
@@ -1901,7 +1995,7 @@ Command: "${transcript}"`
         if (othersOnSite.length > 0) {
           setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId,
             mapsJobId: wasShop ? null : newJobId, someoneStayed: false,
-            fromShop: wasShop, shopStartedAt: startedAt });
+            fromShop: wasShop, shopStartedAt: shopLegStart });
           hasCrew = true;
         }
       }
@@ -1916,7 +2010,7 @@ Command: "${transcript}"`
         job_id: newJobId, content: `Status → In Route (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
       });
-      const session = { jobId: newJobId, status: 'In Route', startedAt };
+      const session = { jobId: newJobId, status: 'In Route', startedAt, legStartedAt: at };
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setClockUndo(undo);
@@ -2538,6 +2632,10 @@ Command: "${transcript}"`
           }}
         />
       )}
+      {staleClock && (
+        <StaleClockSheet session={staleClock.session} sinceDate={staleClock.sinceDate} jobs={jobs}
+          onClockOut={clockOutStale} onKeepGoing={keepStaleClock} />
+      )}
       {pendingMapsJob && (
         <Sheet title="NAVIGATION" onClose={() => setPendingMapsJob(null)}>
           <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:8 }}>
@@ -2624,7 +2722,7 @@ Command: "${transcript}"`
                   {clockSession.status.toUpperCase()}
                 </div>
               </div>
-              <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} />
+              <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} />
               {clockSession.jobId && (
                 <button onClick={clockSession.status === 'In Route' ? handleFlipToOnSite : undefined} className="head"
                   style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
@@ -3180,6 +3278,10 @@ Command: "${transcript}"`
             if (mapsJobId) { const mj = jobs.find(j => j.id === mapsJobId); if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj); }
           }}
         />
+      )}
+      {staleClock && (
+        <StaleClockSheet session={staleClock.session} sinceDate={staleClock.sinceDate} jobs={jobs}
+          onClockOut={clockOutStale} onKeepGoing={keepStaleClock} />
       )}
       {pendingMapsJob && (
         <Sheet title="NAVIGATION" onClose={() => setPendingMapsJob(null)}>
@@ -4685,7 +4787,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                 {clockSession.status.toUpperCase()}
               </div>
             </button>
-            <ClockTimer startedAt={clockSession.startedAt} todayMs={getTodayMs ? getTodayMs() : 0} />
+            <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs ? getTodayMs() : 0} />
             {clockSession.jobId && (
               <button onClick={clockSession.status === 'In Route' ? onFlipToOnSite : undefined} className="head"
                 style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
