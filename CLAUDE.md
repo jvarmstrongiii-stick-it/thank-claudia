@@ -47,6 +47,8 @@ When adding a new App-level Sheet, check all four paths. `StaleClockSheet` (r162
 
 The user operating this session (jvarmstrongiii@gmail.com) is **Jack**, one of the techs/users in the `users` table. When personalizing app behavior "for me" or "I/me/my", treat that as referring to Jack.
 
+**Interaction preference:** Jack follows my reasoning live. When a real question or load-bearing assumption comes up mid-task — in auto mode or plan mode — ask him right then (via `AskUserQuestion`) instead of guessing and proceeding. He'd rather redirect early than discover a wrong assumption after the work is done. This applies to "if Jack does X / if Brett does Y" behavior guesses especially. Still bias toward action on reversible, low-stakes calls — this is about surfacing the decisions that actually change the outcome.
+
 # thank-claudia — Session Context
 
 **thank-claudia** is a voice-first HVAC field service management app (React Native/Expo) for TMC Mechanical in Philadelphia. Techs use it to log jobs, track status, scan equipment, and take photos from the field.
