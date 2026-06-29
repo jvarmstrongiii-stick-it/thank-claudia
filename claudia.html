@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 157;
+const APP_REV = 158;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1457,7 +1457,7 @@ function App() {
 
   const [selectedId, setSelectedIdRaw] = useState(() => sessionStorage.getItem('tmc_selected_job') || null);
   const [recentJobs, setRecentJobs] = useState(getRecentJobs);
-  const [recentsOpen, setRecentsOpen] = useState(false);
+
   const [searchActive, setSearchActive] = useState(false);
   const searchInputRef = useRef(null);
   function setSelectedId(id) {
@@ -2597,27 +2597,16 @@ Command: "${transcript}"`
 
       {!loading && (
         <React.Fragment>
-          {/* Two-pill header: RECENTLY VIEWED | SEARCH */}
-          <div style={{ display:"flex", gap:8, padding:"12px 16px 0" }}>
-            <button onClick={() => { setRecentsOpen(true); setSearchActive(false); setSearch(""); }} className="head"
-              style={{ flex:1, padding:"10px 0", borderRadius:7, fontSize:14, fontWeight:700,
-                background: recentsOpen && !searchActive ? "var(--olive-bright)" : "var(--panel)",
-                color: recentsOpen && !searchActive ? "var(--bg)" : "var(--muted)",
-                border:`1px solid ${recentsOpen && !searchActive ? "var(--olive-bright)" : "var(--line)"}` }}>
-              RECENTLY VIEWED
-            </button>
-            <button onClick={() => { setSearchActive(true); setRecentsOpen(false); }} className="head"
-              style={{ flex:1, padding:"10px 0", borderRadius:7, fontSize:14, fontWeight:700,
-                background: searchActive || q ? "var(--olive-bright)" : "var(--panel)",
-                color: searchActive || q ? "var(--bg)" : "var(--muted)",
-                border:`1px solid ${searchActive || q ? "var(--olive-bright)" : "var(--line)"}` }}>
-              🔍 SEARCH
-            </button>
-          </div>
-
-          {/* Search input — only visible when search mode active */}
-          {(searchActive || q) && (
-            <div style={{ padding:"8px 16px 0" }}>
+          {/* Search bar */}
+          <div style={{ padding:"12px 16px 0" }}>
+            {!(searchActive || q) ? (
+              <button onClick={() => { setSearchActive(true); }} className="head"
+                style={{ display:"flex", alignItems:"center", gap:10, width:"100%", padding:"10px 14px",
+                  borderRadius:7, fontSize:14, fontWeight:700, textAlign:"left",
+                  background:"var(--panel)", color:"var(--muted)", border:"1px solid var(--line)", cursor:"pointer" }}>
+                <span>🔍</span><span>SEARCH</span>
+              </button>
+            ) : (
               <div style={{ position:"relative" }}>
                 <input ref={searchInputRef} type="text" value={search} autoFocus={searchActive && !q}
                   onChange={e => setSearch(e.target.value)}
@@ -2627,39 +2616,33 @@ Command: "${transcript}"`
                 <span style={{ position:"absolute", left:12, top:"50%", transform:"translateY(-50%)",
                   fontSize:15, color:"var(--muted)", pointerEvents:"none" }}>🔍</span>
                 {search && (
-                  <button onClick={() => { setSearch(""); setSearchActive(false); setRecentsOpen(false); }}
+                  <button onClick={() => { setSearch(""); setSearchActive(false); }}
                     style={{ position:"absolute", right:10, top:"50%", transform:"translateY(-50%)",
                       fontSize:16, color:"var(--muted)", padding:4 }}>✕</button>
                 )}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
-          {/* Recents panel */}
-          {recentsOpen && !searchActive && !q && recentJobs.length > 0 && (
-            <div className="fade-in" style={{
-              margin:"4px 16px 0", borderRadius:10, overflow:"hidden",
-              border:"1px solid var(--line)", background:"var(--panel-2)",
-              boxShadow:"0 6px 20px rgba(0,0,0,0.5)",
-            }}>
-              <div style={{ padding:"10px 14px", borderBottom:"1px solid var(--line)" }}>
-                <span className="head" style={{ fontSize:13, fontWeight:700, color:"var(--muted)", letterSpacing:"0.08em" }}>RECENTLY VIEWED</span>
-              </div>
+          {/* Recently viewed — always-visible horizontal chip strip */}
+          {!q && recentJobs.length > 0 && (
+            <div style={{ display:"flex", gap:8, padding:"10px 16px 0", overflowX:"auto",
+              WebkitOverflowScrolling:"touch", scrollbarWidth:"none" }}>
               {recentJobs.map(r => {
                 const live = jobs.find(j => j.id === r.id);
                 const display = live || r;
                 return (
-                  <button key={r.id} onClick={() => { setRecentsOpen(false); setSelectedId(r.id); }}
-                    style={{ display:"flex", flexDirection:"column", width:"100%", padding:"13px 14px",
-                      borderBottom:"1px solid var(--line)", textAlign:"left", background:"transparent",
-                      color:"var(--text)", gap:4 }}>
-                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8 }}>
-                      <span className="head" style={{ fontSize:16, fontWeight:700, color:"var(--text)" }}>{display.customer || r.customer}</span>
-                      <span className="head" style={{ fontSize:13, color:"var(--text)", whiteSpace:"nowrap" }}>{display.status || r.status}</span>
-                    </div>
-                    <div className="mono" style={{ fontSize:13, color:"var(--text)" }}>
-                      {display.type || r.type}{(display.site || r.site) ? ` · ${display.site || r.site}` : ''}
-                    </div>
+                  <button key={r.id} onClick={() => setSelectedId(r.id)}
+                    style={{ display:"flex", flexDirection:"column", flexShrink:0, padding:"7px 12px",
+                      borderRadius:8, border:"1px solid var(--line)", background:"var(--panel)",
+                      textAlign:"left", cursor:"pointer", maxWidth:160 }}>
+                    <span className="head" style={{ fontSize:13, fontWeight:700, color:"var(--text)",
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:136 }}>
+                      {display.customer || r.customer}
+                    </span>
+                    <span className="mono" style={{ fontSize:10, color:"var(--muted)", marginTop:2, whiteSpace:"nowrap" }}>
+                      {display.status || r.status}
+                    </span>
                   </button>
                 );
               })}
