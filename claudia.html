@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 162;
+const APP_REV = 163;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -168,6 +168,12 @@ function setSectionCollapsed(key, collapsed) {
 
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
 function todayISO() { return new Date().toISOString().split("T")[0]; }
+// Local-date YYYY-MM-DD — used for the clock "day" boundary so TODAY'S TIME and
+// the stale-session prompt roll over at local midnight, not UTC midnight (~8 PM ET).
+function todayLocalISO(d = new Date()) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
 function nowTimeRounded15() {
   const d = new Date();
   let mins = Math.round(d.getMinutes() / 15) * 15;
@@ -685,7 +691,7 @@ function getTodayMs(userId) {
   if (!userId) return 0;
   try {
     const d = JSON.parse(localStorage.getItem(clockTodayKey(userId)));
-    if (!d || d.date !== todayISO()) return 0;
+    if (!d || d.date !== todayLocalISO()) return 0;
     return d.totalMs || 0;
   } catch { return 0; }
 }
@@ -693,7 +699,7 @@ function addTodayMs(userId, ms) {
   if (!userId) return;
   const capped = Math.min(Math.max(0, ms), 16 * 3600000); // sanity cap: 0–16h per session leg
   const prev = getTodayMs(userId);
-  localStorage.setItem(clockTodayKey(userId), JSON.stringify({ date: todayISO(), totalMs: prev + capped }));
+  localStorage.setItem(clockTodayKey(userId), JSON.stringify({ date: todayLocalISO(), totalMs: prev + capped }));
 }
 
 /* ── Components ────────────────────────────────────────────────────────────── */
@@ -1766,8 +1772,8 @@ Command: "${transcript}"`
     if (!currentUser || !clockSession) return;
     const ref = clockSession.startedAt || clockSession.legStartedAt;
     if (!ref) return;
-    const refDate = new Date(ref).toISOString().split("T")[0];
-    if (refDate !== todayISO()) setStaleClock({ session: clockSession, sinceDate: refDate });
+    const refDate = todayLocalISO(new Date(ref));
+    if (refDate !== todayLocalISO()) setStaleClock({ session: clockSession, sinceDate: refDate });
   }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(async () => {
@@ -2019,7 +2025,7 @@ Command: "${transcript}"`
       refresh();
       if (!hasCrew) {
         if (wasShop) {
-          setPendingShopActivity({ shopJobId: oldJobId, startedAt, mapsJobId: newJobId });
+          setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopLegStart, mapsJobId: newJobId });
         } else {
           const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
           if (addr) setPendingMapsJob(newJob);
@@ -5658,7 +5664,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             REWIND IF YOU FORGOT TO HIT THE BUTTON
           </div>
           <button onClick={() => {
-            const at = new Date(`${todayISO()}T${confirmTime}:00`).toISOString();
+            const [chh, cmm] = confirmTime.split(':');
+            const cd = new Date(); cd.setHours(+chh, +cmm, 0, 0);
+            const at = cd.toISOString();
             const s = pendingStatus;
             onUpdate({ status: s, _at: at });
             setPendingStatus(null);
