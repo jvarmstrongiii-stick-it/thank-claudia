@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 164;
+const APP_REV = 165;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -167,7 +167,9 @@ function setSectionCollapsed(key, collapsed) {
 }
 
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
-function todayISO() { return new Date().toISOString().split("T")[0]; }
+// Today's date (YYYY-MM-DD) in the configured app timezone (Philly by default).
+// Aliased to todayLocalISO so every "today" in the app is app-TZ, not UTC/device.
+function todayISO() { return todayLocalISO(); }
 
 // Configurable timezone (governs the clock "day" boundary). Default Eastern (Philly).
 const TZ_KEY = 'tmc_timezone';
@@ -195,19 +197,51 @@ function dateISOInTZ(d, tz) {
 // Date YYYY-MM-DD in the configured app timezone — used for the clock "day" boundary
 // so TODAY'S TIME and the stale-session prompt roll over at local midnight, not UTC (~8 PM ET).
 function todayLocalISO(d = new Date()) { return dateISOInTZ(d, getAppTZ()); }
+// Offset (ms) of a tz at a given instant: (wall-as-UTC) − realUTC. Positive = ahead of UTC.
+function tzOffsetMs(date, tz) {
+  const dtf = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12:false,
+    year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit', second:'2-digit' });
+  const parts = {};
+  dtf.formatToParts(date).forEach(p => { if (p.type !== 'literal') parts[p.type] = p.value; });
+  const hh = parts.hour === '24' ? 0 : Number(parts.hour);
+  const asUTC = Date.UTC(+parts.year, +parts.month - 1, +parts.day, hh, +parts.minute, +parts.second);
+  return asUTC - date.getTime();
+}
+// Wall clock (date 'YYYY-MM-DD', time 'HH:MM') interpreted IN the app TZ → UTC ISO instant.
+function zonedWallToISO(dateISO, timeHHMM) {
+  if (!dateISO || !timeHHMM) return null;
+  const [y, mo, d] = dateISO.split('-').map(Number);
+  const [h, mi] = timeHHMM.split(':').map(Number);
+  let ts = Date.UTC(y, mo - 1, d, h, mi, 0);
+  const off = tzOffsetMs(new Date(ts), getAppTZ());
+  const iso = new Date(ts - off);
+  return isNaN(iso) ? null : iso.toISOString();
+}
+// datetime-local value 'YYYY-MM-DDTHH:MM' interpreted in the app TZ → UTC ISO instant.
+function zonedLocalInputToISO(val) {
+  if (!val) return null;
+  const [datePart, timePart] = val.split('T');
+  return zonedWallToISO(datePart, (timePart || '').slice(0, 5));
+}
+// Instant → 'HH:MM' (24h) wall clock in app TZ.
+function tzTimeHHMM(d = new Date()) {
+  try { return new Intl.DateTimeFormat('en-GB', { timeZone: getAppTZ(), hour:'2-digit', minute:'2-digit', hour12:false }).format(d); }
+  catch { const pad = n => String(n).padStart(2,"0"); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; }
+}
+// Instant → 'h:mm AM/PM' in app TZ.
+function tzClock(d) {
+  try { return new Intl.DateTimeFormat('en-US', { timeZone: getAppTZ(), hour:'numeric', minute:'2-digit', hour12:true }).format(d); }
+  catch { let h=d.getHours(); const mn=d.getMinutes(); const ap=h>=12?"PM":"AM"; h=h%12||12; return `${h}:${String(mn).padStart(2,"0")} ${ap}`; }
+}
 function nowTimeRounded15() {
-  const d = new Date();
-  let mins = Math.round(d.getMinutes() / 15) * 15;
-  let hours = d.getHours();
+  const [h, m] = tzTimeHHMM().split(':').map(Number);
+  let mins = Math.round(m / 15) * 15;
+  let hours = h;
   if (mins === 60) { mins = 0; hours = (hours + 1) % 24; }
   const pad = n => String(n).padStart(2,"0");
   return `${pad(hours)}:${pad(mins)}`;
 }
-function nowTimeHHMM() {
-  const d = new Date();
-  const pad = n => String(n).padStart(2,"0");
-  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+function nowTimeHHMM() { return tzTimeHHMM(new Date()); }
 function siteAddr(j) { return j.site_address || j.address || ""; }
 function openMapsNav(job) {
   if (!job) return;
@@ -234,15 +268,11 @@ function fmtTimestamp(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
   if (isNaN(d)) return "—";
-  let h = d.getHours();
-  const mn = d.getMinutes();
-  const ap = h >= 12 ? "PM" : "AM";
-  h = h % 12 || 12;
-  const time = `${h}:${String(mn).padStart(2,"0")} ${ap}`;
-  const sameDay = d.toDateString() === new Date().toDateString();
-  if (sameDay) return time;
-  const pad = n => String(n).padStart(2,"0");
-  return `${pad(d.getMonth()+1)}/${pad(d.getDate())} ${time}`;
+  const time = tzClock(d); // 'h:mm AM/PM' in app TZ
+  const dayISO = dateISOInTZ(d, getAppTZ());
+  if (dayISO === todayLocalISO()) return time;
+  const [, mm, dd] = dayISO.split("-");
+  return `${mm}/${dd} ${time}`;
 }
 function fmtElapsed(ms) {
   if (!isFinite(ms) || ms < 0) ms = 0;
@@ -288,8 +318,8 @@ function shiftDateISO(dateStr, delta) {
 function toLocalDateTimeInput(iso) {
   const d = iso ? new Date(iso) : new Date();
   if (isNaN(d)) return '';
-  const pad = n => String(n).padStart(2,"0");
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  // Render the instant as a wall-clock datetime-local value in the app TZ.
+  return `${dateISOInTZ(d, getAppTZ())}T${tzTimeHHMM(d)}`;
 }
 function deriveCustomers(jobs) {
   const map = {};
@@ -339,8 +369,8 @@ function fromRow(row, notes=[]) {
     email: c.email || '',
     type: row.flow_type || 'Service Call',
     status: row.current_status || 'New',
-    scheduled_date: scheduledAt ? scheduledAt.slice(0,10) : todayISO(),
-    scheduled_time: scheduledAt ? scheduledAt.slice(11,16) : '09:00',
+    scheduled_date: scheduledAt ? dateISOInTZ(new Date(scheduledAt), getAppTZ()) : todayLocalISO(),
+    scheduled_time: scheduledAt ? tzTimeHHMM(new Date(scheduledAt)) : '09:00',
     value: Number(row.value) || 0,
     original_ask: row.original_ask || '',
     notes: row.notes || '',
@@ -366,8 +396,7 @@ function validUUID(s) { return UUID_RE.test(s||'') ? s : null; }
 function toRow(job, customerId, userId) {
   let scheduled_at = null;
   if (job.scheduled_date && job.scheduled_time) {
-    const d = new Date(`${job.scheduled_date}T${job.scheduled_time}:00`);
-    if (!isNaN(d)) scheduled_at = d.toISOString();
+    scheduled_at = zonedWallToISO(job.scheduled_date, job.scheduled_time); // interpret as app TZ
   }
   return {
     customer_id: customerId || job._customer_id,
@@ -1218,12 +1247,9 @@ function StaleClockSheet({ session, sinceDate, jobs, onClockOut, onKeepGoing }) 
   const job = session?.jobId ? (jobs || []).find(j => j.id === session.jobId) : null;
   const [time, setTime] = React.useState('17:00'); // default: end of that prior workday
   const ref = session.startedAt || session.legStartedAt;
-  const startedLabel = new Date(ref).toLocaleString([], { weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+  const startedLabel = new Date(ref).toLocaleString('en-US', { timeZone: getAppTZ(), weekday:'short', month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
   function doClockOut() {
-    const [hh, mm] = time.split(':');
-    const dt = new Date(sinceDate + 'T00:00:00');
-    dt.setHours(Number(hh), Number(mm), 0, 0);
-    onClockOut(dt.toISOString());
+    onClockOut(zonedWallToISO(sinceDate, time)); // chosen clock-out time = app TZ on that date
   }
   return (
     <Sheet title="STILL CLOCKED IN" onClose={onKeepGoing}>
@@ -2096,7 +2122,7 @@ Command: "${transcript}"`
     if ('scheduled_date' in patch || 'scheduled_time' in patch) {
       const d = ('scheduled_date' in patch ? patch.scheduled_date : job.scheduled_date);
       const t = ('scheduled_time' in patch ? patch.scheduled_time : job.scheduled_time);
-      if (d && t) { const dt = new Date(`${d}T${t}:00`); updateData.scheduled_at = isNaN(dt) ? null : dt.toISOString(); }
+      if (d && t) { updateData.scheduled_at = zonedWallToISO(d, t); }
     }
     const { error } = await sb.from('jobs').update(updateData).eq('id', id);
     if (error) { showToast("Error updating job", true); console.error(error); return; }
@@ -2364,8 +2390,7 @@ Command: "${transcript}"`
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={() => {
                 const [hh, mm] = fieldConfirmTime.split(':');
-                const d = new Date(); d.setHours(+hh, +mm, 0, 0);
-                const at = d.toISOString();
+                const at = zonedWallToISO(todayLocalISO(), `${hh}:${mm}`); // picked time = app TZ today
                 const fc = fieldTimeConfirm;
                 setFieldTimeConfirm(null);
                 if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
@@ -2617,8 +2642,7 @@ Command: "${transcript}"`
           <div style={{ display:"flex", gap:12 }}>
             <button onClick={() => {
               const [hh, mm] = fieldConfirmTime.split(':');
-              const d = new Date(); d.setHours(+hh, +mm, 0, 0);
-              const at = d.toISOString();
+              const at = zonedWallToISO(todayLocalISO(), `${hh}:${mm}`); // picked time = app TZ today
               const fc = fieldTimeConfirm;
               setFieldTimeConfirm(null);
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
@@ -3264,8 +3288,7 @@ Command: "${transcript}"`
           <div style={{ display:"flex", gap:12 }}>
             <button onClick={() => {
               const [hh, mm] = fieldConfirmTime.split(':');
-              const d = new Date(); d.setHours(+hh, +mm, 0, 0);
-              const at = d.toISOString();
+              const at = zonedWallToISO(todayLocalISO(), `${hh}:${mm}`); // picked time = app TZ today
               const fc = fieldTimeConfirm;
               setFieldTimeConfirm(null);
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
@@ -4345,7 +4368,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       }).select().single();
       if (targetJobId === job.id) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
     } else {
-      const statusAt = new Date(editCrewDateTime).toISOString();
+      const statusAt = zonedLocalInputToISO(editCrewDateTime);
       const targetJobId = editCrewJobId || job.id;
       if (targetJobId !== job.id) {
         await clearJobCrewStatus(job.id, u.id);
@@ -4380,7 +4403,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   }
 
   async function saveLogEdit(period) {
-    const startIso = new Date(editLogStart).toISOString();
+    const startIso = zonedLocalInputToISO(editLogStart);
     const targetJobId = editLogJobId || job.id;
     const jobChanged = targetJobId !== job.id;
     const noteIds = [period.startId, period.endId].filter(Boolean);
@@ -4392,7 +4415,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       else setCrewLog(prev => prev.map(n => n.id === period.startId ? { ...n, at: startIso } : n));
     }
     if (period.endId && editLogEnd) {
-      const endIso = new Date(editLogEnd).toISOString();
+      const endIso = zonedLocalInputToISO(editLogEnd);
       const update = { created_at: endIso };
       if (jobChanged) update.job_id = targetJobId;
       await sb.from('job_notes').update(update).eq('id', period.endId);
@@ -4425,8 +4448,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
 
   async function saveAddLog(name) {
     if (!addLogStart || !addLogEnd) return;
-    const startIso = new Date(addLogStart).toISOString();
-    const endIso = new Date(addLogEnd).toISOString();
+    const startIso = zonedLocalInputToISO(addLogStart);
+    const endIso = zonedLocalInputToISO(addLogEnd);
     if (new Date(endIso) <= new Date(startIso)) { alert("End must be after start"); return; }
     const startContent = `Status → ${addLogStatus} (${name})`;
     const endContent = `Status → Cleared (${name}) (added)`;
@@ -4874,7 +4897,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         {(() => {
           const today = todayISO();
           const techsToday = users.filter(u => {
-            const periods = (crewTimeline[u.name] || []).filter(p => p.start.slice(0,10) === today);
+            const periods = (crewTimeline[u.name] || []).filter(p => dateISOInTZ(new Date(p.start), getAppTZ()) === today);
             if (periods.length === 0) return false;
             const totalMs = periods.reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
             return totalMs > 0;
@@ -4884,7 +4907,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             <div style={{ marginTop:12, padding:"10px 14px", background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
               <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:8, letterSpacing:"0.08em" }}>TODAY'S TIME</div>
               {techsToday.map(u => {
-                const periods = (crewTimeline[u.name] || []).filter(p => p.start.slice(0,10) === today);
+                const periods = (crewTimeline[u.name] || []).filter(p => dateISOInTZ(new Date(p.start), getAppTZ()) === today);
                 const driveMs = periods.filter(p => p.status === 'In Route')
                   .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
                 const onSiteMs = periods.filter(p => p.status === 'On Site')
@@ -5542,7 +5565,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             </div>
             {timeLogOpen && users.filter(u => crewTimeline[u.name]).map(u => {
               const name = u.name;
-              const periods = (crewTimeline[name] || []).filter(p => p.start.slice(0,10) === crewLogDate);
+              const periods = (crewTimeline[name] || []).filter(p => dateISOInTZ(new Date(p.start), getAppTZ()) === crewLogDate);
               const driveMs = periods.filter(p => p.status === 'In Route')
                 .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
               const onSiteMs = periods.filter(p => p.status === 'On Site')
@@ -5695,9 +5718,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             REWIND IF YOU FORGOT TO HIT THE BUTTON
           </div>
           <button onClick={() => {
-            const [chh, cmm] = confirmTime.split(':');
-            const cd = new Date(); cd.setHours(+chh, +cmm, 0, 0);
-            const at = cd.toISOString();
+            const at = zonedWallToISO(todayLocalISO(), confirmTime); // picked time = app TZ today
             const s = pendingStatus;
             onUpdate({ status: s, _at: at });
             setPendingStatus(null);
@@ -5745,9 +5766,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, marginTop:4 }}>DATE</div>
           <input type="date" value={date} min={todayISO()} onChange={e => setDate(e.target.value)} />
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"14px 0 6px" }}>TIME</div>
-          <input type="time" value={time} min={date === todayISO() ? nowTimeRounded15() : undefined} onChange={e => setTime(e.target.value)} />
+          <input type="time" value={time} min={date === todayLocalISO() ? nowTimeRounded15() : undefined} onChange={e => setTime(e.target.value)} />
           <button onClick={() => {
-              const dt = new Date(`${date}T${time}:00`);
+              const iso = zonedWallToISO(date, time);
+              const dt = iso ? new Date(iso) : NaN;
               if (isNaN(dt) || dt < new Date()) { alert('Please choose a date and time that is not in the past.'); return; }
               onUpdate({ scheduled_date:date, scheduled_time:time }); setShowResched(false);
             }} className="head"
