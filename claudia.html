@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 160;
+const APP_REV = 161;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1329,14 +1329,15 @@ function HoursReport({ jobs, users, onClose }) {
       if (!notesByJobId[n.job_id]) notesByJobId[n.job_id] = [];
       notesByJobId[n.job_id].push({ id: n.id, content: n.content, at: n.created_at });
     });
-    const we = weekEnd.toISOString();
+    const weMs = weekEnd.getTime();
     Object.entries(notesByJobId).forEach(([jobId, jobNotes]) => {
       const timeline = buildCrewTimeline(jobNotes, [], users);
       const job = jobs.find(j => j.id === jobId);
       const label = job ? job.customer : 'Unknown';
       Object.entries(timeline).forEach(([userName, periods]) => {
         periods.forEach(p => {
-          const ms = new Date(p.end || we) - new Date(p.start);
+          const endMs = p.end ? new Date(p.end).getTime() : Math.min(Date.now(), weMs);
+          const ms = endMs - new Date(p.start).getTime();
           if (ms <= 0) return;
           if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
           byUser[userName].totalMs += ms;
