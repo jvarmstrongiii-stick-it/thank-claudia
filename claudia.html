@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 159;
+const APP_REV = 160;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1141,6 +1141,49 @@ function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
   );
 }
 
+const SHOP_ACTIVITY_TAGS = ['VEHICLE / VAN WORK', 'SHOP CLEANUP', 'JOB PREP', 'ADMIN / OFFICE', 'GENERAL', 'OTHER'];
+
+function ShopActivitySheet({ startedAt, onSave, onSkip }) {
+  const [selected, setSelected] = React.useState(new Set());
+  const [note, setNote] = React.useState('');
+  const elapsed = fmtElapsed(Date.now() - new Date(startedAt).getTime());
+  const toggle = tag => setSelected(s => { const n = new Set(s); n.has(tag) ? n.delete(tag) : n.add(tag); return n; });
+  return (
+    <Sheet title="WHAT DID YOU DO AT THE SHOP?" onClose={onSkip}>
+      <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:16 }}>TIME AT SHOP: {elapsed}</div>
+      <div style={{ display:"flex", flexWrap:"wrap", gap:8, marginBottom:18 }}>
+        {SHOP_ACTIVITY_TAGS.map(tag => (
+          <button key={tag} onClick={() => toggle(tag)} className="mono"
+            style={{ padding:"8px 14px", borderRadius:20, fontSize:12, fontWeight:600,
+              background: selected.has(tag) ? "var(--olive-bright)" : "var(--panel)",
+              color: selected.has(tag) ? "var(--bg)" : "var(--muted)",
+              border: `1px solid ${selected.has(tag) ? "var(--olive-bright)" : "var(--line)"}` }}>
+            {tag}
+          </button>
+        ))}
+      </div>
+      <textarea value={note} onChange={e => setNote(e.target.value)}
+        placeholder="Any additional notes… (optional)"
+        rows={3}
+        style={{ width:"100%", background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8,
+          color:"var(--text)", fontSize:14, padding:"10px 12px", resize:"none", boxSizing:"border-box",
+          marginBottom:16, fontFamily:"inherit", outline:"none" }} />
+      <div style={{ display:"flex", gap:10 }}>
+        <button onClick={() => onSave([...selected], note.trim())} className="head"
+          style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+            background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+          SAVE
+        </button>
+        <button onClick={onSkip} className="head"
+          style={{ padding:"14px 18px", fontSize:15, fontWeight:700, borderRadius:10,
+            background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+          SKIP
+        </button>
+      </div>
+    </Sheet>
+  );
+}
+
 function LastLeaveSheet({ job, onPick, onClose }) {
   return (
     <Sheet title={`LAST ONE OUT — ${(job.customer || '').toUpperCase()}`} onClose={onClose}>
@@ -1510,6 +1553,7 @@ function App() {
   const [fieldTimeConfirm, setFieldTimeConfirm] = useState(null); // { type:'clockIn'|'moveJob'|'flipOnSite', jobId?, status? }
   const [fieldConfirmTime, setFieldConfirmTime] = useState(() => nowTimeHHMM());
   const [pendingMapsJob, setPendingMapsJob] = useState(null); // job object awaiting "Want directions?" prompt
+  const [pendingShopActivity, setPendingShopActivity] = useState(null); // { shopJobId, startedAt, mapsJobId } — fires after leaving shop
   const [showMenu, setShowMenu] = useState(false);
 
   function showToast(msg, isError=false) {
@@ -1780,6 +1824,7 @@ Command: "${transcript}"`
     if (!clockSession) return;
     const { jobId, startedAt } = clockSession;
     const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [] };
+    const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
     if (jobId) {
       await clearJobCrewStatus(jobId, currentUser.id);
       if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
@@ -1792,7 +1837,12 @@ Command: "${transcript}"`
       const stillOnSite = remaining.filter(c => c.status === 'On Site');
       const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
       const shopJob = jobs.find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
-      if (othersOnSite.length > 0) setLeavingCrewCheck({ members: othersOnSite, newJobId: shopJob?.id || null, oldJobId: jobId });
+      if (othersOnSite.length > 0) {
+        setLeavingCrewCheck({ members: othersOnSite, newJobId: shopJob?.id || null, oldJobId: jobId,
+          someoneStayed: false, fromShop: wasShop, shopStartedAt: startedAt });
+      } else if (wasShop) {
+        setPendingShopActivity({ shopJobId: jobId, startedAt, mapsJobId: null });
+      }
     }
     addTodayMs(currentUser.id, Date.now() - new Date(startedAt).getTime());
     saveClockSession(currentUser.id, null);
@@ -1836,6 +1886,7 @@ Command: "${transcript}"`
       };
       let isLastOut = false;
       let hasCrew = false;
+      const wasShop = oldJobId && jobs.find(j => j.id === oldJobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
       if (oldJobId) {
         await clearJobCrewStatus(oldJobId, currentUser.id);
         await sb.from('job_notes').insert({
@@ -1847,7 +1898,9 @@ Command: "${transcript}"`
         isLastOut = stillOnSite.length === 0;
         const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
         if (othersOnSite.length > 0) {
-          setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId, mapsJobId: newJobId, someoneStayed: false });
+          setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId,
+            mapsJobId: wasShop ? null : newJobId, someoneStayed: false,
+            fromShop: wasShop, shopStartedAt: startedAt });
           hasCrew = true;
         }
       }
@@ -1870,10 +1923,14 @@ Command: "${transcript}"`
       setSelectedId(newJobId);
       refresh();
       if (!hasCrew) {
-        const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
-        if (addr) setPendingMapsJob(newJob);
+        if (wasShop) {
+          setPendingShopActivity({ shopJobId: oldJobId, startedAt, mapsJobId: newJobId });
+        } else {
+          const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
+          if (addr) setPendingMapsJob(newJob);
+        }
       }
-      if (isLastOut && oldJobId) {
+      if (isLastOut && oldJobId && !wasShop) {
         const oldJob = jobs.find(j => j.id === oldJobId);
         if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
       }
@@ -2287,15 +2344,19 @@ Command: "${transcript}"`
           if (rest.length > 0) {
             setLeavingCrewCheck({ ...leavingCrewCheck, members: rest, someoneStayed: nextSomeoneStayed });
           } else {
-            const { mapsJobId, oldJobId } = leavingCrewCheck;
+            const { mapsJobId, oldJobId, fromShop, shopStartedAt } = leavingCrewCheck;
             setLeavingCrewCheck(null);
-            if (!nextSomeoneStayed && oldJobId) {
-              const oldJob = jobs.find(j => j.id === oldJobId);
-              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
-            }
-            if (mapsJobId) {
-              const mj = jobs.find(j => j.id === mapsJobId);
-              if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+            if (fromShop && oldJobId) {
+              setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopStartedAt, mapsJobId });
+            } else {
+              if (!nextSomeoneStayed && oldJobId) {
+                const oldJob = jobs.find(j => j.id === oldJobId);
+                if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
+              }
+              if (mapsJobId) {
+                const mj = jobs.find(j => j.id === mapsJobId);
+                if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+              }
             }
           }
         };
@@ -2453,6 +2514,28 @@ Command: "${transcript}"`
             </button>
           </div>
         </Sheet>
+      )}
+      {pendingShopActivity && (
+        <ShopActivitySheet
+          startedAt={pendingShopActivity.startedAt}
+          onSave={async (tags, note) => {
+            const elapsed = fmtElapsed(Date.now() - new Date(pendingShopActivity.startedAt).getTime());
+            const tagStr = tags.length > 0 ? tags.join(' · ') : '';
+            const content = `Shop (${elapsed})${tagStr ? ' — ' + tagStr : ''}${note ? ': ' + note : ''} (${currentUser.name})`;
+            await sb.from('job_notes').insert({
+              job_id: pendingShopActivity.shopJobId, content, source: 'user',
+              created_at: new Date().toISOString(), user_id: currentUser.id,
+            });
+            const { mapsJobId } = pendingShopActivity;
+            setPendingShopActivity(null);
+            if (mapsJobId) { const mj = jobs.find(j => j.id === mapsJobId); if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj); }
+          }}
+          onSkip={() => {
+            const { mapsJobId } = pendingShopActivity;
+            setPendingShopActivity(null);
+            if (mapsJobId) { const mj = jobs.find(j => j.id === mapsJobId); if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj); }
+          }}
+        />
       )}
       {pendingMapsJob && (
         <Sheet title="NAVIGATION" onClose={() => setPendingMapsJob(null)}>
@@ -2904,15 +2987,19 @@ Command: "${transcript}"`
           if (rest.length > 0) {
             setLeavingCrewCheck({ ...leavingCrewCheck, members: rest, someoneStayed: nextSomeoneStayed });
           } else {
-            const { mapsJobId, oldJobId } = leavingCrewCheck;
+            const { mapsJobId, oldJobId, fromShop, shopStartedAt } = leavingCrewCheck;
             setLeavingCrewCheck(null);
-            if (!nextSomeoneStayed && oldJobId) {
-              const oldJob = jobs.find(j => j.id === oldJobId);
-              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
-            }
-            if (mapsJobId) {
-              const mj = jobs.find(j => j.id === mapsJobId);
-              if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+            if (fromShop && oldJobId) {
+              setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopStartedAt, mapsJobId });
+            } else {
+              if (!nextSomeoneStayed && oldJobId) {
+                const oldJob = jobs.find(j => j.id === oldJobId);
+                if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
+              }
+              if (mapsJobId) {
+                const mj = jobs.find(j => j.id === mapsJobId);
+                if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+              }
             }
           }
         };
@@ -3070,6 +3157,28 @@ Command: "${transcript}"`
             </button>
           </div>
         </Sheet>
+      )}
+      {pendingShopActivity && (
+        <ShopActivitySheet
+          startedAt={pendingShopActivity.startedAt}
+          onSave={async (tags, note) => {
+            const elapsed = fmtElapsed(Date.now() - new Date(pendingShopActivity.startedAt).getTime());
+            const tagStr = tags.length > 0 ? tags.join(' · ') : '';
+            const content = `Shop (${elapsed})${tagStr ? ' — ' + tagStr : ''}${note ? ': ' + note : ''} (${currentUser.name})`;
+            await sb.from('job_notes').insert({
+              job_id: pendingShopActivity.shopJobId, content, source: 'user',
+              created_at: new Date().toISOString(), user_id: currentUser.id,
+            });
+            const { mapsJobId } = pendingShopActivity;
+            setPendingShopActivity(null);
+            if (mapsJobId) { const mj = jobs.find(j => j.id === mapsJobId); if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj); }
+          }}
+          onSkip={() => {
+            const { mapsJobId } = pendingShopActivity;
+            setPendingShopActivity(null);
+            if (mapsJobId) { const mj = jobs.find(j => j.id === mapsJobId); if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj); }
+          }}
+        />
       )}
       {pendingMapsJob && (
         <Sheet title="NAVIGATION" onClose={() => setPendingMapsJob(null)}>
