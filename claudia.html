@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 156;
+const APP_REV = 157;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1508,6 +1508,7 @@ function App() {
   const [fieldTimeConfirm, setFieldTimeConfirm] = useState(null); // { type:'clockIn'|'moveJob'|'flipOnSite', jobId?, status? }
   const [fieldConfirmTime, setFieldConfirmTime] = useState(() => nowTimeHHMM());
   const [pendingMapsJob, setPendingMapsJob] = useState(null); // job object awaiting "Want directions?" prompt
+  const [showMenu, setShowMenu] = useState(false);
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -2501,49 +2502,27 @@ Command: "${transcript}"`
   return (
     <div className="fade-in">
       {/* Header */}
-      <div style={{ padding:"18px 16px 14px", borderBottom:"1px solid var(--line)", background:"var(--panel)" }}>
+      <div style={{ padding:"14px 16px 12px", borderBottom:"1px solid var(--line)", background:"var(--panel)" }}>
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div>
             <div className="head" style={{ fontSize:22, fontWeight:700, lineHeight:1 }}>
               TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
             </div>
-            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:4, letterSpacing:"0.1em" }}>FIELD JOB TRACKER</div>
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:3, letterSpacing:"0.1em" }}>FIELD JOB TRACKER</div>
           </div>
-          <div style={{ textAlign:"right" }}>
-            <div className="mono" style={{ fontSize:10, color:"var(--muted)" }}>OUTSTANDING</div>
-            <div className="head" style={{ fontSize:20, fontWeight:700, color:"var(--olive-bright)" }}>{money(outstanding)}</div>
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ textAlign:"right" }}>
+              <div className="mono" style={{ fontSize:10, color:"var(--muted)" }}>OUTSTANDING</div>
+              <div className="head" style={{ fontSize:20, fontWeight:700, color:"var(--olive-bright)" }}>{money(outstanding)}</div>
+            </div>
+            <button onClick={() => setShowMenu(true)}
+              style={{ display:"flex", flexDirection:"column", gap:5, padding:"8px 10px",
+                background:"none", border:"1px solid var(--line)", borderRadius:8, cursor:"pointer" }}>
+              <span style={{ display:"block", width:20, height:2, background:"var(--text)", borderRadius:1 }} />
+              <span style={{ display:"block", width:20, height:2, background:"var(--text)", borderRadius:1 }} />
+              <span style={{ display:"block", width:20, height:2, background:"var(--text)", borderRadius:1 }} />
+            </button>
           </div>
-        </div>
-        {/* User indicator */}
-        <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:10 }}>
-          <div className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.08em" }}>LOGGED IN AS:</div>
-          <div className="head" style={{ fontSize:13, fontWeight:600, color:"var(--olive-bright)" }}>{currentUser.name}</div>
-          <button onClick={switchUser} className="mono"
-            style={{ marginLeft:"auto", fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
-            SWITCH
-          </button>
-          <button onClick={refresh} className="mono"
-            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
-            ↺
-          </button>
-          <button onClick={() => setShowCapCalc(true)} className="mono"
-            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}
-            title="Capacitor Calculator">
-            μF
-          </button>
-          <button onClick={() => setShowHours(true)} className="mono"
-            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
-            HRS
-          </button>
-          <button onClick={() => setShowSettings(true)} className="mono"
-            style={{ fontSize:11, color:"var(--muted)", padding:"3px 8px", border:"1px solid var(--line)", borderRadius:5 }}>
-            ⚙
-          </button>
-          <button onClick={lockDevice} className="mono"
-            style={{ fontSize:11, color:"var(--error,#c0392b)", padding:"3px 8px", border:"1px solid var(--error,#c0392b)", borderRadius:5 }}>
-            🔒
-          </button>
-          <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginLeft:2 }}>r{APP_REV}</div>
         </div>
         {/* Clock status bar */}
         {clockSession && (() => {
@@ -2587,13 +2566,14 @@ Command: "${transcript}"`
           );
         })()}
         {browseMode && (
-          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"6px 12px",
-            background:"var(--panel-2)", borderRadius:8, border:"1px solid var(--line)" }}>
-            <div className="mono" style={{ fontSize:11, color:"var(--muted)", letterSpacing:"0.08em" }}>AFTER HOURS BROWSING</div>
-            <button onClick={() => setBrowseMode(false)} className="head"
-              style={{ marginLeft:"auto", fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
-                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-              EXIT BROWSE
+          <div style={{ display:"flex", alignItems:"center", gap:8, marginTop:8, padding:"4px 10px",
+            background:"rgba(200,185,122,0.08)", borderRadius:6, border:"1px solid rgba(200,185,122,0.25)" }}>
+            <span style={{ width:6, height:6, borderRadius:"50%", background:"var(--gold)", flexShrink:0 }} />
+            <div className="mono" style={{ fontSize:10, color:"var(--gold)", letterSpacing:"0.08em" }}>AFTER HOURS BROWSING</div>
+            <button onClick={() => setBrowseMode(false)} className="mono"
+              style={{ marginLeft:"auto", fontSize:10, padding:"2px 8px", borderRadius:4,
+                background:"none", border:"1px solid rgba(200,185,122,0.3)", color:"var(--gold)", cursor:"pointer" }}>
+              EXIT
             </button>
           </div>
         )}
@@ -3141,6 +3121,55 @@ Command: "${transcript}"`
           <button onClick={dismissNotifs} className="head"
             style={{ width:"100%", marginTop:14, padding:14, borderRadius:9, fontSize:14, fontWeight:700,
               background:"var(--olive-bright)", color:"var(--bg)" }}>OK</button>
+        </Sheet>
+      )}
+      {showMenu && (
+        <Sheet title="" onClose={() => setShowMenu(false)}>
+          {/* User identity */}
+          <div style={{ display:"flex", alignItems:"center", gap:12, marginBottom:24, paddingBottom:20,
+            borderBottom:"1px solid var(--line)" }}>
+            <div style={{ width:44, height:44, borderRadius:"50%", background:"var(--olive-bright)",
+              display:"flex", alignItems:"center", justifyContent:"center" }}>
+              <span className="head" style={{ fontSize:20, fontWeight:700, color:"var(--bg)" }}>
+                {(currentUser.name||'?')[0].toUpperCase()}
+              </span>
+            </div>
+            <div>
+              <div className="head" style={{ fontSize:20, fontWeight:700, color:"var(--text)" }}>{currentUser.name}</div>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>LOGGED IN</div>
+            </div>
+          </div>
+          {/* Menu items */}
+          {[
+            { label:"REFRESH", icon:"↺", action: () => { refresh(); setShowMenu(false); } },
+            { label:"HOURS REPORT", icon:"⏱", action: () => { setShowMenu(false); setShowHours(true); } },
+            { label:"CAP CALCULATOR", icon:"μF", action: () => { setShowMenu(false); setShowCapCalc(true); } },
+            { label:"SETTINGS", icon:"⚙", action: () => { setShowMenu(false); setShowSettings(true); } },
+          ].map(item => (
+            <button key={item.label} onClick={item.action}
+              style={{ display:"flex", alignItems:"center", gap:16, width:"100%", padding:"16px 4px",
+                background:"none", border:"none", borderBottom:"1px solid var(--line)", cursor:"pointer",
+                textAlign:"left" }}>
+              <span className="mono" style={{ fontSize:18, color:"var(--muted)", width:28, textAlign:"center" }}>{item.icon}</span>
+              <span className="head" style={{ fontSize:16, fontWeight:700, color:"var(--text)", letterSpacing:"0.05em" }}>{item.label}</span>
+            </button>
+          ))}
+          {/* Switch user */}
+          <button onClick={() => { setShowMenu(false); switchUser(); }}
+            style={{ display:"flex", alignItems:"center", gap:16, width:"100%", padding:"16px 4px",
+              background:"none", border:"none", borderBottom:"1px solid var(--line)", cursor:"pointer" }}>
+            <span className="mono" style={{ fontSize:18, color:"var(--muted)", width:28, textAlign:"center" }}>⇄</span>
+            <span className="head" style={{ fontSize:16, fontWeight:700, color:"var(--text)", letterSpacing:"0.05em" }}>SWITCH USER</span>
+          </button>
+          {/* Lock */}
+          <button onClick={() => { setShowMenu(false); lockDevice(); }}
+            style={{ display:"flex", alignItems:"center", gap:16, width:"100%", padding:"16px 4px",
+              background:"none", border:"none", cursor:"pointer" }}>
+            <span className="mono" style={{ fontSize:18, color:"var(--danger,#c0392b)", width:28, textAlign:"center" }}>🔒</span>
+            <span className="head" style={{ fontSize:16, fontWeight:700, color:"var(--danger,#c0392b)", letterSpacing:"0.05em" }}>LOCK</span>
+          </button>
+          {/* Version badge */}
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", textAlign:"center", marginTop:24 }}>r{APP_REV}</div>
         </Sheet>
       )}
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
