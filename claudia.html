@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 165;
+const APP_REV = 166;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1644,7 +1644,7 @@ function App() {
   const [showClockOut, setShowClockOut] = useState(false);
   const [showMoveJob, setShowMoveJob] = useState(false);
   const [showLeaving, setShowLeaving] = useState(false);
-  const [lastLeaveJob, setLastLeaveJob] = useState(null); // job object when you're last to leave
+  const [lastLeaveJob, setLastLeaveJob] = useState(null); // { job, mapsJobId } — last to leave a job; navigation chains after this resolves
   const [leavingCrewCheck, setLeavingCrewCheck] = useState(null); // { members:[user], newJobId, oldJobId }
   const [joiningOnSiteCheck, setJoiningOnSiteCheck] = useState(null); // { members:[user], jobId }
   const [clockUndo, setClockUndo] = useState(null);
@@ -2074,13 +2074,16 @@ Command: "${transcript}"`
         if (wasShop) {
           setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopLegStart, mapsJobId: newJobId });
         } else {
-          const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
-          if (addr) setPendingMapsJob(newJob);
+          // No crew on the old job ⇒ last one out. Ask "is this job done?" first,
+          // then fire navigation when that prompt resolves (navigation is always last).
+          const oldJob = (isLastOut && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
+          if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+            setLastLeaveJob({ job: oldJob, mapsJobId: newJobId });
+          } else {
+            const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
+            if (addr) setPendingMapsJob(newJob);
+          }
         }
-      }
-      if (isLastOut && oldJobId && !wasShop) {
-        const oldJob = jobs.find(j => j.id === oldJobId);
-        if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
       }
     } catch(e) {
       showToast('Move failed — ' + (e.message || 'check connection'), true);
@@ -2478,10 +2481,16 @@ Command: "${transcript}"`
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
-        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
-          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
+        <LastLeaveSheet job={lastLeaveJob.job} onPick={async s => {
+          await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
+          const mj = lastLeaveJob.mapsJobId ? jobs.find(j => j.id === lastLeaveJob.mapsJobId) : null;
           setLastLeaveJob(null);
-        }} onClose={() => setLastLeaveJob(null)} />
+          if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+        }} onClose={() => {
+          const mj = lastLeaveJob.mapsJobId ? jobs.find(j => j.id === lastLeaveJob.mapsJobId) : null;
+          setLastLeaveJob(null);
+          if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+        }} />
       )}
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
@@ -2496,13 +2505,14 @@ Command: "${transcript}"`
             if (fromShop && oldJobId) {
               setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopStartedAt, mapsJobId });
             } else {
-              if (!nextSomeoneStayed && oldJobId) {
-                const oldJob = jobs.find(j => j.id === oldJobId);
-                if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
-              }
-              if (mapsJobId) {
-                const mj = jobs.find(j => j.id === mapsJobId);
-                if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+              const oldJob = (!nextSomeoneStayed && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
+              const mj = mapsJobId ? jobs.find(j => j.id === mapsJobId) : null;
+              const mapsOk = mj && (siteAddr(mj) || custAddr(mj)).trim();
+              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+                // navigation chains after the LAST ONE OUT prompt resolves (stays last)
+                setLastLeaveJob({ job: oldJob, mapsJobId: mapsOk ? mapsJobId : null });
+              } else if (mapsOk) {
+                setPendingMapsJob(mj);
               }
             }
           }
@@ -3124,10 +3134,16 @@ Command: "${transcript}"`
           onNewJob={() => { setShowMoveJob(false); setRouteAfterAdd(true); setAdding(true); }} />
       )}
       {lastLeaveJob && (
-        <LastLeaveSheet job={lastLeaveJob} onPick={async s => {
-          await updateJob(lastLeaveJob.id, { status: s, _skipNote: true });
+        <LastLeaveSheet job={lastLeaveJob.job} onPick={async s => {
+          await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
+          const mj = lastLeaveJob.mapsJobId ? jobs.find(j => j.id === lastLeaveJob.mapsJobId) : null;
           setLastLeaveJob(null);
-        }} onClose={() => setLastLeaveJob(null)} />
+          if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+        }} onClose={() => {
+          const mj = lastLeaveJob.mapsJobId ? jobs.find(j => j.id === lastLeaveJob.mapsJobId) : null;
+          setLastLeaveJob(null);
+          if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+        }} />
       )}
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
@@ -3142,13 +3158,14 @@ Command: "${transcript}"`
             if (fromShop && oldJobId) {
               setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopStartedAt, mapsJobId });
             } else {
-              if (!nextSomeoneStayed && oldJobId) {
-                const oldJob = jobs.find(j => j.id === oldJobId);
-                if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) setLastLeaveJob(oldJob);
-              }
-              if (mapsJobId) {
-                const mj = jobs.find(j => j.id === mapsJobId);
-                if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+              const oldJob = (!nextSomeoneStayed && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
+              const mj = mapsJobId ? jobs.find(j => j.id === mapsJobId) : null;
+              const mapsOk = mj && (siteAddr(mj) || custAddr(mj)).trim();
+              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+                // navigation chains after the LAST ONE OUT prompt resolves (stays last)
+                setLastLeaveJob({ job: oldJob, mapsJobId: mapsOk ? mapsJobId : null });
+              } else if (mapsOk) {
+                setPendingMapsJob(mj);
               }
             }
           }
