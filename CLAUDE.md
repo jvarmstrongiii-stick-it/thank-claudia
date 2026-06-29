@@ -5,7 +5,7 @@
 ## Commit & Deploy Rules (non-negotiable)
 
 1. **ALWAYS push to `main`** — Jack keeps a numbered r-commit history on main for rollback. Never leave work only on a feature branch. Use `git push origin HEAD:main` or push directly to main.
-2. **ALWAYS bump `APP_REV`** on every single commit — it's `const APP_REV = NNN;` near the top of `claudia.html` (currently **163**). This is the visible version badge on the dashboard. Forgetting it means Jack sees a stale revision number and thinks deploys aren't working.
+2. **ALWAYS bump `APP_REV`** on every single commit — it's `const APP_REV = NNN;` near the top of `claudia.html` (currently **164**). This is the visible version badge on the dashboard. Forgetting it means Jack sees a stale revision number and thinks deploys aren't working.
 3. **Set git identity before first commit** in each session: `git config user.email "noreply@anthropic.com" && git config user.name "Claude"`
 4. **Deploy takes ~1 minute** after push to main — GitHub Actions copies `claudia.html` → `dist/index.html` → `gh-pages` branch. If Jack says the version number is wrong, check `APP_REV` first before assuming a deploy issue.
 5. **r-number in commit message** — prefix every commit message with `rNNN:` matching the new APP_REV value.
@@ -460,8 +460,8 @@ EAS mobile builds are on hold. Do not assume any native build is current or runn
 
 | Issue | Severity | Detail |
 |-------|---------|--------|
-| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **163**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
-| **Clock day boundary is local, not UTC** | Medium | The clock "day" (TODAY'S TIME reset in `getTodayMs`/`addTodayMs`, and stale-session detection) keys on `todayLocalISO()` (local midnight), NOT `todayISO()` (UTC). `todayISO()` stays UTC for non-clock uses (default scheduled_date, receipt dates). Using `todayISO()` for clock-day math reintroduces the ~8 PM ET rollover bug (TODAY'S TIME resets mid-evening; false "clocked in since yesterday" prompt). |
+| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **164**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
+| **Clock day boundary uses configurable TZ, not UTC** | Medium | The clock "day" (TODAY'S TIME reset in `getTodayMs`/`addTodayMs`, and stale-session detection) keys on `todayLocalISO()`, which resolves the date in the configurable app timezone via `getAppTZ()` (localStorage `tmc_timezone`, default `America/New_York`, set in Settings). `todayLocalISO()` is the single chokepoint — all clock-day math must go through it. `todayISO()` stays UTC for non-clock uses (default scheduled_date, receipt dates). Recorded clock timestamps still use the device `new Date()`, so devices should be set to the shop's timezone. |
 | **Push to main, always** | Critical | Jack's rollback strategy depends on numbered r-commits on `main`. Never leave work only on a feature branch. Use `git push origin HEAD:main` if the branch name differs. |
 | **claudia.html IS the app** | Critical | All user-facing changes must go in `claudia.html`. The Expo/RN app (`app/`, `components/`, `lib/`) is not deployed and not in active use. |
 | **Bank a clock leg before resetting `legStartedAt`** | High | The daily total relies on `addTodayMs` being called for the finished leg at every transition that resets `legStartedAt` (`moveToInRoute`, `clockOut`). Reset the leg without banking and that time vanishes from TODAY'S TIME. In Route → On Site is the *same* leg — `flipToOnSite` must NOT reset `legStartedAt`. Never use the persisted `startedAt` for elapsed math (it survives across days → multi-day durations); use `legStartedAt`. |

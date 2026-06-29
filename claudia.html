@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 163;
+const APP_REV = 164;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -168,12 +168,33 @@ function setSectionCollapsed(key, collapsed) {
 
 /* ── Utilities ─────────────────────────────────────────────────────────────── */
 function todayISO() { return new Date().toISOString().split("T")[0]; }
-// Local-date YYYY-MM-DD — used for the clock "day" boundary so TODAY'S TIME and
-// the stale-session prompt roll over at local midnight, not UTC midnight (~8 PM ET).
-function todayLocalISO(d = new Date()) {
-  const pad = n => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+
+// Configurable timezone (governs the clock "day" boundary). Default Eastern (Philly).
+const TZ_KEY = 'tmc_timezone';
+const DEFAULT_TZ = 'America/New_York';
+const TZ_OPTIONS = [
+  { id:'America/New_York',    label:'Eastern (Philadelphia)' },
+  { id:'America/Chicago',     label:'Central' },
+  { id:'America/Denver',      label:'Mountain' },
+  { id:'America/Phoenix',     label:'Arizona (no DST)' },
+  { id:'America/Los_Angeles', label:'Pacific' },
+  { id:'America/Anchorage',   label:'Alaska' },
+  { id:'Pacific/Honolulu',    label:'Hawaii' },
+];
+function getAppTZ() { try { return localStorage.getItem(TZ_KEY) || DEFAULT_TZ; } catch { return DEFAULT_TZ; } }
+function setAppTZ(tz) { try { localStorage.setItem(TZ_KEY, tz); } catch {} }
+// Date as YYYY-MM-DD in a specific IANA timezone (en-CA → ISO-like format).
+function dateISOInTZ(d, tz) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year:'numeric', month:'2-digit', day:'2-digit' }).format(d);
+  } catch {
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  }
 }
+// Date YYYY-MM-DD in the configured app timezone — used for the clock "day" boundary
+// so TODAY'S TIME and the stale-session prompt roll over at local midnight, not UTC (~8 PM ET).
+function todayLocalISO(d = new Date()) { return dateISOInTZ(d, getAppTZ()); }
 function nowTimeRounded15() {
   const d = new Date();
   let mins = Math.round(d.getMinutes() / 15) * 15;
@@ -3536,6 +3557,7 @@ function CapacitorCalc({ onClose }) {
 
 /* ── SettingsModal ─────────────────────────────────────────────────────────── */
 function SettingsModal({ onClose, onLock }) {
+  const [tz, setTz] = useState(getAppTZ());
   return (
     <div onClick={onClose} style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", zIndex:200, display:"flex", alignItems:"flex-end", justifyContent:"center" }}>
       <div onClick={e => e.stopPropagation()} className="fade-in"
@@ -3544,6 +3566,15 @@ function SettingsModal({ onClose, onLock }) {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:16 }}>
           <div className="head" style={{ fontSize:16, fontWeight:700 }}>SETTINGS</div>
           <button onClick={onClose} className="mono" style={{ color:"var(--muted)", fontSize:18 }}>✕</button>
+        </div>
+        <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, letterSpacing:"0.06em" }}>TIME ZONE</div>
+        <select value={tz} onChange={e => { setTz(e.target.value); setAppTZ(e.target.value); }}
+          style={{ width:"100%", padding:"12px", borderRadius:8, background:"var(--bg)",
+            border:"1px solid var(--line)", color:"var(--text)", fontSize:15, fontFamily:"inherit" }}>
+          {TZ_OPTIONS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        <div className="mono" style={{ fontSize:10, color:"var(--muted)", margin:"6px 0 18px", lineHeight:1.5 }}>
+          Controls when the clock "day" rolls over — TODAY'S TIME reset and the overnight clock-in prompt.
         </div>
         <div className="mono" style={{ fontSize:12, color:"var(--muted)", lineHeight:1.6 }}>
           AI nameplate scanning runs via a Supabase Edge Function (claude-proxy).<br/>
