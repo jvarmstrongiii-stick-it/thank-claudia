@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 166;
+const APP_REV = 167;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -142,6 +142,18 @@ const STATUS_COLOR = {
   "Completed/Needs Billing":"#d9af52","Billed/Waiting for Payment":"#c98a3f","Completed/Paid":"#6fa33d","Closed":"#b8baa8",
 };
 const JOB_TYPES = ["Service Call","New Install","Maintenance","Replacement","Warranty","Estimate"];
+// The per-job log/record stream (non-system job_notes) is labeled by job type.
+function logTitleForType(type) {
+  switch (type) {
+    case 'Estimate':    return 'NOTES';
+    case 'Maintenance': return 'MAINTENANCE RECORD';
+    case 'New Install':
+    case 'Replacement': return 'DAILY LOG';
+    case 'Service Call':
+    case 'Warranty':    return 'SERVICE RECORD';
+    default:            return 'LOG';
+  }
+}
 
 /* ── Recently-viewed jobs (per-device, localStorage) ───────────────────────── */
 const RECENT_KEY = 'tmc_recent_jobs';
@@ -376,7 +388,7 @@ function fromRow(row, notes=[]) {
     notes: row.notes || '',
     history: notes.filter(n => n.source !== 'system').map(n => ({
       id: n.id,
-      date: (n.created_at||'').slice(0,10),
+      date: n.created_at ? dateISOInTZ(new Date(n.created_at), getAppTZ()) : '',
       note: n.content,
     })),
     crewLog: notes.filter(n => n.source === 'system' && /^Status → /.test(n.content)).map(n => ({
@@ -1773,14 +1785,15 @@ Command: "${transcript}"`
           intent.customer ? j.customer.toLowerCase().includes(intent.customer.toLowerCase()) : false
         );
         if (match) {
-          const todayStart = todayISO() + 'T00:00:00';
-          const todayEnd   = todayISO() + 'T23:59:59';
+          // Merge into today's shared log entry (typed or voice) for this job — app TZ day.
+          const dayStart = zonedWallToISO(todayLocalISO(), '00:00');
+          const dayEnd   = zonedWallToISO(shiftDateISO(todayLocalISO(), 1), '00:00');
           const { data: existing } = await sb.from('job_notes')
-            .select('id, content').eq('job_id', match.id).eq('source', 'voice')
-            .gte('created_at', todayStart).lte('created_at', todayEnd)
+            .select('id, content').eq('job_id', match.id).in('source', ['voice', 'text'])
+            .gte('created_at', dayStart).lt('created_at', dayEnd)
             .order('created_at', { ascending: false }).limit(1).maybeSingle();
           if (existing) {
-            await sb.from('job_notes').update({ content: existing.content + ' ' + noteContent }).eq('id', existing.id);
+            await sb.from('job_notes').update({ content: existing.content + '\n' + noteContent }).eq('id', existing.id);
             showToast('Note updated');
           } else {
             await sb.from('job_notes').insert({
@@ -4123,6 +4136,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [deletingPhoto, setDeletingPhoto] = useState(null);
   const [history, setHistory] = useState(job.history || []);
   const [editingNote, setEditingNote] = useState(null); // { id, content } or null
+  const [logText, setLogText] = useState(''); // "what we did today" entry box
   const [crew, setCrew] = useState([]);
   const [crewLog, setCrewLog] = useState(job.crewLog || []);
   const [crewLogDate, setCrewLogDate] = useState(todayISO());
@@ -4553,6 +4567,32 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     if (error) { alert(`Save failed: ${error.message}`); return; }
     setHistory(prev => prev.map(h => h.id === id ? { ...h, note: content } : h));
     setEditingNote(null);
+  }
+
+  // "What we did today" — one shared running entry per job per day (no author);
+  // typed + voice entries merge into the same day's note.
+  async function addLogEntry(text) {
+    const t = (text || '').trim();
+    if (!t) return;
+    const dayStart = zonedWallToISO(todayLocalISO(), '00:00');
+    const dayEnd = zonedWallToISO(shiftDateISO(todayLocalISO(), 1), '00:00');
+    const { data: existing } = await sb.from('job_notes')
+      .select('id, content').eq('job_id', job.id).in('source', ['text', 'voice'])
+      .gte('created_at', dayStart).lt('created_at', dayEnd)
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (existing) {
+      const merged = existing.content + '\n' + t;
+      const { error } = await sb.from('job_notes').update({ content: merged }).eq('id', existing.id);
+      if (error) { alert(`Save failed: ${error.message}`); return; }
+      setHistory(prev => prev.map(h => h.id === existing.id ? { ...h, note: merged } : h));
+    } else {
+      const { data, error } = await sb.from('job_notes')
+        .insert({ job_id: job.id, content: t, source: 'text', created_at: new Date().toISOString() })
+        .select('id, created_at').single();
+      if (error) { alert(`Save failed: ${error.message}`); return; }
+      setHistory(prev => [{ id: data.id, date: dateISOInTZ(new Date(data.created_at), getAppTZ()), note: t }, ...prev]);
+    }
+    setLogText('');
   }
 
   async function deleteNote(id) {
@@ -5478,39 +5518,48 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           />
         )}
 
-        {history.length > 0 && (
-          <div style={{ marginTop:16 }}>
-            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>SERVICE HISTORY</div>
-            {history.map((h,i) => (
-              <div key={h.id||i} style={{ padding:"10px 0", borderTop:"1px solid var(--line)" }}>
-                <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                  <div className="mono" style={{ fontSize:13, color:"var(--brass)" }}>{fmtDate(h.date)}</div>
-                  {h.id && editingNote?.id !== h.id && (
-                    <button onClick={() => setEditingNote({ id: h.id, content: h.note })}
-                      style={{ background:"none", border:"none", color:"var(--muted)", fontSize:16, padding:"0 4px", cursor:"pointer" }}>✎</button>
-                  )}
-                </div>
-                {editingNote && editingNote.id === h.id ? (
-                  <div style={{ marginTop:6 }}>
-                    <textarea value={editingNote.content}
-                      onChange={e => setEditingNote(n => ({...n, content: e.target.value}))}
-                      style={{ width:"100%", minHeight:70, fontSize:15, resize:"vertical" }} />
-                    <div style={{ display:"flex", gap:8, marginTop:6 }}>
-                      <button onClick={() => saveNoteEdit(h.id, editingNote.content)} className="head"
-                        style={{ flex:1, padding:"9px 0", borderRadius:8, background:"var(--olive-bright)", color:"var(--bg)", fontWeight:700, fontSize:14 }}>SAVE</button>
-                      <button onClick={() => deleteNote(h.id)} className="head"
-                        style={{ padding:"9px 14px", borderRadius:8, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)", fontSize:14 }}>DELETE</button>
-                      <button onClick={() => setEditingNote(null)} className="head"
-                        style={{ padding:"9px 14px", borderRadius:8, background:"var(--panel)", border:"1px solid var(--line)", fontSize:14 }}>CANCEL</button>
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{ fontSize:15, marginTop:2, lineHeight:1.4 }}>{h.note}</div>
+        <div style={{ marginTop:16 }}>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>{logTitleForType(job.type)}</div>
+          <textarea value={logText} onChange={e => setLogText(e.target.value)}
+            placeholder="What did you do today?"
+            style={{ width:"100%", boxSizing:"border-box", minHeight:58, fontSize:15, resize:"vertical",
+              background:"var(--bg)", border:"1px solid var(--line)", borderRadius:8, color:"var(--text)",
+              padding:"10px 12px", fontFamily:"inherit", outline:"none" }} />
+          <button onClick={() => addLogEntry(logText)} disabled={!logText.trim()} className="head"
+            style={{ width:"100%", marginTop:6, padding:"11px 0", borderRadius:8, fontSize:14, fontWeight:700,
+              background: logText.trim() ? "var(--olive-bright)" : "var(--line)",
+              color: logText.trim() ? "var(--bg)" : "var(--muted)", border:"none" }}>
+            ADD
+          </button>
+          {[...history].sort((a,b) => (b.date||'').localeCompare(a.date||'')).map((h,i) => (
+            <div key={h.id||i} style={{ padding:"10px 0", borderTop:"1px solid var(--line)" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div className="mono" style={{ fontSize:13, color:"var(--brass)" }}>{fmtDate(h.date)}</div>
+                {h.id && editingNote?.id !== h.id && (
+                  <button onClick={() => setEditingNote({ id: h.id, content: h.note })}
+                    style={{ background:"none", border:"none", color:"var(--muted)", fontSize:16, padding:"0 4px", cursor:"pointer" }}>✎</button>
                 )}
               </div>
-            ))}
-          </div>
-        )}
+              {editingNote && editingNote.id === h.id ? (
+                <div style={{ marginTop:6 }}>
+                  <textarea value={editingNote.content}
+                    onChange={e => setEditingNote(n => ({...n, content: e.target.value}))}
+                    style={{ width:"100%", minHeight:70, fontSize:15, resize:"vertical" }} />
+                  <div style={{ display:"flex", gap:8, marginTop:6 }}>
+                    <button onClick={() => saveNoteEdit(h.id, editingNote.content)} className="head"
+                      style={{ flex:1, padding:"9px 0", borderRadius:8, background:"var(--olive-bright)", color:"var(--bg)", fontWeight:700, fontSize:14 }}>SAVE</button>
+                    <button onClick={() => deleteNote(h.id)} className="head"
+                      style={{ padding:"9px 14px", borderRadius:8, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)", fontSize:14 }}>DELETE</button>
+                    <button onClick={() => setEditingNote(null)} className="head"
+                      style={{ padding:"9px 14px", borderRadius:8, background:"var(--panel)", border:"1px solid var(--line)", fontSize:14 }}>CANCEL</button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ fontSize:15, marginTop:2, lineHeight:1.4, whiteSpace:"pre-wrap" }}>{h.note}</div>
+              )}
+            </div>
+          ))}
+        </div>
 
         {users.length > 0 && (
           <div style={{ marginTop:20 }}>
