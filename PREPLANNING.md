@@ -1,8 +1,25 @@
 # Pre-Planning — Records, Filters & Materials (LIVING DOC)
 
-> Status: **discussion / pre-planning only — not approved to build.**
-> This doc accumulates decisions and open questions as Jack and Claude talk it
-> through. Nothing here is implemented yet. Last updated: r166 era.
+> Status: **first three slices BUILT (r167–r169).** Doc still tracks remaining
+> threads. Last updated: r169.
+>
+> **Built:**
+> - r167 — per-job log/record labeled by job type + "What did you do today?" box
+>   (voice + typed merge into one shared, author-less entry per day). No schema.
+> - r168 — equipment filter size + "last replaced" + verified checkbox.
+> - r169 — per-job materials list + shop-wide MATERIALS menu screen.
+>
+> **⚠ Jack must run this one-time SQL in Supabase for r168/r169 to persist:**
+> ```sql
+> ALTER TABLE equipment ADD COLUMN IF NOT EXISTS filter_size text;
+> ALTER TABLE equipment ADD COLUMN IF NOT EXISTS filter_last_replaced date;
+> ALTER TABLE jobs ADD COLUMN IF NOT EXISTS materials_needed jsonb DEFAULT '[]'::jsonb;
+> NOTIFY pgrst, 'reload schema';
+> ```
+> Until then the UI shows but won't save filters/materials (it fails safe).
+>
+> **Still open:** maintenance checklists (Jack authoring), preventative-
+> maintenance plans, and the per-type confirmations below.
 
 ---
 
