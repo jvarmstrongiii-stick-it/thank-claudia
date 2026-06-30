@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 170;
+const APP_REV = 171;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -933,7 +933,6 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
   const [rVendor, setRVendor] = useState('');
   const [rAmount, setRAmount] = useState('');
   const [rSaving, setRSaving] = useState(false);
-  const [rPhotoPath, setRPhotoPath] = useState(null);
   const [rScanning, setRScanning] = useState(false);
   const fileRef = useRef();
 
@@ -964,20 +963,20 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
   }, [jobId]);
 
   async function saveReceipt(storagePath) {
-    const path = storagePath || rPhotoPath;
-    if (!rAmount && !rVendor && !path) { setRSaving(false); return; }
+    if (!rAmount && !rVendor) { setRSaving(false); return; }
     setRSaving(true);
     const { data, error } = await sb.from('receipts').insert({
       job_id: jobId, amount: Number(rAmount) || null, vendor: rVendor || null,
-      date: todayISO(), storage_path: path || null,
+      date: todayISO(), storage_path: storagePath || null,
       created_at: new Date().toISOString(),
     }).select().single();
     setRSaving(false);
     if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
     if (data) setReceipts(r => [...r, data]);
-    setRVendor(''); setRAmount(''); setRPhotoPath(null); setAddingReceipt(false);
+    setRVendor(''); setRAmount(''); setAddingReceipt(false);
   }
 
+  // Snap a receipt: upload, OCR, and SAVE the row immediately (survives form reset).
   async function handleReceiptFile(e) {
     const file = e.target.files?.[0];
     if (!file) { return; }
@@ -985,17 +984,23 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
     try {
       const { b64, mediaType } = await readFileForScan(file);
       const path = `${jobId}/receipt-${Date.now()}.${(file.name||'jpg').split('.').pop()}`;
-      const { error } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
-      if (error) { showToast?.('Photo upload failed: ' + error.message, true); return; }
-      setRPhotoPath(path);
-      try {
-        const o = await scanReceiptFromB64(b64, mediaType);
-        if (!rVendor && o.vendor) setRVendor(String(o.vendor));
-        if (!rAmount && o.amount != null) setRAmount(String(o.amount));
-        showToast?.(o.vendor || o.amount != null ? 'Receipt read — check & save' : 'Photo attached — enter amount');
-      } catch (err) { console.warn('receipt OCR failed', err); showToast?.("Couldn't read receipt — enter manually", true); }
+      const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
+      if (upErr) { showToast?.('Photo upload failed: ' + upErr.message, true); return; }
+      let o = null;
+      try { o = await scanReceiptFromB64(b64, mediaType); } catch (err) { console.warn('receipt OCR failed', err); }
+      const vendor = (rVendor || o?.vendor || '').toString().trim() || null;
+      const amount = Number(rAmount || o?.amount) || null;
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(o?.date || '') ? o.date : todayISO();
+      const { data, error } = await sb.from('receipts').insert({
+        job_id: jobId, amount, vendor, date, storage_path: path,
+        created_at: new Date().toISOString(),
+      }).select().single();
+      if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
+      if (data) setReceipts(r => [...r, data]);
+      setRVendor(''); setRAmount(''); setAddingReceipt(false);
+      showToast?.(vendor || amount ? 'Receipt saved' : 'Photo saved — add amount manually');
     } catch (err) {
-      showToast?.('Photo failed: ' + (err.message || 'error'), true);
+      showToast?.('Receipt failed: ' + (err.message || 'error'), true);
     } finally {
       setRScanning(false);
       e.target.value = '';
@@ -1079,21 +1084,18 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
               </div>
-              {rPhotoPath && !rScanning && (
-                <div className="mono" style={{ fontSize:11, color:"var(--olive-bright)", marginBottom:8 }}>📎 photo attached</div>
-              )}
               <div style={{ display:"flex", gap:8 }}>
                 <button onClick={() => fileRef.current.click()} className="head" disabled={rSaving || rScanning}
                   style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
                     background:"var(--panel)", color:"var(--muted)", fontSize:13 }}>
                   {rScanning ? 'READING…' : '📷 SNAP'}
                 </button>
-                <button onClick={() => saveReceipt(null)} className="head" disabled={rSaving || rScanning || (!rVendor && !rAmount && !rPhotoPath)}
+                <button onClick={() => saveReceipt(null)} className="head" disabled={rSaving || rScanning || (!rVendor && !rAmount)}
                   style={{ flex:1, padding:"8px 0", borderRadius:6, border:"none",
                     background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
                   {rSaving ? 'SAVING…' : 'SAVE'}
                 </button>
-                <button onClick={() => { setAddingReceipt(false); setRPhotoPath(null); }} className="mono"
+                <button onClick={() => setAddingReceipt(false)} className="mono"
                   style={{ padding:"8px 10px", borderRadius:6, border:"1px solid var(--line)",
                     background:"var(--panel)", color:"var(--muted)", fontSize:14 }}>✕</button>
               </div>
@@ -4278,7 +4280,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [rVendor, setRVendor] = useState('');
   const [rAmount, setRAmount] = useState('');
   const [rSaving, setRSaving] = useState(false);
-  const [rPhotoPath, setRPhotoPath] = useState(null);
   const [rScanning, setRScanning] = useState(false);
   const receiptFileRef = useRef();
   const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
@@ -4991,19 +4992,20 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const crewTimeline = buildCrewTimeline(crewLog, crew, users);
 
   async function saveJobReceipt(storagePath) {
-    const path = storagePath || rPhotoPath;
-    if (!rAmount && !rVendor && !path) { setRSaving(false); return; }
+    if (!rAmount && !rVendor) { setRSaving(false); return; }
     setRSaving(true);
     const { data, error } = await sb.from('receipts').insert({
       job_id: job.id, amount: Number(rAmount) || null, vendor: rVendor || null,
-      date: todayISO(), storage_path: path || null,
+      date: todayISO(), storage_path: storagePath || null,
       created_at: new Date().toISOString(),
     }).select().single();
     setRSaving(false);
     if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
     if (data) setReceipts(r => [...r, data]);
-    setRVendor(''); setRAmount(''); setRPhotoPath(null); setAddingReceipt(false);
+    setRVendor(''); setRAmount(''); setAddingReceipt(false);
   }
+  // Snap a receipt: upload, OCR, and SAVE the row immediately (one onChange) so it
+  // survives the camera round-trip resetting the form. Review/delete in the list after.
   async function handleJobReceiptFile(e) {
     const file = e.target.files?.[0];
     if (!file) { return; }
@@ -5011,17 +5013,23 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     try {
       const { b64, mediaType } = await readFileForScan(file);
       const path = `${job.id}/receipt-${Date.now()}.${(file.name||'jpg').split('.').pop()}`;
-      const { error } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
-      if (error) { showToast?.('Photo upload failed: ' + error.message, true); return; }
-      setRPhotoPath(path);
-      try {
-        const o = await scanReceiptFromB64(b64, mediaType);
-        if (!rVendor && o.vendor) setRVendor(String(o.vendor));
-        if (!rAmount && o.amount != null) setRAmount(String(o.amount));
-        showToast?.(o.vendor || o.amount != null ? 'Receipt read — check & save' : 'Photo attached — enter amount');
-      } catch (err) { console.warn('receipt OCR failed', err); showToast?.("Couldn't read receipt — enter manually", true); }
+      const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
+      if (upErr) { showToast?.('Photo upload failed: ' + upErr.message, true); return; }
+      let o = null;
+      try { o = await scanReceiptFromB64(b64, mediaType); } catch (err) { console.warn('receipt OCR failed', err); }
+      const vendor = (rVendor || o?.vendor || '').toString().trim() || null;
+      const amount = Number(rAmount || o?.amount) || null;
+      const date = /^\d{4}-\d{2}-\d{2}$/.test(o?.date || '') ? o.date : todayISO();
+      const { data, error } = await sb.from('receipts').insert({
+        job_id: job.id, amount, vendor, date, storage_path: path,
+        created_at: new Date().toISOString(),
+      }).select().single();
+      if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
+      if (data) setReceipts(r => [...r, data]);
+      setRVendor(''); setRAmount(''); setAddingReceipt(false);
+      showToast?.(vendor || amount ? 'Receipt saved' : 'Photo saved — add amount manually');
     } catch (err) {
-      showToast?.('Photo failed: ' + (err.message || 'error'), true);
+      showToast?.('Receipt failed: ' + (err.message || 'error'), true);
     } finally {
       setRScanning(false);
       e.target.value = '';
@@ -5242,9 +5250,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
               </div>
-              {rPhotoPath && !rScanning && (
-                <div className="mono" style={{ fontSize:11, color:"var(--olive-bright)", marginBottom:8 }}>📎 photo attached</div>
-              )}
               <div style={{ display:"flex", gap:8 }}>
                 <button onClick={() => receiptFileRef.current.click()} className="head" disabled={rSaving || rScanning}
                   style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
@@ -5252,7 +5257,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                   {rScanning ? 'READING…' : '📷 SNAP'}
                 </button>
                 <button onClick={() => saveJobReceipt(null)} className="head"
-                  disabled={rSaving || rScanning || (!rVendor && !rAmount && !rPhotoPath)}
+                  disabled={rSaving || rScanning || (!rVendor && !rAmount)}
                   style={{ flex:2, padding:"8px 0", borderRadius:6, border:"none",
                     background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
                   {rSaving ? 'SAVING…' : 'SAVE RECEIPT'}
