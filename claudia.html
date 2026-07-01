@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 171;
+const APP_REV = 172;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -495,6 +495,30 @@ async function fetchJobs() {
   const notesByJob = {};
   (notes||[]).forEach(n => { (notesByJob[n.job_id] = notesByJob[n.job_id]||[]).push(n); });
   return rows.map(r => fromRow(r, notesByJob[r.id]||[]));
+}
+
+async function fetchReceiptVendors() {
+  const { data, error } = await sb.from('receipts').select('vendor');
+  if (error) { console.warn('fetchReceiptVendors', error); return []; }
+  return [...new Set((data||[]).map(r => (r.vendor||'').trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+}
+
+// Insert a receipt, retrying without paid_by if that column isn't migrated yet (money path must not break).
+async function insertReceiptRow(row) {
+  let { data, error } = await sb.from('receipts').insert(row).select().single();
+  if (error && (error.code === 'PGRST204' || (error.message||'').includes('paid_by')) && 'paid_by' in row) {
+    const { paid_by, ...rest } = row;
+    ({ data, error } = await sb.from('receipts').insert(rest).select().single());
+  }
+  return { data, error };
+}
+async function updateReceiptRow(id, fields) {
+  let { error } = await sb.from('receipts').update(fields).eq('id', id);
+  if (error && (error.code === 'PGRST204' || (error.message||'').includes('paid_by')) && 'paid_by' in fields) {
+    const { paid_by, ...rest } = fields;
+    ({ error } = await sb.from('receipts').update(rest).eq('id', id));
+  }
+  return error;
 }
 
 async function fetchPhotos(jobId) {
@@ -924,7 +948,7 @@ function ClockTimer({ startedAt, todayMs }) {
   );
 }
 
-function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
+function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, currentUser }) {
   const job = jobs.find(j => j.id === jobId);
   const [receipts, setReceipts] = useState([]);
   const [laborRows, setLaborRows] = useState([]); // [{name, driveMs, onSiteMs}]
@@ -934,6 +958,9 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
   const [rAmount, setRAmount] = useState('');
   const [rSaving, setRSaving] = useState(false);
   const [rScanning, setRScanning] = useState(false);
+  const [rPaidBy, setRPaidBy] = useState(currentUser?.name || '');
+  const [editingReceipt, setEditingReceipt] = useState(null); // { id, vendor, amount, date, paid_by }
+  const [vendorOptions, setVendorOptions] = useState([]);
   const fileRef = useRef();
 
   useEffect(() => {
@@ -943,6 +970,7 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
         sb.from('job_notes').select('*').eq('job_id', jobId).eq('source', 'system').order('created_at'),
       ]);
       setReceipts(rcpts || []);
+      fetchReceiptVendors().then(setVendorOptions);
       // Build labor summary from notes timeline
       const timeline = buildCrewTimeline(notes || [], [], users);
       const rows = users
@@ -965,15 +993,26 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
   async function saveReceipt(storagePath) {
     if (!rAmount && !rVendor) { setRSaving(false); return; }
     setRSaving(true);
-    const { data, error } = await sb.from('receipts').insert({
+    const { data, error } = await insertReceiptRow({
       job_id: jobId, amount: Number(rAmount) || null, vendor: rVendor || null,
-      date: todayISO(), storage_path: storagePath || null,
+      date: todayISO(), storage_path: storagePath || null, paid_by: rPaidBy || null,
       created_at: new Date().toISOString(),
-    }).select().single();
+    });
     setRSaving(false);
     if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
     if (data) setReceipts(r => [...r, data]);
     setRVendor(''); setRAmount(''); setAddingReceipt(false);
+  }
+
+  async function saveReceiptEdit() {
+    if (!editingReceipt) return;
+    const { id, vendor, amount, date, paid_by } = editingReceipt;
+    const patch = { vendor: (vendor||'').trim() || null, amount: Number(amount) || null,
+      date: date || null, paid_by: paid_by || null };
+    const error = await updateReceiptRow(id, patch);
+    if (error) { showToast?.('Save failed: ' + error.message, true); return; }
+    setReceipts(rs => rs.map(x => x.id === id ? { ...x, ...patch } : x));
+    setEditingReceipt(null);
   }
 
   // Snap a receipt: upload, OCR, and SAVE the row immediately (survives form reset).
@@ -991,10 +1030,10 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
       const vendor = (rVendor || o?.vendor || '').toString().trim() || null;
       const amount = Number(rAmount || o?.amount) || null;
       const date = /^\d{4}-\d{2}-\d{2}$/.test(o?.date || '') ? o.date : todayISO();
-      const { data, error } = await sb.from('receipts').insert({
-        job_id: jobId, amount, vendor, date, storage_path: path,
+      const { data, error } = await insertReceiptRow({
+        job_id: jobId, amount, vendor, date, storage_path: path, paid_by: rPaidBy || null,
         created_at: new Date().toISOString(),
-      }).select().single();
+      });
       if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
       if (data) setReceipts(r => [...r, data]);
       setRVendor(''); setRAmount(''); setAddingReceipt(false);
@@ -1059,31 +1098,63 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast }) {
             <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>None on file</div>
           )}
           {receipts.map(r => (
-            <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8,
-              padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
-              {r.storage_path && (
-                <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`}
-                  alt="receipt" style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
-              )}
-              <div style={{ flex:1 }}>
-                <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}</div>
-                <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
-                  {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}
+            editingReceipt?.id === r.id ? (
+              <div key={r.id} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
+                <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                  <input list="receipt-vendors-cj" placeholder="Vendor" value={editingReceipt.vendor||''}
+                    onChange={e => setEditingReceipt(x => ({...x, vendor:e.target.value}))} style={{ flex:2 }} />
+                  <input placeholder="$ Amount" type="number" inputMode="decimal" value={editingReceipt.amount ?? ''}
+                    onChange={e => setEditingReceipt(x => ({...x, amount:e.target.value}))} style={{ flex:1 }} />
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                  <input type="date" value={editingReceipt.date||''}
+                    onChange={e => setEditingReceipt(x => ({...x, date:e.target.value}))} style={{ flex:1 }} />
+                  <select value={editingReceipt.paid_by||''} onChange={e => setEditingReceipt(x => ({...x, paid_by:e.target.value}))} style={{ flex:1 }}>
+                    <option value="">Paid by…</option>
+                    {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={saveReceiptEdit} className="head" style={{ flex:1, padding:"8px 0", borderRadius:6, border:"none", background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>SAVE</button>
+                  <button onClick={() => deleteReceipt(r)} className="head" style={{ padding:"8px 12px", borderRadius:6, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)", fontSize:13 }}>DELETE</button>
+                  <button onClick={() => setEditingReceipt(null)} className="head" style={{ padding:"8px 12px", borderRadius:6, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)", fontSize:13 }}>CANCEL</button>
                 </div>
               </div>
-              <button onClick={() => deleteReceipt(r)} className="mono"
-                style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
-            </div>
+            ) : (
+              <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8,
+                padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
+                {r.storage_path && (
+                  <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`}
+                    onError={e => { e.target.style.display='none'; }}
+                    alt="receipt" style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
+                )}
+                <div style={{ flex:1 }}>
+                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}</div>
+                  <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                    {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}{r.paid_by ? ` · paid by ${r.paid_by}` : ''}
+                  </div>
+                </div>
+                <button onClick={() => setEditingReceipt({ id:r.id, vendor:r.vendor||'', amount:r.amount ?? '', date:r.date||'', paid_by:r.paid_by||'' })}
+                  className="mono" style={{ fontSize:15, color:"var(--muted)", padding:"4px 6px" }}>✎</button>
+                <button onClick={() => deleteReceipt(r)} className="mono"
+                  style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
+              </div>
+            )
           ))}
 
           {addingReceipt ? (
             <div style={{ marginTop:10, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
+              <datalist id="receipt-vendors-cj">{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <input placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)}
+                <input list="receipt-vendors-cj" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)}
                   style={{ flex:2 }} />
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
               </div>
+              <select value={rPaidBy} onChange={e => setRPaidBy(e.target.value)} style={{ width:"100%", marginBottom:8 }}>
+                <option value="">Paid by…</option>
+                {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+              </select>
               <div style={{ display:"flex", gap:8 }}>
                 <button onClick={() => fileRef.current.click()} className="head" disabled={rSaving || rScanning}
                   style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
@@ -2752,7 +2823,7 @@ Command: "${transcript}"`
         );
       })()}
       {closeJobPromptId && (
-        <CloseJobSheet jobId={closeJobPromptId} jobs={jobs} users={users}
+        <CloseJobSheet jobId={closeJobPromptId} jobs={jobs} users={users} currentUser={currentUser}
           onConfirm={async () => {
             await updateJob(closeJobPromptId, { status: 'Closed' });
             setCloseJobPromptId(null);
@@ -3405,7 +3476,7 @@ Command: "${transcript}"`
         );
       })()}
       {closeJobPromptId && (
-        <CloseJobSheet jobId={closeJobPromptId} jobs={jobs} users={users}
+        <CloseJobSheet jobId={closeJobPromptId} jobs={jobs} users={users} currentUser={currentUser}
           onConfirm={async () => {
             await updateJob(closeJobPromptId, { status: 'Closed' });
             setCloseJobPromptId(null);
@@ -4281,6 +4352,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [rAmount, setRAmount] = useState('');
   const [rSaving, setRSaving] = useState(false);
   const [rScanning, setRScanning] = useState(false);
+  const [rPaidBy, setRPaidBy] = useState(currentUser?.name || '');
+  const [editingReceipt, setEditingReceipt] = useState(null); // { id, vendor, amount, date, paid_by }
+  const [vendorOptions, setVendorOptions] = useState([]);
   const receiptFileRef = useRef();
   const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
   const [showPhotoSheet, setShowPhotoSheet] = useState(false);
@@ -4369,6 +4443,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     fetchPhotos(job.id).then(setPhotos);
     sb.from('receipts').select('*').eq('job_id', job.id).order('created_at')
       .then(({ data }) => setReceipts(data || []));
+    fetchReceiptVendors().then(setVendorOptions);
   }, [job.id]);
 
   useEffect(() => {
@@ -4994,11 +5069,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   async function saveJobReceipt(storagePath) {
     if (!rAmount && !rVendor) { setRSaving(false); return; }
     setRSaving(true);
-    const { data, error } = await sb.from('receipts').insert({
+    const { data, error } = await insertReceiptRow({
       job_id: job.id, amount: Number(rAmount) || null, vendor: rVendor || null,
-      date: todayISO(), storage_path: storagePath || null,
+      date: todayISO(), storage_path: storagePath || null, paid_by: rPaidBy || null,
       created_at: new Date().toISOString(),
-    }).select().single();
+    });
     setRSaving(false);
     if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
     if (data) setReceipts(r => [...r, data]);
@@ -5020,10 +5095,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       const vendor = (rVendor || o?.vendor || '').toString().trim() || null;
       const amount = Number(rAmount || o?.amount) || null;
       const date = /^\d{4}-\d{2}-\d{2}$/.test(o?.date || '') ? o.date : todayISO();
-      const { data, error } = await sb.from('receipts').insert({
-        job_id: job.id, amount, vendor, date, storage_path: path,
+      const { data, error } = await insertReceiptRow({
+        job_id: job.id, amount, vendor, date, storage_path: path, paid_by: rPaidBy || null,
         created_at: new Date().toISOString(),
-      }).select().single();
+      });
       if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
       if (data) setReceipts(r => [...r, data]);
       setRVendor(''); setRAmount(''); setAddingReceipt(false);
@@ -5035,10 +5110,21 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
       e.target.value = '';
     }
   }
+  async function saveReceiptEdit() {
+    if (!editingReceipt) return;
+    const { id, vendor, amount, date, paid_by } = editingReceipt;
+    const patch = { vendor: (vendor||'').trim() || null, amount: Number(amount) || null,
+      date: date || null, paid_by: paid_by || null };
+    const error = await updateReceiptRow(id, patch);
+    if (error) { showToast?.('Save failed: ' + error.message, true); return; }
+    setReceipts(rs => rs.map(x => x.id === id ? { ...x, ...patch } : x));
+    setEditingReceipt(null);
+  }
   async function deleteJobReceipt(r) {
     if (r.storage_path) await sb.storage.from('job-photos').remove([r.storage_path]);
     await sb.from('receipts').delete().eq('id', r.id);
     setReceipts(rs => rs.filter(x => x.id !== r.id));
+    if (editingReceipt?.id === r.id) setEditingReceipt(null);
   }
 
   return (
@@ -5224,32 +5310,67 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
             </button>
           </div>
           {receipts.map(r => (
-            <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8,
-              padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
-              {r.storage_path && (
-                <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`}
-                  alt="receipt" style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
-              )}
-              <div style={{ flex:1 }}>
-                <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}</div>
-                <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
-                  {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}
+            editingReceipt?.id === r.id ? (
+              <div key={r.id} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
+                <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                  <input list="receipt-vendors-jd" placeholder="Vendor" value={editingReceipt.vendor||''}
+                    onChange={e => setEditingReceipt(x => ({...x, vendor:e.target.value}))} style={{ flex:2 }} />
+                  <input placeholder="$ Amount" type="number" inputMode="decimal" value={editingReceipt.amount ?? ''}
+                    onChange={e => setEditingReceipt(x => ({...x, amount:e.target.value}))} style={{ flex:1 }} />
+                </div>
+                <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+                  <input type="date" value={editingReceipt.date||''}
+                    onChange={e => setEditingReceipt(x => ({...x, date:e.target.value}))} style={{ flex:1 }} />
+                  <select value={editingReceipt.paid_by||''} onChange={e => setEditingReceipt(x => ({...x, paid_by:e.target.value}))} style={{ flex:1 }}>
+                    <option value="">Paid by…</option>
+                    {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={saveReceiptEdit} className="head" style={{ flex:1, padding:"8px 0", borderRadius:6, border:"none", background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>SAVE</button>
+                  <button onClick={() => deleteJobReceipt(r)} className="head" style={{ padding:"8px 12px", borderRadius:6, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)", fontSize:13 }}>DELETE</button>
+                  <button onClick={() => setEditingReceipt(null)} className="head" style={{ padding:"8px 12px", borderRadius:6, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)", fontSize:13 }}>CANCEL</button>
                 </div>
               </div>
-              <button onClick={() => deleteJobReceipt(r)} className="mono"
-                style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
-            </div>
+            ) : (
+              <div key={r.id}
+                onClick={() => r.storage_path && setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`)}
+                style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:"1px solid var(--line)",
+                  cursor: r.storage_path ? "pointer" : "default" }}>
+                {r.storage_path && (
+                  <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`} alt="receipt"
+                    onError={e => { e.target.style.display='none'; }}
+                    style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
+                )}
+                <div style={{ flex:1 }}>
+                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}{r.storage_path ? ' 📷' : ''}</div>
+                  <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
+                    {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}{r.paid_by ? ` · paid by ${r.paid_by}` : ''}
+                  </div>
+                </div>
+                <button onClick={e => { e.stopPropagation(); setEditingReceipt({ id:r.id, vendor:r.vendor||'', amount:r.amount ?? '', date:r.date||'', paid_by:r.paid_by||'' }); }}
+                  className="mono" style={{ fontSize:15, color:"var(--muted)", padding:"4px 6px" }}>✎</button>
+                <button onClick={e => { e.stopPropagation(); deleteJobReceipt(r); }} className="mono"
+                  style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
+              </div>
+            )
           ))}
           {receipts.length === 0 && !addingReceipt && (
             <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>None yet</div>
           )}
           {addingReceipt && (
             <div style={{ marginTop:8, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
+              <datalist id="receipt-vendors-jd">{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <input placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)} style={{ flex:2 }} />
+                <input list="receipt-vendors-jd" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)} style={{ flex:2 }} />
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
               </div>
+              <select value={rPaidBy} onChange={e => setRPaidBy(e.target.value)}
+                style={{ width:"100%", marginBottom:8 }}>
+                <option value="">Paid by…</option>
+                {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+              </select>
               <div style={{ display:"flex", gap:8 }}>
                 <button onClick={() => receiptFileRef.current.click()} className="head" disabled={rSaving || rScanning}
                   style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
