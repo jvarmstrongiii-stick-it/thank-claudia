@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 178;
+const APP_REV = 179;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -4426,13 +4426,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [vendorOptions, setVendorOptions] = useState([]);
   const receiptFileRef = useRef();
   const receiptUploadRef = useRef();
-  const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
+  // All section collapsibles start CLOSED on every load (Jack's preference; persist-open wasn't surviving hard refresh)
+  const [photosOpen, setPhotosOpenRaw] = useState(false);
   const [showPhotoSheet, setShowPhotoSheet] = useState(false);
-  const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(() => !getSectionCollapse().thisJobEquip);
-  const [otherEquipOpen, setOtherEquipOpenRaw] = useState(() => !getSectionCollapse().otherEquip);
-  const [crewStatusOpen, setCrewStatusOpenRaw] = useState(() => !getSectionCollapse().crewStatus);
-  const [timeLogOpen, setTimeLogOpenRaw] = useState(() => !getSectionCollapse().timeLog);
-  const [recordLogOpen, setRecordLogOpenRaw] = useState(() => !getSectionCollapse().recordLog);
+  const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(false);
+  const [otherEquipOpen, setOtherEquipOpenRaw] = useState(false);
+  const [crewStatusOpen, setCrewStatusOpenRaw] = useState(false);
+  const [timeLogOpen, setTimeLogOpenRaw] = useState(false);
+  const [recordLogOpen, setRecordLogOpenRaw] = useState(false);
   function setPhotosOpen(updater) {
     setPhotosOpenRaw(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
@@ -5370,24 +5371,26 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           </button>
         )}
 
-        <div style={{ marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
-          {job.phone
-            ? <a href={`tel:${job.phone.replace(/[^0-9]/g,"")}`} style={{ color:"var(--olive-bright)", textDecoration:"none", fontSize:16, fontWeight:600 }} className="head">{job.phone}</a>
-            : null
-          }
-          {job.email && (
-            <a href={`mailto:${job.email}`} style={{ display:"block", color:"var(--muted)", textDecoration:"none", fontSize:14, marginTop:4 }}>{job.email}</a>
-          )}
-          <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", marginTop:12 }}>SITE ADDRESS</div>
-          <a href={`https://maps.google.com/?q=${encodeURIComponent(siteAddr(job))}`} target="_blank" rel="noreferrer"
-            style={{ display:"block", color:"var(--text)", textDecoration:"none", fontSize:15, marginTop:3, lineHeight:1.4 }}>{siteAddr(job)}</a>
-          {custAddr(job) && custAddr(job) !== siteAddr(job) && (
-            <React.Fragment>
-              <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:12 }}>CUSTOMER ADDRESS</div>
-              <div style={{ fontSize:15, color:"var(--muted)", marginTop:3, lineHeight:1.4 }}>{custAddr(job)}</div>
-            </React.Fragment>
-          )}
-        </div>
+        {!isShop && (
+          <div style={{ marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
+            {job.phone
+              ? <a href={`tel:${job.phone.replace(/[^0-9]/g,"")}`} style={{ color:"var(--olive-bright)", textDecoration:"none", fontSize:16, fontWeight:600 }} className="head">{job.phone}</a>
+              : null
+            }
+            {job.email && (
+              <a href={`mailto:${job.email}`} style={{ display:"block", color:"var(--muted)", textDecoration:"none", fontSize:14, marginTop:4 }}>{job.email}</a>
+            )}
+            <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", marginTop:12 }}>SITE ADDRESS</div>
+            <a href={`https://maps.google.com/?q=${encodeURIComponent(siteAddr(job))}`} target="_blank" rel="noreferrer"
+              style={{ display:"block", color:"var(--text)", textDecoration:"none", fontSize:15, marginTop:3, lineHeight:1.4 }}>{siteAddr(job)}</a>
+            {custAddr(job) && custAddr(job) !== siteAddr(job) && (
+              <React.Fragment>
+                <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:12 }}>CUSTOMER ADDRESS</div>
+                <div style={{ fontSize:15, color:"var(--muted)", marginTop:3, lineHeight:1.4 }}>{custAddr(job)}</div>
+              </React.Fragment>
+            )}
+          </div>
+        )}
 
         {!isShop && (
           <div style={{ marginTop:10 }}>
