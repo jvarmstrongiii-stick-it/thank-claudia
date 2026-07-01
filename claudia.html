@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 172;
+const APP_REV = 173;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -962,6 +962,7 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
   const [editingReceipt, setEditingReceipt] = useState(null); // { id, vendor, amount, date, paid_by }
   const [vendorOptions, setVendorOptions] = useState([]);
   const fileRef = useRef();
+  const uploadRef = useRef();
 
   useEffect(() => {
     async function load() {
@@ -1161,6 +1162,11 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
                     background:"var(--panel)", color:"var(--muted)", fontSize:13 }}>
                   {rScanning ? 'READING…' : '📷 SNAP'}
                 </button>
+                <button onClick={() => uploadRef.current.click()} className="head" disabled={rSaving || rScanning}
+                  style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
+                    background:"var(--panel)", color:"var(--muted)", fontSize:13 }}>
+                  🖼 UPLOAD
+                </button>
                 <button onClick={() => saveReceipt(null)} className="head" disabled={rSaving || rScanning || (!rVendor && !rAmount)}
                   style={{ flex:1, padding:"8px 0", borderRadius:6, border:"none",
                     background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
@@ -1171,6 +1177,8 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
                     background:"var(--panel)", color:"var(--muted)", fontSize:14 }}>✕</button>
               </div>
               <input ref={fileRef} type="file" accept="image/*" capture="environment" style={{ display:"none" }}
+                onChange={handleReceiptFile} />
+              <input ref={uploadRef} type="file" accept="image/*" style={{ display:"none" }}
                 onChange={handleReceiptFile} />
             </div>
           ) : (
@@ -4356,6 +4364,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [editingReceipt, setEditingReceipt] = useState(null); // { id, vendor, amount, date, paid_by }
   const [vendorOptions, setVendorOptions] = useState([]);
   const receiptFileRef = useRef();
+  const receiptUploadRef = useRef();
   const [photosOpen, setPhotosOpenRaw] = useState(() => !getSectionCollapse().photos);
   const [showPhotoSheet, setShowPhotoSheet] = useState(false);
   const [thisJobEquipOpen, setThisJobEquipOpenRaw] = useState(() => !getSectionCollapse().thisJobEquip);
@@ -5377,14 +5386,21 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
                     background:"var(--panel)", color:"var(--muted)", fontSize:13 }}>
                   {rScanning ? 'READING…' : '📷 SNAP'}
                 </button>
+                <button onClick={() => receiptUploadRef.current.click()} className="head" disabled={rSaving || rScanning}
+                  style={{ flex:1, padding:"8px 0", borderRadius:6, border:"1px solid var(--line)",
+                    background:"var(--panel)", color:"var(--muted)", fontSize:13 }}>
+                  🖼 UPLOAD
+                </button>
                 <button onClick={() => saveJobReceipt(null)} className="head"
                   disabled={rSaving || rScanning || (!rVendor && !rAmount)}
                   style={{ flex:2, padding:"8px 0", borderRadius:6, border:"none",
                     background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
-                  {rSaving ? 'SAVING…' : 'SAVE RECEIPT'}
+                  {rSaving ? 'SAVING…' : 'SAVE'}
                 </button>
               </div>
               <input ref={receiptFileRef} type="file" accept="image/*" capture="environment"
+                style={{ display:"none" }} onChange={handleJobReceiptFile} />
+              <input ref={receiptUploadRef} type="file" accept="image/*"
                 style={{ display:"none" }} onChange={handleJobReceiptFile} />
             </div>
           )}
