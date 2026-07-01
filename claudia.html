@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 177;
+const APP_REV = 178;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -4432,6 +4432,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const [otherEquipOpen, setOtherEquipOpenRaw] = useState(() => !getSectionCollapse().otherEquip);
   const [crewStatusOpen, setCrewStatusOpenRaw] = useState(() => !getSectionCollapse().crewStatus);
   const [timeLogOpen, setTimeLogOpenRaw] = useState(() => !getSectionCollapse().timeLog);
+  const [recordLogOpen, setRecordLogOpenRaw] = useState(() => !getSectionCollapse().recordLog);
   function setPhotosOpen(updater) {
     setPhotosOpenRaw(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
@@ -4464,6 +4465,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     setTimeLogOpenRaw(prev => {
       const next = typeof updater === 'function' ? updater(prev) : updater;
       setSectionCollapsed('timeLog', !next);
+      return next;
+    });
+  }
+  function setRecordLogOpen(updater) {
+    setRecordLogOpenRaw(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      setSectionCollapsed('recordLog', !next);
       return next;
     });
   }
@@ -5858,7 +5866,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         )}
 
         <div style={{ marginTop:16 }}>
-          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>{logTitleForType(job.type)}</div>
+          <div onClick={() => setRecordLogOpen(o => !o)} className="mono"
+            style={{ fontSize:13, color:"var(--muted)", marginBottom:8, display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+            <span style={{ display:"inline-block", transition:"transform 0.15s", transform: recordLogOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
+            {logTitleForType(job.type)}{history.length > 0 ? ` (${history.length})` : ''}
+          </div>
+          {recordLogOpen && (<>
           <textarea value={logText} onChange={e => setLogText(e.target.value)}
             placeholder="What did you do today?"
             style={{ width:"100%", boxSizing:"border-box", minHeight:58, fontSize:15, resize:"vertical",
@@ -5898,6 +5911,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
               )}
             </div>
           ))}
+          </>)}
         </div>
 
         {!isShop && materialsSection}
