@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 175;
+const APP_REV = 176;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1474,12 +1474,21 @@ function LeavingSheet({ clockSession, jobs, onInRoute, onClockOut, onClose }) {
 
 // Shop-wide "materials needed" list — aggregated from every job's unacquired items.
 function MaterialsScreen({ jobs, onClose, onUpdateMaterials, onOpenJob }) {
+  const [newItem, setNewItem] = useState('');
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
   const groups = (jobs || [])
     .map(j => ({ job: j, items: (j.materials_needed || []).map((m, idx) => ({ ...m, _idx: idx })).filter(m => !m.acquired) }))
     .filter(g => g.items.length > 0);
   function toggleAcquired(job, idx) {
     const next = (job.materials_needed || []).map((m, i) => i === idx ? { ...m, acquired: true } : m);
     onUpdateMaterials(job.id, next);
+  }
+  async function addToShop() {
+    const t = newItem.trim();
+    if (!t || !shopJob) return;
+    const next = [...(shopJob.materials_needed || []), { text: t, acquired: false }];
+    setNewItem('');
+    await onUpdateMaterials(shopJob.id, next);
   }
   return (
     <div className="fade-in" style={{ minHeight:'100vh', background:'var(--bg)' }}>
@@ -1490,6 +1499,20 @@ function MaterialsScreen({ jobs, onClose, onUpdateMaterials, onOpenJob }) {
         </div>
       </div>
       <div style={{ padding:'12px 16px' }}>
+        <div style={{ display:'flex', gap:8 }}>
+          <input value={newItem} onChange={e => setNewItem(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addToShop(); }}
+            placeholder="Add a material…" disabled={!shopJob}
+            style={{ flex:1, boxSizing:'border-box', padding:'10px 12px', borderRadius:8,
+              background:'var(--bg)', border:'1px solid var(--line)', color:'var(--text)', fontSize:15, fontFamily:'inherit' }} />
+          <button onClick={addToShop} disabled={!newItem.trim() || !shopJob} className="head"
+            style={{ padding:'0 16px', borderRadius:8, fontSize:14, fontWeight:700, border:'none',
+              background: (newItem.trim() && shopJob) ? 'var(--olive-bright)' : 'var(--line)',
+              color: (newItem.trim() && shopJob) ? 'var(--bg)' : 'var(--muted)' }}>ADD</button>
+        </div>
+        <div className="mono" style={{ fontSize:10, color:'var(--muted)', margin:'6px 0 14px' }}>
+          {shopJob ? 'Adds to TMC SHOP' : 'TMC SHOP job not found'}
+        </div>
         {groups.length === 0 && (
           <div className="mono" style={{ textAlign:'center', color:'var(--muted)', padding:'40px 0', fontSize:13, letterSpacing:'0.08em' }}>NOTHING NEEDED</div>
         )}
