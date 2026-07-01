@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 174;
+const APP_REV = 175;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1845,6 +1845,8 @@ function App() {
   const [pendingShopActivity, setPendingShopActivity] = useState(null); // { shopJobId, startedAt, mapsJobId } — fires after leaving shop
   const [showMenu, setShowMenu] = useState(false);
   const [staleClock, setStaleClock] = useState(null); // { session, sinceDate } — clock session left open from a prior day
+  const clockSessionRef = useRef(clockSession); // latest clockSession for reconcile (avoids stale closures)
+  useEffect(() => { clockSessionRef.current = clockSession; }, [clockSession]);
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -2001,15 +2003,49 @@ Command: "${transcript}"`
     setBrowseMode(false);
   }
 
-  // Detect a clock session left open from a previous day → prompt to clock out or keep going.
-  // Runs on mount and on user switch (keyed on user id), so fresh same-day sessions never re-prompt.
+  // Reconcile the per-device clockSession against the shared job_crew table (source of truth).
+  // Fixes: (a) top bar stuck "In Route" after a teammate marks you On Site — the DB row updates
+  // but the local session doesn't; (b) a stale local session lingering on another device after
+  // you clocked out elsewhere — its crew row is gone, so clear it instead of nagging.
+  const reconcileClockFromCrew = useCallback(async () => {
+    if (!currentUser?.id) return;
+    const { data, error } = await sb.from('job_crew')
+      .select('job_id, status, status_at')
+      .eq('user_id', currentUser.id).in('status', ['In Route', 'On Site'])
+      .order('status_at', { ascending: false });
+    if (error) return; // network guard — never act on a failed fetch
+    const mine = (data && data[0]) || null;
+    const sess = clockSessionRef.current;
+    if (!sess) return; // no local session — leave to orphanCrewEntry recovery
+    if (!mine) {
+      // Session was closed elsewhere (clocked out on another device) → drop the dead local copy.
+      saveClockSession(currentUser.id, null);
+      setClockSession(null);
+      setStaleClock(null);
+      return;
+    }
+    // Sync local status/job to the DB row if a teammate (or another device) changed it.
+    let synced = sess;
+    if (mine.status !== sess.status || mine.job_id !== sess.jobId) {
+      synced = { ...sess, status: mine.status, jobId: mine.job_id,
+        // same-job In Route→On Site is one continuous leg (keep legStartedAt); a job change adopts status_at
+        legStartedAt: mine.job_id !== sess.jobId ? mine.status_at : sess.legStartedAt };
+      saveClockSession(currentUser.id, synced);
+      setClockSession(synced);
+    }
+    // Staleness is judged by the crew row's status_at (real activity), not the old local startedAt.
+    const sinceDate = todayLocalISO(new Date(mine.status_at));
+    if (sinceDate !== todayLocalISO()) setStaleClock({ session: synced, sinceDate });
+    else setStaleClock(null);
+  }, [currentUser?.id]);
+
   useEffect(() => {
-    if (!currentUser || !clockSession) return;
-    const ref = clockSession.startedAt || clockSession.legStartedAt;
-    if (!ref) return;
-    const refDate = todayLocalISO(new Date(ref));
-    if (refDate !== todayLocalISO()) setStaleClock({ session: clockSession, sinceDate: refDate });
-  }, [currentUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!currentUser) return;
+    reconcileClockFromCrew();
+    const t = setInterval(reconcileClockFromCrew, 60000);
+    window.addEventListener('focus', reconcileClockFromCrew);
+    return () => { clearInterval(t); window.removeEventListener('focus', reconcileClockFromCrew); };
+  }, [currentUser?.id, reconcileClockFromCrew]);
 
   const refresh = useCallback(async () => {
     const [jobData, choreData, userData] = await Promise.all([fetchJobs(), fetchChores(), fetchUsers()]);
@@ -2173,7 +2209,7 @@ Command: "${transcript}"`
 
   // Stale prior-day session: keep working. Re-anchor the session to now so today's total
   // starts clean and the stale prompt doesn't fire again on reload.
-  function keepStaleClock() {
+  async function keepStaleClock() {
     const sess = staleClock?.session;
     setStaleClock(null);
     if (!sess || !currentUser) return;
@@ -2181,6 +2217,8 @@ Command: "${transcript}"`
     const session = { ...sess, startedAt: now, legStartedAt: now };
     saveClockSession(currentUser.id, session);
     setClockSession(session);
+    // Re-stamp the shared crew row to now so reconcileClockFromCrew won't re-flag it as prior-day.
+    if (sess.jobId) await upsertJobCrewStatus(sess.jobId, currentUser.id, sess.status);
   }
 
   async function flipToOnSite(at = new Date().toISOString()) {
