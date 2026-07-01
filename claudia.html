@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 179;
+const APP_REV = 180;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1302,8 +1302,9 @@ function ClockInSheet({ jobs, onConfirm, onClose }) {
 function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
   const [jobStatus, setJobStatus] = useState(null);
   const job = clockSession?.jobId ? (jobs || []).find(j => j.id === clockSession.jobId) : null;
+  const isShop = job?.customer?.toUpperCase() === TMC_SHOP_NAME;
   const activeStatuses = ['New','Ready to Schedule','Scheduled','In Route','On Site','In Progress'];
-  const needsStatusUpdate = job && activeStatuses.includes(job.status);
+  const needsStatusUpdate = job && !isShop && activeStatuses.includes(job.status);
   return (
     <Sheet title={job ? `CLOCKING OUT — ${(job.customer || '').toUpperCase()}` : 'CLOCK OUT — SHOP'} onClose={onClose}>
       {needsStatusUpdate && (
@@ -2250,7 +2251,7 @@ Command: "${transcript}"`
     await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site');
     const job = jobs.find(j => j.id === clockSession.jobId);
     const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-    if (job && wIdx(job.status) < wIdx('In Progress')) {
+    if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
       await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
     }
     await sb.from('job_notes').insert({
@@ -2639,6 +2640,169 @@ Command: "${transcript}"`
     return (
       <React.Fragment>
         <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} onUndo={clockUndo ? undoClockAction : null} onSwitchUser={() => { localStorage.removeItem(CURRENT_USER_KEY); setCurrentUser(null); }} />
+        {lastLeaveJob && (
+          <LastLeaveSheet job={lastLeaveJob.job} onPick={async s => {
+            await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
+            const mj = lastLeaveJob.mapsJobId ? jobs.find(j => j.id === lastLeaveJob.mapsJobId) : null;
+            setLastLeaveJob(null);
+            if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+          }} onClose={() => {
+            const mj = lastLeaveJob.mapsJobId ? jobs.find(j => j.id === lastLeaveJob.mapsJobId) : null;
+            setLastLeaveJob(null);
+            if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj);
+          }} />
+        )}
+        {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
+          const person = leavingCrewCheck.members[0];
+          const rest = leavingCrewCheck.members.slice(1);
+          const advance = (stayed = false) => {
+            const nextSomeoneStayed = leavingCrewCheck.someoneStayed || stayed;
+            if (rest.length > 0) {
+              setLeavingCrewCheck({ ...leavingCrewCheck, members: rest, someoneStayed: nextSomeoneStayed });
+            } else {
+              const { mapsJobId, oldJobId, fromShop, shopStartedAt } = leavingCrewCheck;
+              setLeavingCrewCheck(null);
+              if (fromShop && oldJobId) {
+                setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopStartedAt, mapsJobId });
+              } else {
+                const oldJob = (!nextSomeoneStayed && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
+                const mj = mapsJobId ? jobs.find(j => j.id === mapsJobId) : null;
+                const mapsOk = mj && (siteAddr(mj) || custAddr(mj)).trim();
+                if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+                  // navigation chains after the LAST ONE OUT prompt resolves (stays last)
+                  setLastLeaveJob({ job: oldJob, mapsJobId: mapsOk ? mapsJobId : null });
+                } else if (mapsOk) {
+                  setPendingMapsJob(mj);
+                }
+              }
+            }
+          };
+          return (
+            <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
+              <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
+                Is {person.name} coming with you?
+              </div>
+              <div style={{ display:"flex", gap:12 }}>
+                <button onClick={async () => {
+                  const { newJobId, oldJobId } = leavingCrewCheck;
+                  const at = new Date().toISOString();
+                  await clearJobCrewStatus(oldJobId, person.id);
+                  if (newJobId) {
+                    await upsertJobCrewStatus(newJobId, person.id, 'In Route');
+                    const newJob = jobs.find(j => j.id === newJobId);
+                    await sb.from('job_notes').insert({
+                      job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+                      source: 'system', created_at: at, user_id: currentUser.id,
+                    });
+                    await sb.from('notifications').insert({
+                      user_id: person.id,
+                      message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
+                      read: false, created_at: at,
+                    });
+                  }
+                  advance(false);
+                  refresh();
+                }} className="head"
+                  style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                    background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                  YES
+                </button>
+                <button onClick={() => advance(true)} className="head"
+                  style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  NO — STAYING
+                </button>
+              </div>
+            </Sheet>
+          );
+        })()}
+        {joiningOnSiteCheck && joiningOnSiteCheck.members.length > 0 && (() => {
+          const person = joiningOnSiteCheck.members[0];
+          const rest = joiningOnSiteCheck.members.slice(1);
+          const advance = () => rest.length > 0
+            ? setJoiningOnSiteCheck({ ...joiningOnSiteCheck, members: rest })
+            : setJoiningOnSiteCheck(null);
+          const { jobId: jsJobId } = joiningOnSiteCheck;
+          const jsJob = jobs.find(j => j.id === jsJobId);
+          return (
+            <Sheet title="ON SITE CHECK" onClose={() => setJoiningOnSiteCheck(null)}>
+              <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
+                Is {person.name} also on site?
+              </div>
+              <div style={{ display:"flex", gap:12 }}>
+                <button onClick={async () => {
+                  const at = new Date().toISOString();
+                  await upsertJobCrewStatus(jsJobId, person.id, 'On Site');
+                  await sb.from('job_notes').insert({
+                    job_id: jsJobId, content: `Status → On Site (${person.name}) — with ${currentUser.name}`,
+                    source: 'system', created_at: at, user_id: currentUser.id,
+                  });
+                  await sb.from('notifications').insert({
+                    user_id: person.id,
+                    message: `${currentUser.name} marked you On Site at ${jsJob?.customer || 'a job'}`,
+                    read: false, created_at: at,
+                  });
+                  advance();
+                }} className="head"
+                  style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                    background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                  YES
+                </button>
+                <button onClick={advance} className="head"
+                  style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
+                    background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                  NO — STILL IN ROUTE
+                </button>
+              </div>
+            </Sheet>
+          );
+        })()}
+        {pendingShopActivity && (
+          <ShopActivitySheet
+            startedAt={pendingShopActivity.startedAt}
+            onSave={async (tags, note) => {
+              const elapsed = fmtElapsed(Date.now() - new Date(pendingShopActivity.startedAt).getTime());
+              const tagStr = tags.length > 0 ? tags.join(' · ') : '';
+              const content = `Shop (${elapsed})${tagStr ? ' — ' + tagStr : ''}${note ? ': ' + note : ''} (${currentUser.name})`;
+              await sb.from('job_notes').insert({
+                job_id: pendingShopActivity.shopJobId, content, source: 'user',
+                created_at: new Date().toISOString(), user_id: currentUser.id,
+              });
+              const { mapsJobId } = pendingShopActivity;
+              setPendingShopActivity(null);
+              if (mapsJobId) { const mj = jobs.find(j => j.id === mapsJobId); if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj); }
+            }}
+            onSkip={() => {
+              const { mapsJobId } = pendingShopActivity;
+              setPendingShopActivity(null);
+              if (mapsJobId) { const mj = jobs.find(j => j.id === mapsJobId); if (mj && (siteAddr(mj) || custAddr(mj)).trim()) setPendingMapsJob(mj); }
+            }}
+          />
+        )}
+        {pendingMapsJob && (
+          <Sheet title="NAVIGATION" onClose={() => setPendingMapsJob(null)}>
+            <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:8 }}>
+              WANT DIRECTIONS TO {(pendingMapsJob.customer || '').toUpperCase()}?
+            </div>
+            {(siteAddr(pendingMapsJob) || custAddr(pendingMapsJob)) && (
+              <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:20 }}>
+                {siteAddr(pendingMapsJob) || custAddr(pendingMapsJob)}
+              </div>
+            )}
+            <div style={{ display:"flex", gap:12 }}>
+              <button onClick={() => { openMapsNav(pendingMapsJob); setPendingMapsJob(null); }} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+                YES — NAVIGATE
+              </button>
+              <button onClick={() => setPendingMapsJob(null)} className="head"
+                style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                NO THANKS
+              </button>
+            </div>
+          </Sheet>
+        )}
         {fieldTimeConfirm && (
           <Sheet title="CONFIRM TIME" onClose={() => setFieldTimeConfirm(null)}>
             <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>

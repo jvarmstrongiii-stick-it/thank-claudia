@@ -5,7 +5,7 @@
 ## Commit & Deploy Rules (non-negotiable)
 
 1. **ALWAYS push to `main`** — Jack keeps a numbered r-commit history on main for rollback. Never leave work only on a feature branch. Use `git push origin HEAD:main` or push directly to main.
-2. **ALWAYS bump `APP_REV`** on every single commit — it's `const APP_REV = NNN;` near the top of `claudia.html` (currently **179**). This is the visible version badge on the dashboard. Forgetting it means Jack sees a stale revision number and thinks deploys aren't working.
+2. **ALWAYS bump `APP_REV`** on every single commit — it's `const APP_REV = NNN;` near the top of `claudia.html` (currently **180**). This is the visible version badge on the dashboard. Forgetting it means Jack sees a stale revision number and thinks deploys aren't working.
 3. **Set git identity before first commit** in each session: `git config user.email "noreply@anthropic.com" && git config user.name "Claude"`
 4. **Deploy takes ~1 minute** after push to main — GitHub Actions copies `claudia.html` → `dist/index.html` → `gh-pages` branch. If Jack says the version number is wrong, check `APP_REV` first before assuming a deploy issue.
 5. **r-number in commit message** — prefix every commit message with `rNNN:` matching the new APP_REV value.
@@ -34,12 +34,14 @@ Things that do NOT need documenting: UI copy changes, style tweaks, bug fixes th
 
 | Path | Condition | Has fieldTimeConfirm? | Has pendingMapsJob? |
 |------|-----------|----------------------|---------------------|
-| ClockGate | `!clockSession && !browseMode` | ✓ (r148) | — |
+| ClockGate | `!clockSession && !browseMode` | ✓ (r148) | ✓ (r180) |
 | showClockIn | `showClockIn` (early return) | — | — |
 | JobDetail (selected) | `selected` | ✓ | ✓ |
 | Browse/dashboard | default | ✓ | ✓ |
 
 When adding a new App-level Sheet, check all four paths. `StaleClockSheet` (r162) is rendered in the **JobDetail (selected)** and **Browse/dashboard** paths only — it can only appear when `clockSession` is truthy (a session left open from a prior day), which by definition excludes the ClockGate path.
+
+**ClockGate can follow you mid clock-out (r180 fix):** `clockOut()`/`moveToInRoute()` leave `selectedId` untouched, but the App render order checks `!clockSession && !browseMode` *before* `selected`, so the instant `clockSession` goes null (e.g. right after clocking out) the app falls through to ClockGate regardless of which job was open. Until r180, ClockGate only rendered `fieldTimeConfirm` — so `lastLeaveJob`, `leavingCrewCheck`, `joiningOnSiteCheck`, and `pendingShopActivity`/`pendingMapsJob` (none of which require `clockSession`) were silently dropped and only appeared once the user tapped BROWSE and landed on the Browse/dashboard path. ClockGate now renders all five, matching the other paths. `staleClock` still can't appear there — it requires `clockSession` truthy by construction.
 
 ---
 
@@ -460,7 +462,8 @@ EAS mobile builds are on hold. Do not assume any native build is current or runn
 
 | Issue | Severity | Detail |
 |-------|---------|--------|
-| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **179**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
+| **Bump APP_REV every commit** | Critical | `const APP_REV = NNN;` near top of claudia.html. Currently **180**. Forgetting this makes Jack think the deploy failed — he sees the old revision number on the dashboard. Increment by 1 every commit, no exceptions. |
+| **Shop job never prompts a status update / never auto-flips to In Progress** | Medium | `ClockOutSheet` (r180) excludes `job.customer===TMC_SHOP_NAME` from `needsStatusUpdate` — clocking out of the shop never shows "UPDATE JOB STATUS". `flipToOnSite` (r180) now also guards `job.customer?.toUpperCase() !== TMC_SHOP_NAME` before auto-setting status to `In Progress`, matching the guard already present in `clockIn`/`moveToInRoute`. The shop sentinel is created with `current_status:'In Progress'` in `ensureShopSentinel` and is meant to stay there — no code path should change it. |
 | **Shop JobDetail is a stripped variant** | Low | `const isShop` (JobDetail, `job.customer===TMC_SHOP_NAME`) hides JOB VALUE, SCHEDULED, ORIGINAL ASK, NOTES, and the contact/SITE ADDRESS block (r179), and lifts the shared `materialsSection` up under TODAY'S TIME (r177). The materials block is a single `materialsSection` const rendered `{isShop && …}` at top or `{!isShop && …}` in the normal spot — edit it once, not twice. Section collapsibles default **closed** every load (r179; `useState(false)`, persist writes kept but not read at init). |
 | **clockSession is per-device; reconcile against `job_crew`** | High | `clockSession` lives in per-device localStorage; `job_crew` (job_id,user_id,status,status_at) is the SHARED truth (what CREW STATUS shows). They drift: a teammate marking you On Site updates the DB row but not your device's session; clocking out on one phone leaves a dead session copy on another. `reconcileClockFromCrew` (r175, runs on mount/switch + 60s refresh + window focus) is the authority — it syncs `clockSession.status/jobId` from your active crew row, clears the local session if you have NO active crew row (clocked out elsewhere — no stale prompt), and judges "stale prior-day session" by the crew row's `status_at` (NOT the old local `startedAt`). Has a network guard: never act on a failed fetch. Don't reintroduce `startedAt`-based stale detection. |
 | **`receipts.paid_by` needs SQL migration** | Medium | r172 adds `receipts.paid_by text` (who fronted the money, for reimbursement). Added via Supabase dashboard SQL (no migration files). `insertReceiptRow`/`updateReceiptRow` retry without `paid_by` on `PGRST204` so receipts still save/edit before the column exists. If "paid by" silently doesn't persist, run `ALTER TABLE receipts ADD COLUMN paid_by text; NOTIFY pgrst, 'reload schema';`. |
