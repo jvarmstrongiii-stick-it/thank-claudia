@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 176;
+const APP_REV = 177;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -5135,6 +5135,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const jobEquip = equipmentList.filter(eq => eq.job_id === job.id);
   const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
   const crewTimeline = buildCrewTimeline(crewLog, crew, users);
+  const isShop = job.customer?.toUpperCase() === TMC_SHOP_NAME; // shop job gets a stripped-down layout
 
   async function saveJobReceipt(storagePath) {
     if (!rAmount && !rVendor) { setRSaving(false); return; }
@@ -5196,6 +5197,33 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     setReceipts(rs => rs.filter(x => x.id !== r.id));
     if (editingReceipt?.id === r.id) setEditingReceipt(null);
   }
+
+  const materialsSection = (
+    <div style={{ marginTop:16 }}>
+      <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>MATERIALS NEEDED</div>
+      <div style={{ display:"flex", gap:8 }}>
+        <input value={matText} onChange={e => setMatText(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') addMaterial(matText); }}
+          placeholder="Add a material…"
+          style={{ flex:1, boxSizing:"border-box", padding:"10px 12px", borderRadius:8,
+            background:"var(--bg)", border:"1px solid var(--line)", color:"var(--text)", fontSize:15, fontFamily:"inherit" }} />
+        <button onClick={() => addMaterial(matText)} disabled={!matText.trim()} className="head"
+          style={{ padding:"0 16px", borderRadius:8, fontSize:14, fontWeight:700, border:"none",
+            background: matText.trim() ? "var(--olive-bright)" : "var(--line)",
+            color: matText.trim() ? "var(--bg)" : "var(--muted)" }}>ADD</button>
+      </div>
+      {materials.map((m, i) => (
+        <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
+          <input type="checkbox" checked={!!m.acquired} onChange={() => toggleMaterial(i)}
+            style={{ width:20, height:20, accentColor:"var(--green)", cursor:"pointer", flexShrink:0 }} />
+          <span style={{ flex:1, fontSize:15, color: m.acquired ? "var(--muted)" : "var(--text)",
+            textDecoration: m.acquired ? "line-through" : "none" }}>{m.text}</span>
+          <button onClick={() => removeMaterial(i)} className="mono"
+            style={{ background:"none", border:"none", color:"var(--muted)", fontSize:15, padding:"0 4px", cursor:"pointer" }}>✕</button>
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="fade-in" style={{ paddingBottom:40 }}>
@@ -5316,17 +5344,23 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           );
         })()}
 
-        <div style={{ marginTop:14, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>JOB VALUE</span>
-          <span className="head" style={{ fontSize:24, fontWeight:700, color:"var(--olive-bright)" }}>{money(job.value)}</span>
-        </div>
+        {isShop && materialsSection}
 
-        <button onClick={() => setShowResched(true)} style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-          <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>SCHEDULED</span>
-          <span className="head" style={{ fontSize:17, fontWeight:600, color:"var(--brass-bright)" }}>
-            {fmtDate(job.scheduled_date)} · {fmtTime(job.scheduled_time)} ✎
-          </span>
-        </button>
+        {!isShop && (
+          <div style={{ marginTop:14, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>JOB VALUE</span>
+            <span className="head" style={{ fontSize:24, fontWeight:700, color:"var(--olive-bright)" }}>{money(job.value)}</span>
+          </div>
+        )}
+
+        {!isShop && (
+          <button onClick={() => setShowResched(true)} style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>SCHEDULED</span>
+            <span className="head" style={{ fontSize:17, fontWeight:600, color:"var(--brass-bright)" }}>
+              {fmtDate(job.scheduled_date)} · {fmtTime(job.scheduled_time)} ✎
+            </span>
+          </button>
+        )}
 
         <div style={{ marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10 }}>
           {job.phone
@@ -5347,20 +5381,24 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           )}
         </div>
 
-        <div style={{ marginTop:10 }}>
-          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>ORIGINAL ASK</div>
-          <textarea value={originalAsk} onChange={e => setOriginalAsk(e.target.value)}
-            onBlur={() => { if (originalAsk !== (job.original_ask||'')) onUpdate({ original_ask: originalAsk }); }}
-            placeholder="What did the customer ask for?"
-            rows={2} style={{ resize:"vertical", lineHeight:1.4 }} />
-        </div>
+        {!isShop && (
+          <div style={{ marginTop:10 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>ORIGINAL ASK</div>
+            <textarea value={originalAsk} onChange={e => setOriginalAsk(e.target.value)}
+              onBlur={() => { if (originalAsk !== (job.original_ask||'')) onUpdate({ original_ask: originalAsk }); }}
+              placeholder="What did the customer ask for?"
+              rows={2} style={{ resize:"vertical", lineHeight:1.4 }} />
+          </div>
+        )}
 
-        <div style={{ marginTop:10 }}>
-          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
-          <textarea value={notes} onChange={e => setNotes(e.target.value)}
-            onBlur={() => { if (notes !== (job.notes||'')) onUpdate({ notes }); }}
-            rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
-        </div>
+        {!isShop && (
+          <div style={{ marginTop:10 }}>
+            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)}
+              onBlur={() => { if (notes !== (job.notes||'')) onUpdate({ notes }); }}
+              rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
+          </div>
+        )}
 
         {/* Receipts */}
         <div style={{ marginTop:16 }}>
@@ -5862,30 +5900,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
           ))}
         </div>
 
-        <div style={{ marginTop:16 }}>
-          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>MATERIALS NEEDED</div>
-          <div style={{ display:"flex", gap:8 }}>
-            <input value={matText} onChange={e => setMatText(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') addMaterial(matText); }}
-              placeholder="Add a material…"
-              style={{ flex:1, boxSizing:"border-box", padding:"10px 12px", borderRadius:8,
-                background:"var(--bg)", border:"1px solid var(--line)", color:"var(--text)", fontSize:15, fontFamily:"inherit" }} />
-            <button onClick={() => addMaterial(matText)} disabled={!matText.trim()} className="head"
-              style={{ padding:"0 16px", borderRadius:8, fontSize:14, fontWeight:700, border:"none",
-                background: matText.trim() ? "var(--olive-bright)" : "var(--line)",
-                color: matText.trim() ? "var(--bg)" : "var(--muted)" }}>ADD</button>
-          </div>
-          {materials.map((m, i) => (
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
-              <input type="checkbox" checked={!!m.acquired} onChange={() => toggleMaterial(i)}
-                style={{ width:20, height:20, accentColor:"var(--green)", cursor:"pointer", flexShrink:0 }} />
-              <span style={{ flex:1, fontSize:15, color: m.acquired ? "var(--muted)" : "var(--text)",
-                textDecoration: m.acquired ? "line-through" : "none" }}>{m.text}</span>
-              <button onClick={() => removeMaterial(i)} className="mono"
-                style={{ background:"none", border:"none", color:"var(--muted)", fontSize:15, padding:"0 4px", cursor:"pointer" }}>✕</button>
-            </div>
-          ))}
-        </div>
+        {!isShop && materialsSection}
 
         {/* Photo strip */}
         <div ref={photoRef} style={{ marginTop:16 }}>
