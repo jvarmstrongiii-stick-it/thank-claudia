@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 180;
+const APP_REV = 181;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -264,6 +264,15 @@ function openMapsNav(job) {
 function custAddr(j) { return j.customer_address || j.address || ""; }
 function uid() { return "job_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function money(n) { return "$" + Number(n||0).toLocaleString("en-US"); }
+// Open-chore priority order: your voice reminders, then your other assigned chores,
+// then unassigned, then everyone else's (shown, not hidden).
+function sortChoresForUser(list, userId) {
+  const myReminders = list.filter(c => c.assigned_to === userId && c.kind === 'reminder');
+  const mine         = list.filter(c => c.assigned_to === userId && c.kind !== 'reminder');
+  const unassigned   = list.filter(c => !c.assigned_to);
+  const others       = list.filter(c => c.assigned_to && c.assigned_to !== userId);
+  return [...myReminders, ...mine, ...unassigned, ...others];
+}
 function fmtDate(iso) {
   if (!iso) return "—";
   const [y,m,d] = iso.split("-");
@@ -1837,6 +1846,7 @@ function App() {
   const [searchClosed, setSearchClosed] = useState(false);
   const [choresExpanded, setChoresExpanded] = useState(false);
   const [showChoresView, setShowChoresView] = useState(false);
+  const [showChoresGate, setShowChoresGate] = useState(false); // open chores shown first, right after clocking in
   const [focusPhotos, setFocusPhotos] = useState(false);
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
@@ -1939,20 +1949,26 @@ Command: "${transcript}"`
         const assigneeUser = intent.assigned_to_name
           ? users.find(u => u.name.toLowerCase().includes(intent.assigned_to_name.toLowerCase()))
           : null;
+        // "remind me/myself to..." (self-referential, no other name spoken) — a personal
+        // reminder that outranks other assigned + unassigned chores (see sortChoresForUser).
+        const isReminder = /\bremind(er)?\s+(me|myself)\b/i.test(transcript);
+        const assignedToId = assigneeUser?.id || (isReminder ? currentUser?.id : null) || null;
+        const choreKind = isReminder ? 'reminder' : null;
         const jobIdForChore = intent.job_id || (selectedId && currentScreen.startsWith('job_detail') ? selectedId : null);
         const { data: choreData, error: choreErr } = await sb.from('chores').insert({
           description: desc,
           job_id: jobIdForChore || null,
-          assigned_to: assigneeUser?.id || null,
+          assigned_to: assignedToId,
+          priority: choreKind,
           status: 'open',
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).select().single();
         if (choreErr) { showToast(`Error: ${choreErr.message}`, true); return; }
-        setChores(cs => [{ id: choreData.id, kind: null, job_id: jobIdForChore || null,
-          assigned_to: assigneeUser?.name || null,
+        setChores(cs => [{ id: choreData.id, kind: choreKind, job_id: jobIdForChore || null,
+          assigned_to: assignedToId,
           label: desc, created: todayISO(), done: false }, ...cs]);
-        showToast('Chore added');
+        showToast(isReminder ? 'Reminder added' : 'Chore added');
       } else if (intent.intent === 'add_job') {
         const pre = {};
         if (intent.customer) pre.customer = intent.customer;
@@ -2172,6 +2188,8 @@ Command: "${transcript}"`
       setShowClockIn(false);
       setSelectedId(jobId);
       refresh();
+      // Open chores are the first thing a tech sees after clocking in (skip if there are none).
+      if (chores.some(c => !c.done)) setShowChoresGate(true);
       if (status === 'In Route') {
         const addr = (siteAddr(job) || custAddr(job)).trim();
         if (addr) setPendingMapsJob(job);
@@ -2455,6 +2473,24 @@ Command: "${transcript}"`
       ...c, label: fields.description, job_id: fields.job_id || null, assigned_to: fields.assigned_to || null,
     } : c));
     showToast('Chore updated');
+  }
+
+  async function addChore(desc, jobId, assignedTo) {
+    const { data, error } = await sb.from('chores').insert({
+      description: desc, job_id: jobId||null,
+      assigned_to: validUUID(assignedTo)||null,
+      status: 'open', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    }).select().single();
+    if (error) { showToast(`Error: ${error.message}`, true); return; }
+    setChores(cs => [{ id: data.id, kind: null, job_id: jobId||null,
+      assigned_to: assignedTo||null,
+      label: desc, created: todayISO(), done: false }, ...cs]);
+    showToast("Chore added");
+  }
+
+  async function deleteChore(choreId) {
+    await sb.from('chores').delete().eq('id', choreId);
+    setChores(cs => cs.filter(c => c.id !== choreId));
   }
 
   async function spawnBillingChore(job) {
@@ -2865,6 +2901,19 @@ Command: "${transcript}"`
   if (showHours) return <HoursReport jobs={jobs} users={users} onClose={() => setShowHours(false)} />;
   if (showMaterials) return <MaterialsScreen jobs={jobs} onClose={() => setShowMaterials(false)}
     onUpdateMaterials={updateJobMaterials} onOpenJob={(id) => { setShowMaterials(false); setSelectedId(id); }} />;
+  if (showChoresGate) return (
+    <React.Fragment>
+      <ChoresView chores={chores} jobs={jobs} users={users} currentUser={currentUser}
+        title="OPEN CHORES" ctaLabel="CONTINUE"
+        onClose={() => setShowChoresGate(false)}
+        onToggle={toggleChore}
+        onEdit={editChore}
+        onOpenJob={(jobId) => { setShowChoresGate(false); openJobPhotos(jobId); }}
+        onAdd={addChore}
+        onDelete={deleteChore} />
+      {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+    </React.Fragment>
+  );
   if (selected) return (
     <React.Fragment>
       <JobDetail job={selected}
@@ -3524,27 +3573,13 @@ Command: "${transcript}"`
       {/* Chores management view */}
       {showChoresView && (
         <ChoresView
-          chores={chores} jobs={jobs} users={users}
+          chores={chores} jobs={jobs} users={users} currentUser={currentUser}
           onClose={() => setShowChoresView(false)}
           onToggle={toggleChore}
           onEdit={editChore}
           onOpenJob={(jobId) => { setShowChoresView(false); openJobPhotos(jobId); }}
-          onAdd={async (desc, jobId, assignedTo) => {
-            const { data, error } = await sb.from('chores').insert({
-              description: desc, job_id: jobId||null,
-              assigned_to: validUUID(assignedTo)||null,
-              status: 'open', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
-            }).select().single();
-            if (error) { showToast(`Error: ${error.message}`, true); return; }
-            setChores(cs => [{ id: data.id, kind: null, job_id: jobId||null,
-              assigned_to: assignedTo||null,
-              label: desc, created: todayISO(), done: false }, ...cs]);
-            showToast("Chore added");
-          }}
-          onDelete={async (choreId) => {
-            await sb.from('chores').delete().eq('id', choreId);
-            setChores(cs => cs.filter(c => c.id !== choreId));
-          }}
+          onAdd={addChore}
+          onDelete={deleteChore}
         />
       )}
 
@@ -4067,7 +4102,7 @@ function SettingsModal({ onClose, onLock }) {
 }
 
 /* ── ChoresView ────────────────────────────────────────────────────────────── */
-function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob, onAdd, onDelete }) {
+function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob, onAdd, onDelete, currentUser, title, ctaLabel }) {
   const [desc, setDesc] = useState('');
   const [jobId, setJobId] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
@@ -4077,7 +4112,7 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
   const [editJobId, setEditJobId] = useState('');
   const [editAssignedTo, setEditAssignedTo] = useState('');
   const [showCompleted, setShowCompleted] = useState(false);
-  const open = chores.filter(c => !c.done);
+  const open = sortChoresForUser(chores.filter(c => !c.done), currentUser?.id);
   const done = chores.filter(c => c.done);
 
   async function submit() {
@@ -4154,6 +4189,11 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
           <div style={{ fontSize:15, textDecoration: isDone ? "line-through" : "none",
             color: isDone ? "var(--muted)" : "var(--text)" }}>{c.label}</div>
           <div style={{ display:"flex", gap:10, marginTop:4, flexWrap:"wrap" }}>
+            {c.kind === 'reminder' && (
+              <span className="mono" style={{ fontSize:11, color:"var(--brass-bright)" }}>
+                🔔 REMINDER
+              </span>
+            )}
             {assignee && (
               <span className="mono" style={{ fontSize:11, color:"var(--olive-bright)" }}>
                 👤 {assignee.name}
@@ -4174,10 +4214,10 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
   }
 
   return (
-    <div style={{ position:"fixed", inset:0, zIndex:100, background:"var(--bg)", overflowY:"auto", paddingBottom:40 }}>
+    <div style={{ position:"fixed", inset:0, zIndex:100, background:"var(--bg)", overflowY:"auto", paddingBottom: ctaLabel ? 90 : 40 }}>
       <div style={{ padding:"16px", borderBottom:"1px solid var(--line)", background:"var(--panel)", display:"flex", alignItems:"center", gap:12, position:"sticky", top:0, zIndex:10 }}>
         <button onClick={onClose} className="head" style={{ fontSize:36, color:"var(--muted)", padding:"4px 12px 4px 4px", lineHeight:1 }}>‹</button>
-        <div className="head" style={{ fontSize:18, fontWeight:600 }}>CHORES</div>
+        <div className="head" style={{ fontSize:18, fontWeight:600 }}>{title || 'CHORES'}</div>
         <button onClick={() => { setAdding(v=>!v); setEditingId(null); }} className="head"
           style={{ marginLeft:"auto", fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
             background: adding ? "var(--panel-2)" : "var(--olive-bright)",
@@ -4236,6 +4276,17 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
           </div>
         )}
       </div>
+      {ctaLabel && (
+        <div style={{ position:"fixed", bottom:0, left:"50%", transform:"translateX(-50%)",
+          width:"100%", maxWidth:520, background:"var(--panel)", borderTop:"1px solid var(--line)",
+          padding:"12px 16px", boxShadow:"0 -8px 24px rgba(0,0,0,0.4)" }}>
+          <button onClick={onClose} className="head"
+            style={{ width:"100%", padding:"15px", borderRadius:9, fontSize:16, fontWeight:700,
+              background:"var(--olive-bright)", color:"var(--bg)" }}>
+            {ctaLabel}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
