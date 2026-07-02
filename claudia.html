@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 185;
+const APP_REV = 186;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3282,7 +3282,7 @@ Command: "${transcript}"`
               background:"var(--panel-2)", borderRadius:8, border:"1px solid var(--olive)" }}>
               <div>
                 <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
-                  {clockJob ? clockJob.customer : 'SHOP'}
+                  {clockJob ? (clockJob.site_name || clockJob.customer) : 'SHOP'}
                 </div>
                 <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : "var(--muted)", marginTop:2 }}>
                   {clockSession.status.toUpperCase()}
@@ -3388,7 +3388,7 @@ Command: "${transcript}"`
                       textAlign:"left", cursor:"pointer", maxWidth:160 }}>
                     <span className="head" style={{ fontSize:13, fontWeight:700, color:"var(--text)",
                       whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:136 }}>
-                      {display.customer || r.customer}
+                      {display.site_name || display.customer || r.customer}
                     </span>
                     <span className="mono" style={{ fontSize:10, color:"var(--muted)", marginTop:2, whiteSpace:"nowrap" }}>
                       {display.status || r.status}
@@ -5525,7 +5525,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             <button onClick={() => clockJob && onJobSelect && onJobSelect(clockJob.id)}
               style={{ textAlign:"left", background:"none", border:"none", padding:0, cursor: clockJob ? "pointer" : "default" }}>
               <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
-                {clockJob ? clockJob.customer : 'SHOP'}
+                {clockJob ? (clockJob.site_name || clockJob.customer) : 'SHOP'}
               </div>
               <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : "var(--muted)", marginTop:2 }}>
                 {clockSession.status.toUpperCase()}
