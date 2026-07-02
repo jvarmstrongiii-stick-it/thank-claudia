@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 183;
+const APP_REV = 184;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -6805,7 +6805,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
         <div>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>CUSTOMER ADDRESS</div>
           <div style={{ display:"flex", gap:8 }}>
-            <input type="text" placeholder="Main / billing address"
+            <input type="text" placeholder="Main / billing address" autoCapitalize="words"
               value={f.customer_address} onChange={e => setCustomerAddr(e.target.value)}
               style={{ flex:1, minWidth:0 }} />
             {!f.customer_address.trim() && (
@@ -6860,7 +6860,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
             <div>
               <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginBottom:6 }}>SITE</div>
               <div style={{ display:"flex", gap:8 }}>
-                <input type="text" placeholder="Where the job is (name and/or address)"
+                <input type="text" placeholder="Where the job is (name and/or address)" autoCapitalize="words"
                   value={f.site_address} onChange={e => set("site_address",e.target.value)}
                   style={{ flex:1, minWidth:0 }} />
                 {!f.site_address.trim() && (
