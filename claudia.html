@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 182;
+const APP_REV = 183;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -6782,7 +6782,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
       <div style={{ padding:16, display:"flex", flexDirection:"column", gap:14 }}>
         <div style={{ position:"relative" }}>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>CUSTOMER</div>
-          <input type="text" placeholder="Name or business" value={f.customer}
+          <input type="text" placeholder="Name or business" value={f.customer} autoCapitalize="words"
             onChange={e => editing ? set("customer",e.target.value) : onCustomerType(e.target.value)}
             onFocus={() => !editing && setShowCustList(true)} />
           {!editing && showCustList && matches.length > 0 && (
@@ -6900,7 +6900,9 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
         </div>
         <div>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>JOB VALUE ($)</div>
-          <input type="number" inputMode="decimal" placeholder="0" value={f.value} onChange={e => set("value",e.target.value)} />
+          <input type="number" inputMode="decimal" placeholder="0" value={f.value}
+            onFocus={e => e.target.select()}
+            onChange={e => set("value",e.target.value)} />
         </div>
         <div>
           <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>ORIGINAL ASK</div>
