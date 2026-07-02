@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 186;
+const APP_REV = 187;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2448,7 +2448,8 @@ Command: "${transcript}"`
     const { error } = await sb.from('jobs')
       .update({ site_name: siteName || null, updated_at: new Date().toISOString() }).eq('id', id);
     if (error) {
-      if (error.code !== 'PGRST204') { showToast("Error saving site name", true); console.error(error); }
+      if (error.code === 'PGRST204') showToast("Site name needs one-time DB setup — ask Jack", true);
+      else { showToast("Error saving site name", true); console.error(error); }
       return false;
     }
     setJobs(js => js.map(j => j.id === id ? { ...j, site_name: siteName || '' } : j));
