@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 181;
+const APP_REV = 182;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1847,7 +1847,7 @@ function App() {
   const [choresExpanded, setChoresExpanded] = useState(false);
   const [showChoresView, setShowChoresView] = useState(false);
   const [showChoresGate, setShowChoresGate] = useState(false); // open chores shown first, right after clocking in
-  const [focusPhotos, setFocusPhotos] = useState(false);
+  const [choresEditTarget, setChoresEditTarget] = useState(null); // chore id to deep-link ChoresView straight into edit mode
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHours, setShowHours] = useState(false);
@@ -2513,11 +2513,6 @@ Command: "${transcript}"`
     }
   }
 
-  function openJobPhotos(jobId) {
-    setSelectedId(jobId);
-    setFocusPhotos(true);
-  }
-
   function fixOldStatuses() {
     const MAP = {
       "Needs Billing":"Completed/Needs Billing","Paid":"Completed/Paid",
@@ -2675,7 +2670,9 @@ Command: "${transcript}"`
     );
     return (
       <React.Fragment>
-        <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)} onBrowse={() => setBrowseMode(true)} onUndo={clockUndo ? undoClockAction : null} onSwitchUser={() => { localStorage.removeItem(CURRENT_USER_KEY); setCurrentUser(null); }} />
+        <ClockGate userName={currentUser.name} onClockIn={() => setShowClockIn(true)}
+          onBrowse={() => { setBrowseMode(true); if (chores.some(c => !c.done)) setShowChoresGate(true); }}
+          onUndo={clockUndo ? undoClockAction : null} onSwitchUser={() => { localStorage.removeItem(CURRENT_USER_KEY); setCurrentUser(null); }} />
         {lastLeaveJob && (
           <LastLeaveSheet job={lastLeaveJob.job} onPick={async s => {
             await updateJob(lastLeaveJob.job.id, { status: s, _skipNote: true });
@@ -2908,7 +2905,7 @@ Command: "${transcript}"`
         onClose={() => setShowChoresGate(false)}
         onToggle={toggleChore}
         onEdit={editChore}
-        onOpenJob={(jobId) => { setShowChoresGate(false); openJobPhotos(jobId); }}
+        onOpenJob={(jobId) => { setShowChoresGate(false); setSelectedId(jobId); }}
         onAdd={addChore}
         onDelete={deleteChore} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
@@ -2917,11 +2914,10 @@ Command: "${transcript}"`
   if (selected) return (
     <React.Fragment>
       <JobDetail job={selected}
-        onBack={() => { setSelectedId(null); setFocusPhotos(false); }}
+        onBack={() => setSelectedId(null)}
         onUpdate={(patch) => updateJob(selected.id, patch)}
         onEdit={() => setEditingId(selected.id)}
         onDelete={() => deleteJob(selected.id)}
-        focusPhotos={focusPhotos}
         currentUser={currentUser}
         users={users}
         jobs={jobs}
@@ -3414,17 +3410,32 @@ Command: "${transcript}"`
               </button>
               {choresExpanded && (
                 <div className="fade-in" style={{ padding:"0 14px 10px" }}>
-                  {chores.filter(c=>!c.done).map(c => (
-                    <div key={c.id} style={{ display:"flex", width:"100%", alignItems:"center", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
-                      <button onClick={() => toggleChore(c.id)} style={{ flexShrink:0 }}>
-                        <span style={{ display:"block", width:18, height:18, borderRadius:4, border:"1.5px solid var(--brass)" }}></span>
-                      </button>
-                      <button onClick={() => c.job_id ? openJobPhotos(c.job_id) : null}
-                        style={{ flex:1, textAlign:"left", fontSize:14, color: c.job_id ? "var(--text)" : "var(--muted)" }}>
-                        {c.label}{c.job_id ? " →" : ""}
-                      </button>
-                    </div>
-                  ))}
+                  {sortChoresForUser(chores.filter(c=>!c.done), currentUser?.id).map(c => {
+                    const assignee = c.assigned_to ? users.find(u => u.id === c.assigned_to) : null;
+                    return (
+                      <div key={c.id} style={{ display:"flex", width:"100%", alignItems:"flex-start", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
+                        <button onClick={() => toggleChore(c.id)} style={{ flexShrink:0, marginTop:2 }}>
+                          <span style={{ display:"block", width:18, height:18, borderRadius:4, border:"1.5px solid var(--brass)" }}></span>
+                        </button>
+                        <button onClick={() => c.job_id ? setSelectedId(c.job_id) : null}
+                          style={{ flex:1, textAlign:"left" }}>
+                          <div style={{ fontSize:14, color: c.job_id ? "var(--text)" : "var(--muted)" }}>
+                            {c.label}{c.job_id ? " →" : ""}
+                          </div>
+                          <div style={{ display:"flex", gap:10, marginTop:3, flexWrap:"wrap" }}>
+                            {c.kind === 'reminder' && (
+                              <span className="mono" style={{ fontSize:11, color:"var(--brass-bright)" }}>🔔 REMINDER</span>
+                            )}
+                            {assignee && (
+                              <span className="mono" style={{ fontSize:11, color:"var(--olive-bright)" }}>👤 {assignee.name}</span>
+                            )}
+                          </div>
+                        </button>
+                        <button onClick={() => { setChoresEditTarget(c.id); setShowChoresView(true); }}
+                          style={{ flexShrink:0, fontSize:16, color:"var(--muted)", paddingTop:2, lineHeight:1 }}>✎</button>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -3574,10 +3585,11 @@ Command: "${transcript}"`
       {showChoresView && (
         <ChoresView
           chores={chores} jobs={jobs} users={users} currentUser={currentUser}
-          onClose={() => setShowChoresView(false)}
+          initialEditId={choresEditTarget}
+          onClose={() => { setShowChoresView(false); setChoresEditTarget(null); }}
           onToggle={toggleChore}
           onEdit={editChore}
-          onOpenJob={(jobId) => { setShowChoresView(false); openJobPhotos(jobId); }}
+          onOpenJob={(jobId) => { setShowChoresView(false); setSelectedId(jobId); }}
           onAdd={addChore}
           onDelete={deleteChore}
         />
@@ -4102,7 +4114,7 @@ function SettingsModal({ onClose, onLock }) {
 }
 
 /* ── ChoresView ────────────────────────────────────────────────────────────── */
-function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob, onAdd, onDelete, currentUser, title, ctaLabel }) {
+function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob, onAdd, onDelete, currentUser, title, ctaLabel, initialEditId }) {
   const [desc, setDesc] = useState('');
   const [jobId, setJobId] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
@@ -4127,6 +4139,14 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
     setEditJobId(c.job_id || '');
     setEditAssignedTo(c.assigned_to || '');
   }
+
+  // Deep-link straight into edit mode for a specific chore (e.g. from the dashboard strip's ✎).
+  useEffect(() => {
+    if (!initialEditId) return;
+    const target = chores.find(c => c.id === initialEditId);
+    if (target) startEdit(target);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialEditId]);
 
   async function saveEdit(choreId) {
     if (!editDesc.trim()) return;
@@ -4576,7 +4596,7 @@ function DuplicateEquipmentSheet({ scan, existing, onOverride, onKeep }) {
 }
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
-function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, currentUser, users, jobs, browseMode,
+function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users, jobs, browseMode,
                      clockSession, onFlipToOnSite, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect, showToast, onDuplicate, onUpdateMaterials }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
@@ -4697,7 +4717,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
   const scanGalleryRef = useRef();
   const otherScanRef = useRef();
   const otherScanGalleryRef = useRef();
-  const photoRef = useRef();
   const [collageState, setCollageState] = React.useState(null);
   // null | { step:'unit' } | { step:'tag', unit:{id,url,storage_path} } | { step:'processing' }
 
@@ -5007,13 +5026,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
     ]);
     setAddingLogFor(null);
   }
-
-  useEffect(() => {
-    if (focusPhotos && photoRef.current) {
-      setPhotosOpen(true);
-      setTimeout(() => photoRef.current.scrollIntoView({ behavior:'smooth', block:'center' }), 150);
-    }
-  }, [focusPhotos]);
 
   function convertToJpeg(file) {
     return new Promise((res, rej) => {
@@ -6135,7 +6147,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, focusPhotos, curre
         {!isShop && materialsSection}
 
         {/* Photo strip */}
-        <div ref={photoRef} style={{ marginTop:16 }}>
+        <div style={{ marginTop:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
             <div onClick={() => setPhotosOpen(o => !o)} className="mono"
               style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
