@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 184;
+const APP_REV = 185;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -355,7 +355,7 @@ function deriveCustomers(jobs) {
     const site = siteAddr(j).trim();
     if (site && site !== custAddr(j).trim()) {
       const exists = rec.sites.some(s => s.site_address === site);
-      if (!exists) rec.sites.push({ site_address: site });
+      if (!exists) rec.sites.push({ site_address: site, site_name: j.site_name || '' });
     }
   });
   return map;
@@ -385,6 +385,7 @@ function fromRow(row, notes=[]) {
     location: '',
     customer_address: customerAddr,
     site_address: siteAddr,
+    site_name: row.site_name || '',
     same_address: !siteAddr || siteAddr === customerAddr,
     phone: c.phone || '',
     email: c.email || '',
@@ -1299,7 +1300,14 @@ function ClockInSheet({ jobs, onConfirm, onClose }) {
             style={{ padding:"12px 14px", borderRadius:8, fontSize:14, fontWeight:700, textAlign:"left",
               background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)" }}>
             <div>{j.customer}</div>
-            {siteAddr(j) && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{siteAddr(j)}</div>}
+            {j.site_name ? (
+              <>
+                <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginTop:2 }}>{j.site_name}</div>
+                {siteAddr(j) && <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginTop:1 }}>{siteAddr(j)}</div>}
+              </>
+            ) : (
+              siteAddr(j) && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{siteAddr(j)}</div>
+            )}
             {j.original_ask && <div className="mono" style={{ fontSize:11, color:"var(--gold)", marginTop:2, fontWeight:400, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{j.original_ask}</div>}
           </button>
         ))}
@@ -1590,7 +1598,14 @@ function MoveJobSheet({ clockSession, jobs, onMove, onClose, onNewJob }) {
               <span>{j.customer}</span>
               <span className="mono" style={{ fontSize:10, color:"var(--muted)" }}>{j.status}</span>
             </div>
-            {siteAddr(j) && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{siteAddr(j)}</div>}
+            {j.site_name ? (
+              <>
+                <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginTop:2 }}>{j.site_name}</div>
+                {siteAddr(j) && <div className="mono" style={{ fontSize:10, color:"var(--muted)", marginTop:1 }}>{siteAddr(j)}</div>}
+              </>
+            ) : (
+              siteAddr(j) && <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>{siteAddr(j)}</div>
+            )}
             {j.original_ask && <div className="mono" style={{ fontSize:11, color:"var(--gold)", marginTop:2, fontWeight:400, whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>{j.original_ask}</div>}
           </button>
         ))}
@@ -2373,6 +2388,7 @@ Command: "${transcript}"`
     });
     const newJob = fromRow(data);
     setJobs(js => [newJob, ...js]);
+    if ((job.site_name||'').trim()) await updateJobSiteName(data.id, job.site_name.trim());
     setAdding(false);
     setVoicePreFill(null);
     showToast("Job saved");
@@ -2427,12 +2443,25 @@ Command: "${transcript}"`
     return true;
   }
 
+  // site_name is written only here (not via toRow) so unmigrated job saves never break.
+  async function updateJobSiteName(id, siteName) {
+    const { error } = await sb.from('jobs')
+      .update({ site_name: siteName || null, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) {
+      if (error.code !== 'PGRST204') { showToast("Error saving site name", true); console.error(error); }
+      return false;
+    }
+    setJobs(js => js.map(j => j.id === id ? { ...j, site_name: siteName || '' } : j));
+    return true;
+  }
+
   async function saveEdit(edited) {
     const customerId = await resolveCustomer(edited);
     if (!customerId) { showToast("Could not resolve customer", true); return; }
     const { error } = await sb.from('jobs').update(toRow(edited, customerId, currentUser?.id)).eq('id', edited.id);
     if (error) { showToast("Error saving changes", true); console.error(error); return; }
     setJobs(js => js.map(j => j.id === edited.id ? { ...j, ...edited, _customer_id: customerId } : j));
+    await updateJobSiteName(edited.id, (edited.site_name||'').trim() || null);
     setEditingId(null);
     showToast("Changes saved");
     if (edited.status === "Completed/Needs Billing") spawnBillingChore({ ...edited, _customer_id: customerId });
@@ -2934,6 +2963,7 @@ Command: "${transcript}"`
           setVoicePreFill({
             customer: selected.customer,
             site_address: selected.site_address,
+            site_name: selected.site_name,
             type: selected.type,
             original_ask: selected.original_ask,
             status: 'New',
@@ -3211,7 +3241,7 @@ Command: "${transcript}"`
   function matchesSearch(j) {
     if (!q) return true;
     if (j.status === "Closed" && !searchClosed) return false;
-    const hay = [j.customer, j.phone, j.notes, custAddr(j), siteAddr(j), j.location]
+    const hay = [j.customer, j.phone, j.notes, custAddr(j), siteAddr(j), j.site_name, j.location]
       .filter(Boolean).join(" ").toLowerCase();
     return hay.includes(q);
   }
@@ -3476,7 +3506,18 @@ Command: "${transcript}"`
                       <div className="head" style={{ fontSize:18, fontWeight:600 }}>{j.customer}</div>
                       <StatusPill status={j.status} overdue={overdue} scheduled={scheduled} />
                     </div>
-                    {(siteAddr(j)||custAddr(j)||j.location) ? (
+                    {j.site_name ? (
+                      <>
+                        <div className="head" style={{ fontSize:14, fontWeight:600, color:"var(--brass-bright)", marginTop:2 }}>
+                          📍 {j.site_name}
+                        </div>
+                        {(siteAddr(j)||custAddr(j)) && (
+                          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:1 }}>
+                            {siteAddr(j)||custAddr(j)}
+                          </div>
+                        )}
+                      </>
+                    ) : (siteAddr(j)||custAddr(j)||j.location) ? (
                       <div className="head" style={{ fontSize:14, fontWeight:600, color:"var(--brass-bright)", marginTop:2 }}>
                         📍 {siteAddr(j)||custAddr(j)||j.location}
                       </div>
@@ -5607,6 +5648,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             {job.email && (
               <a href={`mailto:${job.email}`} style={{ display:"block", color:"var(--muted)", textDecoration:"none", fontSize:14, marginTop:4 }}>{job.email}</a>
             )}
+            {job.site_name && (
+              <div className="head" style={{ fontSize:18, fontWeight:700, color:"var(--text)", marginTop:12 }}>{job.site_name}</div>
+            )}
             <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", marginTop:12 }}>SITE ADDRESS</div>
             <a href={`https://maps.google.com/?q=${encodeURIComponent(siteAddr(job))}`} target="_blank" rel="noreferrer"
               style={{ display:"block", color:"var(--text)", textDecoration:"none", fontSize:15, marginTop:3, lineHeight:1.4 }}>{siteAddr(job)}</a>
@@ -6710,8 +6754,9 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
       ? initial.same_address
       : ((initial.customer_address||initial.address||"") === (initial.site_address||initial.address||"")),
     value: initial.value===0||initial.value ? String(initial.value) : "",
+    site_name: initial.site_name || "",
   } : {
-    customer:"", location:"", customer_address:"", site_address:"",
+    customer:"", location:"", customer_address:"", site_address:"", site_name:"",
     same_address: loadSameAddrPref(),
     phone:"", email:"", type:"Service Call",
     status:"New", scheduled_date: todayISO(), scheduled_time: nowTimeRounded15(),
@@ -6761,13 +6806,14 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
     setF(s => ({ ...s, customer:name, customer_address:rec.customer_address||"", phone:rec.phone||"", email:rec.email||"",
       same_address: hasSites ? false : s.same_address,
       location: hasSites ? "" : s.location,
+      site_name: "",
       site_address: hasSites ? "" : (s.same_address ? rec.customer_address||"" : s.site_address) }));
     setPickedSites(hasSites ? rec.sites : null); setAddingNewSite(false);
   }
-  function pickSite(site) { setF(s=>({...s,site_address:site.site_address,same_address:false})); setAddingNewSite(false); }
+  function pickSite(site) { setF(s=>({...s,site_address:site.site_address,site_name:site.site_name||'',same_address:false})); setAddingNewSite(false); }
   function toggleSameAddr() {
     setF(s => { const next=!s.same_address; saveSameAddrPref(next);
-      return next ? {...s,same_address:true,site_address:s.customer_address} : {...s,same_address:false}; });
+      return next ? {...s,same_address:true,site_address:s.customer_address,site_name:''} : {...s,same_address:false}; });
   }
   function setCustomerAddr(v) { setF(s => s.same_address ? {...s,customer_address:v,site_address:v} : {...s,customer_address:v}); }
 
@@ -6845,19 +6891,32 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
                   return (
                     <button key={i} onClick={() => pickSite(site)}
                       style={{ display:"block", width:"100%", textAlign:"left", padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
-                      <div className="head" style={{ fontSize:15, fontWeight:600, color:chosen?"var(--olive-bright)":"var(--text)" }}>
-                        {site.site_address} {chosen?"✓":""}
-                      </div>
+                      {site.site_name ? (
+                        <>
+                          <div className="head" style={{ fontSize:15, fontWeight:600, color:chosen?"var(--olive-bright)":"var(--text)" }}>
+                            {site.site_name} {chosen?"✓":""}
+                          </div>
+                          <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:1 }}>{site.site_address}</div>
+                        </>
+                      ) : (
+                        <div className="head" style={{ fontSize:15, fontWeight:600, color:chosen?"var(--olive-bright)":"var(--text)" }}>
+                          {site.site_address} {chosen?"✓":""}
+                        </div>
+                      )}
                     </button>
                   );
                 })}
-                <button onClick={() => { setAddingNewSite(true); setF(s=>({...s,site_address:""})); }}
+                <button onClick={() => { setAddingNewSite(true); setF(s=>({...s,site_address:"",site_name:""})); }}
                   className="head" style={{ marginTop:10, fontSize:13, fontWeight:600, color:"var(--brass-bright)" }}>
                   + NEW SITE
                 </button>
               </div>
             )}
             <div>
+              <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginBottom:6 }}>SITE NAME (OPTIONAL)</div>
+              <input type="text" placeholder="Business name, unit #, etc." autoCapitalize="words"
+                value={f.site_name||''} onChange={e => set("site_name",e.target.value)}
+                style={{ marginBottom:10 }} />
               <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginBottom:6 }}>SITE</div>
               <div style={{ display:"flex", gap:8 }}>
                 <input type="text" placeholder="Where the job is (name and/or address)" autoCapitalize="words"
