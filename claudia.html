@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 187;
+const APP_REV = 188;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -397,6 +397,7 @@ function fromRow(row, notes=[]) {
     original_ask: row.original_ask || '',
     notes: row.notes || '',
     materials_needed: Array.isArray(row.materials_needed) ? row.materials_needed : [],
+    created_at: row.created_at || '',
     history: notes.filter(n => n.source !== 'system').map(n => ({
       id: n.id,
       date: n.created_at ? dateISOInTZ(new Date(n.created_at), getAppTZ()) : '',
@@ -4168,6 +4169,8 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
   const [showCompleted, setShowCompleted] = useState(false);
   const open = sortChoresForUser(chores.filter(c => !c.done), currentUser?.id);
   const done = chores.filter(c => c.done);
+  const jobsForPicker = jobs.filter(j => j.status !== 'Closed')
+    .slice().sort((a,b) => (b.created_at||'').localeCompare(a.created_at||''));
 
   async function submit() {
     if (!desc.trim()) return;
@@ -4208,8 +4211,8 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
             style={{ marginBottom:8 }} />
           <select value={editJobId} onChange={e=>setEditJobId(e.target.value)} style={{ marginBottom:8 }}>
             <option value="">— Link to a job (optional) —</option>
-            {jobs.filter(j => j.status !== 'Closed').map(j => (
-              <option key={j.id} value={j.id}>{j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
+            {jobsForPicker.map(j => (
+              <option key={j.id} value={j.id}>{j.site_name || j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
             ))}
           </select>
           <select value={editAssignedTo} onChange={e=>setEditAssignedTo(e.target.value)} style={{ marginBottom:10 }}>
@@ -4264,7 +4267,7 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
             {linkedJob && (
               <button onClick={e => { e.stopPropagation(); onOpenJob(c.job_id); }}
                 style={{ fontSize:12, color:"var(--brass-bright)", textAlign:"left" }}>
-                📋 {linkedJob.customer} →
+                📋 {linkedJob.site_name || linkedJob.customer} →
               </button>
             )}
           </div>
@@ -4296,8 +4299,8 @@ function ChoresView({ chores, jobs, users, onClose, onToggle, onEdit, onOpenJob,
             style={{ marginBottom:10 }} />
           <select value={jobId} onChange={e=>setJobId(e.target.value)} style={{ marginBottom:10 }}>
             <option value="">— Link to a job (optional) —</option>
-            {jobs.filter(j => j.status !== 'Closed').map(j => (
-              <option key={j.id} value={j.id}>{j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
+            {jobsForPicker.map(j => (
+              <option key={j.id} value={j.id}>{j.site_name || j.customer}{j.site_address ? ` · ${j.site_address}` : ''}</option>
             ))}
           </select>
           <select value={assignedTo} onChange={e=>setAssignedTo(e.target.value)} style={{ marginBottom:12 }}>
