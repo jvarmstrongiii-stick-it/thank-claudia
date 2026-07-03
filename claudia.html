@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 188;
+const APP_REV = 189;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1258,7 +1258,7 @@ function ClockGate({ userName, onClockIn, onBrowse, onUndo, onSwitchUser }) {
   );
 }
 
-function ClockInSheet({ jobs, onConfirm, onClose }) {
+function ClockInSheet({ jobs, onConfirm, onClose, onNewJob }) {
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState(null);
   const FIELD_DONE = ['Completed/Needs Billing','Billed/Waiting for Payment','Completed/Paid','Closed'];
@@ -1288,6 +1288,11 @@ function ClockInSheet({ jobs, onConfirm, onClose }) {
   return (
     <Sheet title={`CLOCK IN — ${status.toUpperCase()}`} onClose={onClose}>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:12 }}>PICK A JOB</div>
+      <button onClick={() => onNewJob(status)} className="head"
+        style={{ width:"100%", padding:"14px 16px", marginBottom:8, borderRadius:9, fontSize:15, fontWeight:700,
+          textAlign:"left", background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
+        + NEW JOB
+      </button>
       {shopJob && (
         <button onClick={() => onConfirm(shopJob.id, status)} className="head"
           style={{ width:"100%", padding:"14px 16px", marginBottom:8, borderRadius:9, fontSize:15, fontWeight:700,
@@ -1856,6 +1861,7 @@ function App() {
   const [adding, setAdding] = useState(false);
   const [voicePreFill, setVoicePreFill] = useState(null);
   const [routeAfterAdd, setRouteAfterAdd] = useState(false);
+  const [clockInAfterAdd, setClockInAfterAdd] = useState(null); // 'In Route' | 'On Site' — set by ClockInSheet's + NEW JOB
   const [editingId, setEditingId] = useState(null);
   const [filter, setFilter] = useState(null);
   const [search, setSearch] = useState("");
@@ -2394,7 +2400,8 @@ Command: "${transcript}"`
     setVoicePreFill(null);
     showToast("Job saved");
     if (job.status === "Completed/Needs Billing") spawnBillingChore(newJob);
-    if (routeAfterAdd) { setRouteAfterAdd(false); await moveToInRoute(data.id); }
+    if (clockInAfterAdd) { const st = clockInAfterAdd; setClockInAfterAdd(null); handleClockIn(data.id, st); }
+    else if (routeAfterAdd) { setRouteAfterAdd(false); await moveToInRoute(data.id); }
     else setSelectedId(data.id);
   }
 
@@ -2695,7 +2702,14 @@ Command: "${transcript}"`
     }
     if (showClockIn) return (
       <React.Fragment>
-        <ClockInSheet jobs={jobs} onConfirm={handleClockIn} onClose={() => setShowClockIn(false)} />
+        <ClockInSheet jobs={jobs} onConfirm={handleClockIn} onClose={() => setShowClockIn(false)}
+          onNewJob={(status) => { setShowClockIn(false); setClockInAfterAdd(status); setAdding(true); }} />
+        {toast && <Toast msg={toast.msg} isError={toast.isError} />}
+      </React.Fragment>
+    );
+    if (adding) return (
+      <React.Fragment>
+        <JobForm onSave={addJob} onCancel={() => { setAdding(false); setVoicePreFill(null); setClockInAfterAdd(null); }} prefill={voicePreFill} allJobs={jobs} />
         {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       </React.Fragment>
     );
@@ -2911,7 +2925,7 @@ Command: "${transcript}"`
   const selected = jobs.find(j => j.id === selectedId);
   if (adding) return (
     <React.Fragment>
-      <JobForm onSave={addJob} onCancel={() => { setAdding(false); setVoicePreFill(null); }} prefill={voicePreFill} allJobs={jobs} />
+      <JobForm onSave={addJob} onCancel={() => { setAdding(false); setVoicePreFill(null); setClockInAfterAdd(null); }} prefill={voicePreFill} allJobs={jobs} />
       {toast && <Toast msg={toast.msg} isError={toast.isError} />}
       <VoiceButton onCommand={processVoiceCommand} />
     </React.Fragment>
