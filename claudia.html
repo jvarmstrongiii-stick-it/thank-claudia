@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 190;
+const APP_REV = 191;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -329,6 +329,34 @@ function buildCrewTimeline(crewLog, crew, users) {
     if (periods.length) result[name] = periods;
   });
   return result;
+}
+// Checks whether personName already has logged (or ongoing) time on some OTHER job that
+// overlaps [startIso, endIso). Returns the overlapping job_id, or null if clear.
+async function findOverlappingActivity(personName, excludeJobId, startIso, endIso, users) {
+  const padMs = 3 * 24 * 3600 * 1000;
+  const padStart = new Date(new Date(startIso).getTime() - padMs).toISOString();
+  const padEnd = new Date(new Date(endIso).getTime() + padMs).toISOString();
+  const { data } = await sb.from('job_notes')
+    .select('id, job_id, content, created_at')
+    .eq('source', 'system')
+    .neq('job_id', excludeJobId)
+    .gte('created_at', padStart)
+    .lte('created_at', padEnd)
+    .order('created_at', { ascending: true });
+  const byJob = {};
+  (data || []).forEach(n => { (byJob[n.job_id] = byJob[n.job_id] || []).push({ id: n.id, content: n.content, at: n.created_at }); });
+  const sMs = new Date(startIso).getTime();
+  const eMs = new Date(endIso).getTime();
+  for (const [jobId, jobNotes] of Object.entries(byJob)) {
+    const timeline = buildCrewTimeline(jobNotes, [], users);
+    const periods = timeline[personName] || [];
+    for (const p of periods) {
+      const pStart = new Date(p.start).getTime();
+      const pEnd = p.end ? new Date(p.end).getTime() : Date.now();
+      if (pStart < eMs && pEnd > sMs) return jobId;
+    }
+  }
+  return null;
 }
 function shiftDateISO(dateStr, delta) {
   const d = new Date(dateStr + 'T00:00:00');
@@ -5024,8 +5052,16 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     const startIso = zonedLocalInputToISO(editLogStart);
     const targetJobId = editLogJobId || job.id;
     const jobChanged = targetJobId !== job.id;
-    if (editLogEnd && new Date(zonedLocalInputToISO(editLogEnd)) <= new Date(startIso)) {
+    const endIso = editLogEnd ? zonedLocalInputToISO(editLogEnd) : null;
+    if (endIso && new Date(endIso) <= new Date(startIso)) {
       alert("End must be after start"); return;
+    }
+    if (endIso) {
+      const overlapJobId = await findOverlappingActivity(editingLogPeriod.name, targetJobId, startIso, endIso, users);
+      if (overlapJobId) {
+        const overlapJob = jobs.find(j => j.id === overlapJobId);
+        if (!confirm(`${editingLogPeriod.name} already has logged time at ${overlapJob?.customer || 'another job'} during part of this window — save anyway?`)) return;
+      }
     }
     if (period.startId) {
       const update = { created_at: startIso };
@@ -5034,8 +5070,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.startId));
       else setCrewLog(prev => prev.map(n => n.id === period.startId ? { ...n, at: startIso } : n));
     }
-    if (editLogEnd) {
-      const endIso = zonedLocalInputToISO(editLogEnd);
+    if (endIso) {
       if (period.endId) {
         const update = { created_at: endIso };
         if (jobChanged) update.job_id = targetJobId;
@@ -5080,6 +5115,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     const startIso = zonedLocalInputToISO(addLogStart);
     const endIso = zonedLocalInputToISO(addLogEnd);
     if (new Date(endIso) <= new Date(startIso)) { alert("End must be after start"); return; }
+    const overlapJobId = await findOverlappingActivity(name, job.id, startIso, endIso, users);
+    if (overlapJobId) {
+      const overlapJob = jobs.find(j => j.id === overlapJobId);
+      if (!confirm(`${name} already has logged time at ${overlapJob?.customer || 'another job'} during part of this window — save anyway?`)) return;
+    }
     const startContent = `Status → ${addLogStatus} (${name})`;
     const endContent = `Status → Cleared (${name}) (added)`;
     const { data: startRow } = await sb.from('job_notes').insert({
