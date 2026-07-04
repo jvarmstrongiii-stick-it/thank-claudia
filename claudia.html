@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 189;
+const APP_REV = 190;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -5024,7 +5024,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     const startIso = zonedLocalInputToISO(editLogStart);
     const targetJobId = editLogJobId || job.id;
     const jobChanged = targetJobId !== job.id;
-    const noteIds = [period.startId, period.endId].filter(Boolean);
+    if (editLogEnd && new Date(zonedLocalInputToISO(editLogEnd)) <= new Date(startIso)) {
+      alert("End must be after start"); return;
+    }
     if (period.startId) {
       const update = { created_at: startIso };
       if (jobChanged) update.job_id = targetJobId;
@@ -5032,13 +5034,22 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.startId));
       else setCrewLog(prev => prev.map(n => n.id === period.startId ? { ...n, at: startIso } : n));
     }
-    if (period.endId && editLogEnd) {
+    if (editLogEnd) {
       const endIso = zonedLocalInputToISO(editLogEnd);
-      const update = { created_at: endIso };
-      if (jobChanged) update.job_id = targetJobId;
-      await sb.from('job_notes').update(update).eq('id', period.endId);
-      if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.endId));
-      else setCrewLog(prev => prev.map(n => n.id === period.endId ? { ...n, at: endIso } : n));
+      if (period.endId) {
+        const update = { created_at: endIso };
+        if (jobChanged) update.job_id = targetJobId;
+        await sb.from('job_notes').update(update).eq('id', period.endId);
+        if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.endId));
+        else setCrewLog(prev => prev.map(n => n.id === period.endId ? { ...n, at: endIso } : n));
+      } else {
+        // No closing note existed yet (e.g. an office-triggered crew move that never wrote one) — add it.
+        const content = `Status → Cleared (${editingLogPeriod.name}) (edited)`;
+        const { data: noteRow } = await sb.from('job_notes').insert({
+          job_id: targetJobId, content, source: 'system', created_at: endIso, user_id: currentUser?.id || null,
+        }).select().single();
+        if (!jobChanged) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at: endIso }]);
+      }
     }
     setEditingLogPeriod(null);
   }
@@ -6379,12 +6390,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                                 <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>START</div>
                                 <input type="datetime-local" value={editLogStart} onChange={e => setEditLogStart(e.target.value)} />
                               </div>
-                              {p.endId && (
-                                <div style={{ flex:1, minWidth:140 }}>
-                                  <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
-                                  <input type="datetime-local" value={editLogEnd} onChange={e => setEditLogEnd(e.target.value)} />
-                                </div>
-                              )}
+                              <div style={{ flex:1, minWidth:140 }}>
+                                <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
+                                <input type="datetime-local" value={editLogEnd} onChange={e => setEditLogEnd(e.target.value)} />
+                              </div>
                             </div>
                             <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:4 }}>JOB</div>
                             <select value={editLogJobId || job.id} onChange={e => setEditLogJobId(e.target.value)}
