@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 191;
+const APP_REV = 192;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1690,9 +1690,10 @@ function HoursReport({ jobs, users, onClose }) {
       .then(({ data }) => { setNotes(data || []); setLoading(false); });
   }, [weekStart.getTime()]);
 
-  const { byUser, byJob } = useMemo(() => {
+  const { byUser, byJob, byDay } = useMemo(() => {
     const byUser = {};
     const byJob = {};
+    const byDay = {};
     const notesByJobId = {};
     notes.forEach(n => {
       if (!notesByJobId[n.job_id]) notesByJobId[n.job_id] = [];
@@ -1720,10 +1721,17 @@ function HoursReport({ jobs, users, onClose }) {
           byJob[jobId].users[userName].totalMs += ms;
           if (p.status === 'In Route') byJob[jobId].users[userName].driveMs += ms;
           else byJob[jobId].users[userName].onSiteMs += ms;
+          const dayKey = dateISOInTZ(new Date(p.start), getAppTZ());
+          if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {} };
+          byDay[dayKey].totalMs += ms;
+          if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
+          byDay[dayKey].users[userName].totalMs += ms;
+          if (p.status === 'In Route') byDay[dayKey].users[userName].driveMs += ms;
+          else byDay[dayKey].users[userName].onSiteMs += ms;
         });
       });
     });
-    return { byUser, byJob };
+    return { byUser, byJob, byDay };
   }, [notes, jobs, users, weekEnd]);
 
   const rowStyle = { marginBottom: 8, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
@@ -1744,6 +1752,8 @@ function HoursReport({ jobs, users, onClose }) {
 
   const sortedUsers = Object.entries(byUser).sort((a, b) => b[1].totalMs - a[1].totalMs);
   const sortedJobs  = Object.entries(byJob).sort((a, b) => b[1].totalMs - a[1].totalMs);
+  const sortedDays  = Object.entries(byDay).sort((a, b) => a[0].localeCompare(b[0]));
+  const dayLabel = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 
   return (
     <div className="fade-in" style={{ minHeight: '100vh', background: 'var(--bg)' }}>
@@ -1762,14 +1772,14 @@ function HoursReport({ jobs, users, onClose }) {
               opacity: weekOffset === 0 ? 0.4 : 1 }} disabled={weekOffset === 0}>›</button>
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
-          {['user', 'job'].map(t => (
+          {['user', 'job', 'day'].map(t => (
             <button key={t} onClick={() => { setTab(t); setExpandedKey(null); }} className="head"
               style={{ flex: 1, padding: '9px 0', borderRadius: 7, fontSize: 13, fontWeight: 700,
                 background: tab === t ? 'var(--olive-bright)' : 'var(--panel)',
                 color: tab === t ? 'var(--bg)' : 'var(--muted)',
                 border: `1px solid ${tab === t ? 'var(--olive-bright)' : 'var(--line)'}`,
                 cursor: 'pointer' }}>
-              BY {t === 'user' ? 'TECH' : 'JOB'}
+              BY {t === 'user' ? 'TECH' : t === 'job' ? 'JOB' : 'DAY'}
             </button>
           ))}
         </div>
@@ -1824,6 +1834,33 @@ function HoursReport({ jobs, users, onClose }) {
                   </div>
                 </button>
                 {expandedKey === jobId && (
+                  <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
+                    {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
+                      <div key={uName} style={subRowStyle(i === 0)}>
+                        <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))
+        )}
+
+        {!loading && tab === 'day' && (
+          sortedDays.length === 0
+            ? <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13 }}>No hours logged this week</div>
+            : sortedDays.map(([dayKey, data]) => (
+              <div key={dayKey} style={rowStyle}>
+                <button onClick={() => setExpandedKey(expandedKey === dayKey ? null : dayKey)}
+                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
+                  <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{dayLabel(dayKey).toUpperCase()}</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKey === dayKey ? '▲' : '▼'}</span>
+                  </div>
+                </button>
+                {expandedKey === dayKey && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
