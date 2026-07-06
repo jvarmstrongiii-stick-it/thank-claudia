@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 194;
+const APP_REV = 195;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1362,7 +1362,7 @@ function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
         <React.Fragment>
           <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginBottom:10 }}>UPDATE JOB STATUS (OPTIONAL)</div>
           <div style={{ display:"flex", flexDirection:"column", gap:6, marginBottom:16 }}>
-            {['In Progress','On Hold','Completed/Needs Billing','Completed/Paid'].map(s => (
+            {['In Progress','On Hold','Completed/Needs Billing','Billed/Waiting for Payment','Completed/Paid'].map(s => (
               <button key={s} onClick={() => setJobStatus(jobStatus === s ? null : s)} className="head"
                 style={{ padding:"12px 14px", borderRadius:8, fontSize:14, fontWeight:700, textAlign:"left",
                   background: jobStatus === s ? "var(--olive-bright)" : "var(--panel)",
