@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 196;
+const APP_REV = 197;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2261,6 +2261,11 @@ Command: "${transcript}"`
     setFieldConfirmTime(nowTimeHHMM());
     setFieldTimeConfirm({ type: 'flipOnSite' });
   }
+  function handleClockOut(jobStatus) {
+    setShowClockOut(false);
+    setFieldConfirmTime(nowTimeHHMM());
+    setFieldTimeConfirm({ type: 'clockOut', jobStatus });
+  }
 
   async function undoClockAction() {
     if (!clockUndo) return;
@@ -2303,7 +2308,7 @@ Command: "${transcript}"`
     }
   }
 
-  async function clockOut(jobStatus) {
+  async function clockOut(jobStatus, at = new Date().toISOString()) {
     if (!clockSession) return;
     const { jobId, startedAt, legStartedAt } = clockSession;
     const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [] };
@@ -2311,7 +2316,6 @@ Command: "${transcript}"`
     if (jobId) {
       await clearJobCrewStatus(jobId, currentUser.id);
       if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
-      const at = new Date().toISOString();
       await sb.from('job_notes').insert({
         job_id: jobId, content: `Status → Cleared (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
@@ -2327,7 +2331,7 @@ Command: "${transcript}"`
         setPendingShopActivity({ shopJobId: jobId, startedAt: legStartedAt || startedAt, mapsJobId: null });
       }
     }
-    addTodayMs(currentUser.id, Date.now() - new Date(legStartedAt || startedAt).getTime());
+    addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
     saveClockSession(currentUser.id, null);
     setClockSession(null);
     setClockUndo(undo);
@@ -2968,6 +2972,7 @@ Command: "${transcript}"`
             <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
               {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
                 : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
+                : fieldTimeConfirm.type === 'clockOut' ? 'CLOCKING OUT'
                 : 'MARKING ON SITE'}
             </div>
             <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
@@ -2985,6 +2990,7 @@ Command: "${transcript}"`
                 setFieldTimeConfirm(null);
                 if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
                 else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
+                else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
                 else flipToOnSite(at);
               }} className="head"
                 style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
@@ -3077,7 +3083,7 @@ Command: "${transcript}"`
           onClose={() => setShowLeaving(false)} />
       )}
       {showClockOut && clockSession && (
-        <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={clockOut} onClose={() => setShowClockOut(false)} />
+        <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={handleClockOut} onClose={() => setShowClockOut(false)} />
       )}
       {showMoveJob && clockSession && (
         <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={handleMoveToInRoute} onClose={() => setShowMoveJob(false)}
@@ -3243,6 +3249,7 @@ Command: "${transcript}"`
           <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
             {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
               : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
+              : fieldTimeConfirm.type === 'clockOut' ? 'CLOCKING OUT'
               : 'MARKING ON SITE'}
           </div>
           <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
@@ -3260,6 +3267,7 @@ Command: "${transcript}"`
               setFieldTimeConfirm(null);
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
               else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
+              else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
               else flipToOnSite(at);
             }} className="head"
               style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
@@ -3743,7 +3751,7 @@ Command: "${transcript}"`
           onClose={() => setShowLeaving(false)} />
       )}
       {showClockOut && clockSession && (
-        <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={clockOut} onClose={() => setShowClockOut(false)} />
+        <ClockOutSheet clockSession={clockSession} jobs={jobs} onClockOut={handleClockOut} onClose={() => setShowClockOut(false)} />
       )}
       {showMoveJob && clockSession && (
         <MoveJobSheet clockSession={clockSession} jobs={jobs} onMove={handleMoveToInRoute} onClose={() => setShowMoveJob(false)}
@@ -3909,6 +3917,7 @@ Command: "${transcript}"`
           <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
             {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
               : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
+              : fieldTimeConfirm.type === 'clockOut' ? 'CLOCKING OUT'
               : 'MARKING ON SITE'}
           </div>
           <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
@@ -3926,6 +3935,7 @@ Command: "${transcript}"`
               setFieldTimeConfirm(null);
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
               else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
+              else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
               else flipToOnSite(at);
             }} className="head"
               style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
