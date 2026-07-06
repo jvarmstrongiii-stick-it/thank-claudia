@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 198;
+const APP_REV = 199;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -5166,14 +5166,24 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     setEditingLogPeriod(null);
   }
 
-  async function deleteLogPeriod(period) {
-    if (!confirm('Delete this time log entry?')) return;
+  async function deleteLogPeriod(period, name) {
+    const msg = period.ongoing
+      ? `${name} is still marked ${period.status} on this job — deleting will also clear their live status. Continue?`
+      : 'Delete this time log entry?';
+    if (!confirm(msg)) return;
     const ids = [period.startId].filter(Boolean);
     if (period.endId) {
       const endNote = crewLog.find(n => n.id === period.endId);
       const parsed = endNote ? parseCrewLogEntry(endNote) : null;
       // Delete end note only if it's a Cleared/non-field marker, not the start of another period
       if (parsed && !CREW_FIELD_STATUSES.includes(parsed.status)) ids.push(period.endId);
+    }
+    if (period.ongoing) {
+      const u = users.find(uu => uu.name === name);
+      if (u) {
+        await clearJobCrewStatus(job.id, u.id);
+        setCrew(prev => prev.filter(c => c.user_id !== u.id));
+      }
     }
     await Promise.all(ids.map(id => sb.from('job_notes').delete().eq('id', id)));
     setCrewLog(prev => prev.filter(n => !ids.includes(n.id)));
@@ -6489,16 +6499,16 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                             {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtTimestamp(p.end) : '—')}
                             {' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})
                           </div>
-                          {!p.ongoing && (
-                            <div style={{ display:"flex", gap:4 }}>
+                          <div style={{ display:"flex", gap:4 }}>
+                            {!p.ongoing && (
                               <button onClick={() => isEditing ? setEditingLogPeriod(null) : openLogEdit(name, i, p)} className="mono"
                                 style={{ fontSize:14, color:"var(--muted)", padding:"4px 6px" }}>{isEditing ? '✕' : '✎'}</button>
-                              {!isEditing && (
-                                <button onClick={() => deleteLogPeriod(p)} className="mono"
-                                  style={{ fontSize:14, color:"var(--danger)", padding:"4px 6px" }}>🗑</button>
-                              )}
-                            </div>
-                          )}
+                            )}
+                            {!isEditing && (
+                              <button onClick={() => deleteLogPeriod(p, name)} className="mono"
+                                style={{ fontSize:14, color:"var(--danger)", padding:"4px 6px" }}>🗑</button>
+                            )}
+                          </div>
                         </div>
                         {isEditing && (
                           <div style={{ marginTop:6 }}>
