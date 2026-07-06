@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 199;
+const APP_REV = 200;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1655,7 +1655,14 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
   const [tab, setTab] = useState('user');
   const [notes, setNotes] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [expandedKey, setExpandedKey] = useState(null);
+  const [expandedKeys, setExpandedKeys] = useState(() => new Set());
+  function toggleExpanded(key) {
+    setExpandedKeys(prev => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  }
 
   const weekStart = useMemo(() => {
     const d = new Date();
@@ -1680,7 +1687,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
   useEffect(() => {
     setLoading(true);
     setNotes([]);
-    setExpandedKey(null);
+    setExpandedKeys(new Set());
     sb.from('job_notes')
       .select('id, job_id, content, created_at')
       .eq('source', 'system')
@@ -1780,7 +1787,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
           {['user', 'job', 'day'].map(t => (
-            <button key={t} onClick={() => { setTab(t); setExpandedKey(null); }} className="head"
+            <button key={t} onClick={() => { setTab(t); setExpandedKeys(new Set()); }} className="head"
               style={{ flex: 1, padding: '9px 0', borderRadius: 7, fontSize: 13, fontWeight: 700,
                 background: tab === t ? 'var(--olive-bright)' : 'var(--panel)',
                 color: tab === t ? 'var(--bg)' : 'var(--muted)',
@@ -1800,15 +1807,15 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
             ? <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13 }}>No hours logged this week</div>
             : sortedUsers.map(([userName, data]) => (
               <div key={userName} style={rowStyle}>
-                <button onClick={() => setExpandedKey(expandedKey === userName ? null : userName)}
+                <button onClick={() => toggleExpanded(userName)}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{userName.toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
-                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKey === userName ? '▲' : '▼'}</span>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(userName) ? '▲' : '▼'}</span>
                   </div>
                 </button>
-                {expandedKey === userName && (
+                {expandedKeys.has(userName) && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
                     {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
                       <div key={jobId} style={subRowStyle(i === 0)}>
@@ -1827,7 +1834,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
             ? <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13 }}>No hours logged this week</div>
             : sortedJobs.map(([jobId, data]) => (
               <div key={jobId} style={rowStyle}>
-                <button onClick={() => setExpandedKey(expandedKey === jobId ? null : jobId)}
+                <button onClick={() => toggleExpanded(jobId)}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div style={{ textAlign: 'left' }}>
                     <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{data.label}</div>
@@ -1837,10 +1844,10 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
-                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKey === jobId ? '▲' : '▼'}</span>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(jobId) ? '▲' : '▼'}</span>
                   </div>
                 </button>
-                {expandedKey === jobId && (
+                {expandedKeys.has(jobId) && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
@@ -1859,17 +1866,17 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
             ? <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13 }}>No hours logged this week</div>
             : sortedDays.map(([dayKey, data]) => (
               <div key={dayKey} style={rowStyle}>
-                <button onClick={() => setExpandedKey(expandedKey === dayKey ? null : dayKey)}
+                <button onClick={() => toggleExpanded(dayKey)}
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{dayLabel(dayKey).toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.totalMs > IMPLAUSIBLE_DAY_MS ? 'var(--danger)' : 'var(--olive-bright)' }}>
                       {data.totalMs > IMPLAUSIBLE_DAY_MS && '⚠️ '}{fmtElapsed(data.totalMs)}
                     </div>
-                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKey === dayKey ? '▲' : '▼'}</span>
+                    <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(dayKey) ? '▲' : '▼'}</span>
                   </div>
                 </button>
-                {expandedKey === dayKey && (
+                {expandedKeys.has(dayKey) && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
                     <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginTop: 6, marginBottom: 2 }}>BY TECH</div>
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
