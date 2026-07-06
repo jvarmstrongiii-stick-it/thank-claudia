@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 192;
+const APP_REV = 193;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1722,12 +1722,16 @@ function HoursReport({ jobs, users, onClose }) {
           if (p.status === 'In Route') byJob[jobId].users[userName].driveMs += ms;
           else byJob[jobId].users[userName].onSiteMs += ms;
           const dayKey = dateISOInTZ(new Date(p.start), getAppTZ());
-          if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {} };
+          if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {}, jobs: {} };
           byDay[dayKey].totalMs += ms;
           if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
           byDay[dayKey].users[userName].totalMs += ms;
           if (p.status === 'In Route') byDay[dayKey].users[userName].driveMs += ms;
           else byDay[dayKey].users[userName].onSiteMs += ms;
+          if (!byDay[dayKey].jobs[jobId]) byDay[dayKey].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
+          byDay[dayKey].jobs[jobId].totalMs += ms;
+          if (p.status === 'In Route') byDay[dayKey].jobs[jobId].driveMs += ms;
+          else byDay[dayKey].jobs[jobId].onSiteMs += ms;
         });
       });
     });
@@ -1862,10 +1866,18 @@ function HoursReport({ jobs, users, onClose }) {
                 </button>
                 {expandedKey === dayKey && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
+                    <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginTop: 6, marginBottom: 2 }}>BY TECH</div>
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
                         <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} />
+                      </div>
+                    ))}
+                    <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginTop: 14, marginBottom: 2 }}>BY JOB</div>
+                    {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
+                      <div key={jobId} style={subRowStyle(i === 0)}>
+                        <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{jd.label}</div>
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} />
                       </div>
                     ))}
                   </div>
