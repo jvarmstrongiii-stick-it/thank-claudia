@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 193;
+const APP_REV = 194;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1740,11 +1740,14 @@ function HoursReport({ jobs, users, onClose }) {
 
   const rowStyle = { marginBottom: 8, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
   const subRowStyle = (first) => ({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: first ? 'none' : '1px solid var(--line)' });
+  const IMPLAUSIBLE_DAY_MS = 16 * 3600 * 1000; // one person can't plausibly log more than this in a single day — flags dangling/never-closed sessions
 
-  function SubBreakdown({ driveMs, onSiteMs, totalMs }) {
+  function SubBreakdown({ driveMs, onSiteMs, totalMs, flagged }) {
     return (
       <div style={{ textAlign: 'right' }}>
-        <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(totalMs)}</div>
+        <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: flagged ? 'var(--danger)' : 'var(--olive-bright)' }}>
+          {flagged && '⚠️ '}{fmtElapsed(totalMs)}
+        </div>
         {driveMs > 0 && onSiteMs > 0 && (
           <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
             {fmtElapsed(driveMs)} drive · {fmtElapsed(onSiteMs)} on site
@@ -1860,7 +1863,9 @@ function HoursReport({ jobs, users, onClose }) {
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{dayLabel(dayKey).toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.totalMs > IMPLAUSIBLE_DAY_MS ? 'var(--danger)' : 'var(--olive-bright)' }}>
+                      {data.totalMs > IMPLAUSIBLE_DAY_MS && '⚠️ '}{fmtElapsed(data.totalMs)}
+                    </div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKey === dayKey ? '▲' : '▼'}</span>
                   </div>
                 </button>
@@ -1870,14 +1875,14 @@ function HoursReport({ jobs, users, onClose }) {
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} />
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} flagged={ud.totalMs > IMPLAUSIBLE_DAY_MS} />
                       </div>
                     ))}
                     <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginTop: 14, marginBottom: 2 }}>BY JOB</div>
                     {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
                       <div key={jobId} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} />
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} flagged={jd.totalMs > IMPLAUSIBLE_DAY_MS} />
                       </div>
                     ))}
                   </div>
