@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 201;
+const APP_REV = 202;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -568,7 +568,7 @@ async function fetchPhotos(jobId) {
     const url = p.storage_path
       ? `${SUPABASE_URL}/storage/v1/object/public/job-photos/${p.storage_path}`
       : (p.url || p.photo_url || '');
-    return { id: p.id, url, storage_path: p.storage_path || '', photo_type: p.photo_type || null };
+    return { id: p.id, url, storage_path: p.storage_path || '', photo_type: p.photo_type || null, ocr_data: p.ocr_data || null };
   });
 }
 
@@ -586,7 +586,13 @@ async function uploadPhoto(jobId, file, photoType) {
     row = r2.data; dbErr = r2.error;
   }
   if (dbErr) { console.error('job_photos insert error', dbErr); return { error: dbErr.message || JSON.stringify(dbErr) }; }
-  return row ? { id: row.id, url, storage_path: path, photo_type: photoType || null } : null;
+  return row ? { id: row.id, url, storage_path: path, photo_type: photoType || null, ocr_data: null } : null;
+}
+
+// Guarded like other optional-column writes (site_name, filter_size) — degrades safely if not migrated yet.
+async function updatePhotoOcrData(photoId, data) {
+  const { error } = await sb.from('job_photos').update({ ocr_data: data }).eq('id', photoId);
+  if (error && error.code !== 'PGRST204') console.error('updatePhotoOcrData error', error);
 }
 
 async function deletePhoto(photoId, storagePath) {
@@ -4665,7 +4671,8 @@ const EQUIP_FIELDS = [
 ];
 
 /* ── Lightbox ──────────────────────────────────────────────────────────────── */
-function Lightbox({ url, onClose, onScanResult }) {
+function Lightbox({ photo, onClose, onScanResult, onScanned }) {
+  const url = photo.url;
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x:0, y:0 });
   const lastDist = useRef(null);
@@ -4728,6 +4735,7 @@ function Lightbox({ url, onClose, onScanResult }) {
       const found = Object.entries(result).filter(([,v]) => v != null);
       if (found.length === 0) setScanError('No equipment data found in this photo.');
       else setScanResult(result);
+      if (photo.id && onScanned) onScanned(photo.id, result);
     } catch(err) {
       setScanError(err.message);
     } finally {
@@ -4808,7 +4816,9 @@ function Lightbox({ url, onClose, onScanResult }) {
             )}
           </div>
         )}
-        {!scanResult && !scanError && (
+        {!scanResult && !scanError
+          && photo.kind !== 'receipt' && photo.kind !== 'scanned'
+          && photo.photo_type !== 'equipment' && !photo.ocr_data && (
           <button onClick={doScan} disabled={scanning} className="head"
             style={{ display:"block", width:"100%", padding:"12px", borderRadius:9, fontSize:14, fontWeight:700,
               background: scanning ? "rgba(255,255,255,0.1)" : "rgba(180,150,60,0.85)",
@@ -5707,7 +5717,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               <button onClick={async () => {
                 const storagePath = eq.source_photo_url || null;
                 if (storagePath) {
-                  setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${storagePath}`);
+                  setLightbox({ url: `${SUPABASE_URL}/storage/v1/object/public/job-photos/${storagePath}`, kind: 'scanned' });
                   return;
                 }
                 // Fallback: match by closest creation time — scan photo taken ~same time equipment was saved
@@ -5718,7 +5728,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                   const d = Math.abs(new Date(p.created_at).getTime() - equipTime);
                   return d < b.d ? { p, d } : b;
                 }, { p: data[0], d: Infinity }).p;
-                if (best.storage_path) setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${best.storage_path}`);
+                if (best.storage_path) setLightbox({ url: `${SUPABASE_URL}/storage/v1/object/public/job-photos/${best.storage_path}`, kind: 'scanned' });
                 else alert('Photo unavailable.');
               }} className="mono" style={{ fontSize:13, color:"var(--muted)", padding:"2px 6px" }}>📷</button>
             )}
@@ -6061,7 +6071,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               </div>
             ) : (
               <div key={r.id}
-                onClick={() => r.storage_path && setLightbox(`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`)}
+                onClick={() => r.storage_path && setLightbox({ url: `${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`, kind: 'receipt' })}
                 style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:"1px solid var(--line)",
                   cursor: r.storage_path ? "pointer" : "default" }}>
                 {r.storage_path && (
@@ -6125,8 +6135,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         </div>
 
         {lightbox && (
-          <Lightbox url={lightbox} onClose={() => setLightbox(null)}
-            onScanResult={(result) => { setPendingScan(result); }} />
+          <Lightbox photo={lightbox} onClose={() => setLightbox(null)}
+            onScanResult={(result) => { setPendingScan(result); }}
+            onScanned={(photoId, data) => {
+              updatePhotoOcrData(photoId, data);
+              setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, ocr_data: data } : p));
+            }} />
         )}
 
         {deletingPhoto && (
@@ -6578,7 +6592,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                 {photos.map((p,i) => (
                   <div key={p.id} style={{ position:"relative" }}>
-                    <img src={p.url} alt="" onClick={() => setLightbox(p.url)}
+                    <img src={p.url} alt="" onClick={() => setLightbox({ url: p.url, id: p.id, photo_type: p.photo_type, ocr_data: p.ocr_data })}
                       style={{ width:90, height:90, objectFit:"cover", borderRadius:8, border:"1px solid var(--line)", cursor:"pointer" }} />
                     <button onClick={() => setDeletingPhoto({ photo: p, idx: i })}
                       style={{ position:"absolute", top:2, right:2, width:24, height:24, borderRadius:"50%",
