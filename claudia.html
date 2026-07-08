@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 202;
+const APP_REV = 203;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -823,6 +823,23 @@ async function clearJobCrewStatus(jobId, userId) {
   const { error } = await sb.from('job_crew').delete().eq('job_id', jobId).eq('user_id', userId);
   if (error) console.warn('clearJobCrewStatus error', error.message || error);
   return error;
+}
+
+// Ends a person's presence on a job: clears the live crew row AND writes the closing
+// "Status → Cleared" note in one step. Every path that ends someone's time on a job MUST go
+// through this — a bare clearJobCrewStatus leaves a timeline period that never closes.
+// (Allowed exceptions: undoClockAction, which deletes the period's start note instead, and
+// deleteLogPeriod, which is removing the period entirely.)
+// Returns { error } if the clear failed, else { note } — the inserted job_notes row
+// (content always present) for appending to local crewLog state.
+async function clearCrewWithNote(jobId, userId, personName, at, suffix = '', actorId = null) {
+  const error = await clearJobCrewStatus(jobId, userId);
+  if (error) return { error };
+  const content = `Status → Cleared (${personName})${suffix}`;
+  const { data } = await sb.from('job_notes').insert({
+    job_id: jobId, content, source: 'system', created_at: at, user_id: actorId,
+  }).select().single();
+  return { note: data || { content } };
 }
 
 async function fetchActiveCrewAssignments() {
@@ -2457,6 +2474,7 @@ Command: "${transcript}"`
     if (!clockUndo) return;
     const { prevSession, restore, clear } = clockUndo;
     for (const { jobId, status } of (restore || [])) await upsertJobCrewStatus(jobId, currentUser.id, status);
+    // Raw clear (no Cleared note): undo reverts the transition, it doesn't end a real period.
     for (const { jobId } of (clear || [])) await clearJobCrewStatus(jobId, currentUser.id);
     saveClockSession(currentUser.id, prevSession);
     setClockSession(prevSession);
@@ -2500,12 +2518,8 @@ Command: "${transcript}"`
     const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [] };
     const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
     if (jobId) {
-      await clearJobCrewStatus(jobId, currentUser.id);
+      await clearCrewWithNote(jobId, currentUser.id, currentUser.name, at, '', currentUser.id);
       if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
-      await sb.from('job_notes').insert({
-        job_id: jobId, content: `Status → Cleared (${currentUser.name})`,
-        source: 'system', created_at: at, user_id: currentUser.id,
-      });
       const remaining = await fetchJobCrew(jobId);
       const stillOnSite = remaining.filter(c => c.status === 'On Site');
       const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
@@ -2532,11 +2546,7 @@ Command: "${transcript}"`
     setStaleClock(null);
     if (!sess || !currentUser) return;
     if (sess.jobId) {
-      await clearJobCrewStatus(sess.jobId, currentUser.id);
-      await sb.from('job_notes').insert({
-        job_id: sess.jobId, content: `Status → Cleared (${currentUser.name})`,
-        source: 'system', created_at: atISO, user_id: currentUser.id,
-      });
+      await clearCrewWithNote(sess.jobId, currentUser.id, currentUser.name, atISO, '', currentUser.id);
     }
     saveClockSession(currentUser.id, null);
     setClockSession(null);
@@ -2598,11 +2608,7 @@ Command: "${transcript}"`
       // bank the leg we're leaving into today's running total before the new leg starts
       addTodayMs(currentUser.id, Date.now() - new Date(shopLegStart).getTime());
       if (oldJobId) {
-        await clearJobCrewStatus(oldJobId, currentUser.id);
-        await sb.from('job_notes').insert({
-          job_id: oldJobId, content: `Status → Cleared (${currentUser.name})`,
-          source: 'system', created_at: at, user_id: currentUser.id,
-        });
+        await clearCrewWithNote(oldJobId, currentUser.id, currentUser.name, at, '', currentUser.id);
         const remaining = await fetchJobCrew(oldJobId);
         const stillOnSite = remaining.filter(c => c.status === 'On Site');
         isLastOut = stillOnSite.length === 0;
@@ -2960,7 +2966,7 @@ Command: "${transcript}"`
               RESUME SESSION
             </button>
             <button onClick={async () => {
-              if (orphanCrewEntry.job_id) await clearJobCrewStatus(orphanCrewEntry.job_id, currentUser.id);
+              if (orphanCrewEntry.job_id) await clearCrewWithNote(orphanCrewEntry.job_id, currentUser.id, currentUser.name, new Date().toISOString(), ' (self-reported)', currentUser.id);
               setOrphanCrewEntry(null);
             }} className="head"
               style={{ width:"100%", maxWidth:340, padding:14, fontSize:14, fontWeight:700, borderRadius:12,
@@ -3036,7 +3042,7 @@ Command: "${transcript}"`
                 <button onClick={async () => {
                   const { newJobId, oldJobId } = leavingCrewCheck;
                   const at = new Date().toISOString();
-                  await clearJobCrewStatus(oldJobId, person.id);
+                  await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
                   if (newJobId) {
                     await upsertJobCrewStatus(newJobId, person.id, 'In Route');
                     const newJob = jobs.find(j => j.id === newJobId);
@@ -3325,7 +3331,7 @@ Command: "${transcript}"`
               <button onClick={async () => {
                 const { newJobId, oldJobId } = leavingCrewCheck;
                 const at = new Date().toISOString();
-                await clearJobCrewStatus(oldJobId, person.id);
+                await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
                 if (newJobId) {
                   await upsertJobCrewStatus(newJobId, person.id, 'In Route');
                   const newJob = jobs.find(j => j.id === newJobId);
@@ -3993,7 +3999,7 @@ Command: "${transcript}"`
               <button onClick={async () => {
                 const { newJobId, oldJobId } = leavingCrewCheck;
                 const at = new Date().toISOString();
-                await clearJobCrewStatus(oldJobId, person.id);
+                await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
                 if (newJobId) {
                   await upsertJobCrewStatus(newJobId, person.id, 'In Route');
                   const newJob = jobs.find(j => j.id === newJobId);
@@ -5215,7 +5221,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     if (comingAlong) {
       const at = new Date().toISOString();
       const targetJob = (jobs||[]).find(j => j.id === travelCheck.targetJobId);
-      await clearJobCrewStatus(job.id, person.id);
+      const { note: leaveNote } = await clearCrewWithNote(job.id, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser?.id || null);
+      if (leaveNote) setCrewLog(prev => [...prev, { id: leaveNote.id, content: leaveNote.content, at }]);
       await upsertJobCrewStatus(travelCheck.targetJobId, person.id, 'In Route');
       await sb.from('job_notes').insert({
         job_id: travelCheck.targetJobId,
@@ -5234,8 +5241,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
 
   async function routeCrewMember(u, targetJob) {
     const at = new Date().toISOString();
+    const { note: leaveNote } = await clearCrewWithNote(job.id, u.id, u.name, at,
+      ` — ${targetJob ? 'assigned' : 'marked done'} by ${currentUser?.name || 'office'}`, currentUser?.id || null);
+    if (leaveNote) setCrewLog(prev => [...prev, { id: leaveNote.id, content: leaveNote.content, at }]);
     if (targetJob) {
-      await clearJobCrewStatus(job.id, u.id);
       await upsertJobCrewStatus(targetJob.id, u.id, 'In Route');
       await sb.from('job_notes').insert({
         job_id: targetJob.id,
@@ -5248,7 +5257,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         read: false, created_at: at,
       });
     } else {
-      await clearJobCrewStatus(job.id, u.id);
       await sb.from('notifications').insert({
         user_id: u.id,
         message: `${currentUser?.name || 'Someone'} has marked you done at this job — head back to shop`,
@@ -5267,26 +5275,24 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   }
 
   async function saveCrewEdit(u) {
+    const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
     if (editCrewStatus === 'none') {
       const targetJobId = editCrewJobId || job.id;
-      const clearError = await clearJobCrewStatus(targetJobId, u.id);
+      const at = new Date().toISOString();
+      const { error: clearError, note } = await clearCrewWithNote(targetJobId, u.id, u.name, at, editorName, currentUser?.id || null);
       if (clearError) { alert(`Couldn't clear status: ${clearError.message || clearError}`); return; }
       if (targetJobId === job.id) setCrew(prev => prev.filter(c => c.user_id !== u.id));
       setActiveCrew(prev => prev.filter(a => !(a.user_id === u.id && a.job_id === targetJobId)));
-      const at = new Date().toISOString();
-      const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
-      const content = `Status → Cleared (${u.name})${editorName}`;
-      const { data: noteRow } = await sb.from('job_notes').insert({
-        job_id: targetJobId, content,
-        source: 'system', created_at: at, user_id: currentUser?.id || null,
-      }).select().single();
-      if (targetJobId === job.id) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at }]);
+      if (targetJobId === job.id) setCrewLog(prev => [...prev, { id: note?.id, content: note?.content, at }]);
     } else {
       const statusAt = zonedLocalInputToISO(editCrewDateTime);
       const targetJobId = editCrewJobId || job.id;
       if (targetJobId !== job.id) {
-        await clearJobCrewStatus(job.id, u.id);
+        // Person is being moved to another job — close out their period HERE at the moment
+        // the new status starts, or this job's timeline dangles open forever.
+        const { note: leaveNote } = await clearCrewWithNote(job.id, u.id, u.name, statusAt, editorName, currentUser?.id || null);
         setCrew(prev => prev.filter(c => c.user_id !== u.id));
+        setCrewLog(prev => [...prev, { id: leaveNote?.id, content: leaveNote?.content, at: statusAt }]);
       }
       const updated = await upsertJobCrewStatus(targetJobId, u.id, editCrewStatus);
       if (updated) {
@@ -5296,7 +5302,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         const final = (!error && data) ? data : { ...updated, status_at: statusAt };
         if (targetJobId === job.id) setCrew(prev => [...prev.filter(c => c.user_id !== u.id), final]);
       }
-      const editorName = currentUser?.name && currentUser.name !== u.name ? ` — edited by ${currentUser.name}` : ' (edited)';
       const noteContent = `Status → ${editCrewStatus} (${u.name})${editorName}`;
       const { data: noteRow } = await sb.from('job_notes').insert({
         job_id: targetJobId, content: noteContent,
@@ -5372,6 +5377,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     if (period.ongoing) {
       const u = users.find(uu => uu.name === name);
       if (u) {
+        // Raw clear (no Cleared note): the period's start note is deleted below, so there is
+        // no open period left to close.
         await clearJobCrewStatus(job.id, u.id);
         setCrew(prev => prev.filter(c => c.user_id !== u.id));
       }
