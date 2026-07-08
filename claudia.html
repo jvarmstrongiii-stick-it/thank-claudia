@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 205;
+const APP_REV = 206;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -813,9 +813,11 @@ async function fetchJobCrew(jobId) {
   return data || [];
 }
 
-async function upsertJobCrewStatus(jobId, userId, status) {
+// statusAt: pass the user's CONFIRMED time (fieldTimeConfirm rewind) so CREW STATUS shows
+// the real transition time, not the moment the button was tapped. Defaults to now.
+async function upsertJobCrewStatus(jobId, userId, status, statusAt = new Date().toISOString()) {
   const { data, error } = await sb.from('job_crew')
-    .upsert({ job_id: jobId, user_id: userId, status, status_at: new Date().toISOString() }, { onConflict: 'job_id,user_id' })
+    .upsert({ job_id: jobId, user_id: userId, status, status_at: statusAt }, { onConflict: 'job_id,user_id' })
     .select().single();
   if (error) { console.warn('upsertJobCrewStatus error', error.message || error); return null; }
   return data;
@@ -2531,7 +2533,7 @@ Command: "${transcript}"`
 
   async function clockIn(jobId, status, at = new Date().toISOString()) {
     try {
-      const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status);
+      const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
       if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
       const job = jobs.find(j => j.id === jobId);
       const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
@@ -2619,7 +2621,7 @@ Command: "${transcript}"`
   async function flipToOnSite(at = new Date().toISOString()) {
     if (!clockSession?.jobId) return;
     const undo = { prevSession: clockSession, restore: [{ jobId: clockSession.jobId, status: 'In Route' }], clear: [], noteIds: [] };
-    await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site');
+    await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site', at);
     const job = jobs.find(j => j.id === clockSession.jobId);
     const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
     if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
@@ -2672,7 +2674,7 @@ Command: "${transcript}"`
           hasCrew = true;
         }
       }
-      const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route');
+      const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route', at);
       if (!ok) { showToast('Could not update crew status — check connection', true); return; }
       const newJob = jobs.find(j => j.id === newJobId);
       const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
@@ -5359,14 +5361,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         setCrew(prev => prev.filter(c => c.user_id !== u.id));
         setCrewLog(prev => [...prev, { id: leaveNote?.id, content: leaveNote?.content, at: statusAt }]);
       }
-      const updated = await upsertJobCrewStatus(targetJobId, u.id, editCrewStatus);
-      if (updated) {
-        // upsertJobCrewStatus stamps "now" — overwrite with the chosen time
-        const { data, error } = await sb.from('job_crew')
-          .update({ status_at: statusAt }).eq('id', updated.id).select().single();
-        const final = (!error && data) ? data : { ...updated, status_at: statusAt };
-        if (targetJobId === job.id) setCrew(prev => [...prev.filter(c => c.user_id !== u.id), final]);
-      }
+      const updated = await upsertJobCrewStatus(targetJobId, u.id, editCrewStatus, statusAt);
+      if (updated && targetJobId === job.id) setCrew(prev => [...prev.filter(c => c.user_id !== u.id), updated]);
       const noteContent = `Status → ${editCrewStatus} (${u.name})${editorName}`;
       const { data: noteRow } = await sb.from('job_notes').insert({
         job_id: targetJobId, content: noteContent,
