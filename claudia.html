@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 204;
+const APP_REV = 205;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2028,8 +2028,9 @@ function BalancesScreen({ jobs, onClose, onOpenJob }) {
     const seenJobIds = new Set();
     const rows = [];
     (paidNotes || []).forEach(n => {
-      const parsed = parseCrewLogEntry(n);
-      if (!parsed || parsed.status !== 'Completed/Paid') return;
+      // Both formats: 'Job status → X (Name)' (r205+) and legacy 'Status → X (Name)' / 'Status → X'.
+      const m = (n.content || '').match(/^(?:Job status|Status) → (.+?)(?: \(|$)/);
+      if (!m || m[1] !== 'Completed/Paid') return;
       if (seenJobIds.has(n.job_id)) return; // a job can flicker through the status more than once — count it once
       const job = (jobs || []).find(j => j.id === n.job_id);
       if (!job) return;
@@ -2516,7 +2517,10 @@ Command: "${transcript}"`
 
   async function undoClockAction() {
     if (!clockUndo) return;
-    const { prevSession, restore, clear } = clockUndo;
+    const { prevSession, restore, clear, noteIds } = clockUndo;
+    // Delete the undone transition's notes too — left behind, they start/end phantom
+    // timeline periods that reverting the crew rows alone never cleans up.
+    for (const id of (noteIds || [])) await sb.from('job_notes').delete().eq('id', id);
     for (const { jobId, status } of (restore || [])) await upsertJobCrewStatus(jobId, currentUser.id, status);
     // Raw clear (no Cleared note): undo reverts the transition, it doesn't end a real period.
     for (const { jobId } of (clear || [])) await clearJobCrewStatus(jobId, currentUser.id);
@@ -2534,12 +2538,12 @@ Command: "${transcript}"`
       if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
         await updateJob(jobId, { status: 'In Progress', _skipNote: true });
       }
-      await sb.from('job_notes').insert({
+      const { data: inNote } = await sb.from('job_notes').insert({
         job_id: jobId, content: `Status → ${status} (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
-      });
+      }).select().single();
       const session = { jobId, status, startedAt: at, legStartedAt: at };
-      setClockUndo({ prevSession: null, restore: [], clear: [{ jobId }] });
+      setClockUndo({ prevSession: null, restore: [], clear: [{ jobId }], noteIds: inNote ? [inNote.id] : [] });
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setShowClockIn(false);
@@ -2559,10 +2563,11 @@ Command: "${transcript}"`
   async function clockOut(jobStatus, at = new Date().toISOString()) {
     if (!clockSession) return;
     const { jobId, startedAt, legStartedAt } = clockSession;
-    const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [] };
+    const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [], noteIds: [] };
     const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
     if (jobId) {
-      await clearCrewWithNote(jobId, currentUser.id, currentUser.name, at, '', currentUser.id);
+      const { note: outNote } = await clearCrewWithNote(jobId, currentUser.id, currentUser.name, at, '', currentUser.id);
+      if (outNote?.id) undo.noteIds.push(outNote.id);
       if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
       const remaining = await fetchJobCrew(jobId);
       const stillOnSite = remaining.filter(c => c.status === 'On Site');
@@ -2613,17 +2618,18 @@ Command: "${transcript}"`
 
   async function flipToOnSite(at = new Date().toISOString()) {
     if (!clockSession?.jobId) return;
-    const undo = { prevSession: clockSession, restore: [{ jobId: clockSession.jobId, status: 'In Route' }], clear: [] };
+    const undo = { prevSession: clockSession, restore: [{ jobId: clockSession.jobId, status: 'In Route' }], clear: [], noteIds: [] };
     await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site');
     const job = jobs.find(j => j.id === clockSession.jobId);
     const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
     if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
       await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
     }
-    await sb.from('job_notes').insert({
+    const { data: onSiteNote } = await sb.from('job_notes').insert({
       job_id: clockSession.jobId, content: `Status → On Site (${currentUser.name})`,
       source: 'system', created_at: at, user_id: currentUser.id,
-    });
+    }).select().single();
+    if (onSiteNote) undo.noteIds.push(onSiteNote.id);
     const remaining = await fetchJobCrew(clockSession.jobId);
     const othersInRoute = remaining.filter(c => c.status === 'In Route' && c.user_id !== currentUser.id);
     const inRouteUsers = users.filter(u => othersInRoute.find(c => c.user_id === u.id));
@@ -2644,6 +2650,7 @@ Command: "${transcript}"`
         prevSession: clockSession,
         restore: oldJobId ? [{ jobId: oldJobId, status: clockSession.status }] : [],
         clear: [{ jobId: newJobId }],
+        noteIds: [],
       };
       let isLastOut = false;
       let hasCrew = false;
@@ -2652,7 +2659,8 @@ Command: "${transcript}"`
       // bank the leg we're leaving into today's running total before the new leg starts
       addTodayMs(currentUser.id, Date.now() - new Date(shopLegStart).getTime());
       if (oldJobId) {
-        await clearCrewWithNote(oldJobId, currentUser.id, currentUser.name, at, '', currentUser.id);
+        const { note: leaveNote } = await clearCrewWithNote(oldJobId, currentUser.id, currentUser.name, at, '', currentUser.id);
+        if (leaveNote?.id) undo.noteIds.push(leaveNote.id);
         const remaining = await fetchJobCrew(oldJobId);
         const stillOnSite = remaining.filter(c => c.status === 'On Site');
         isLastOut = stillOnSite.length === 0;
@@ -2671,10 +2679,11 @@ Command: "${transcript}"`
       if (newJob && newJob.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(newJob.status) < wIdx('In Progress')) {
         await updateJob(newJobId, { status: 'In Progress', _skipNote: true });
       }
-      await sb.from('job_notes').insert({
+      const { data: routeNote } = await sb.from('job_notes').insert({
         job_id: newJobId, content: `Status → In Route (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
-      });
+      }).select().single();
+      if (routeNote) undo.noteIds.push(routeNote.id);
       const session = { jobId: newJobId, status: 'In Route', startedAt, legStartedAt: at };
       saveClockSession(currentUser.id, session);
       setClockSession(session);
@@ -2746,7 +2755,10 @@ Command: "${transcript}"`
     if (patch.status && patch.status !== job.status && !patch._skipNote) {
       const fieldStatuses = ["In Route", "On Site"];
       const userName = currentUser?.name || null;
-      const noteContent = userName ? `Status → ${patch.status} (${userName})` : `Status → ${patch.status}`;
+      // "Job status →" (not "Status →"): the plain form is reserved for crew clock events —
+      // parseCrewLogEntry/fromRow read those as clocked time, so a job-status change written
+      // in that format created phantom clock-in periods for whoever tapped the picker.
+      const noteContent = userName ? `Job status → ${patch.status} (${userName})` : `Job status → ${patch.status}`;
       const noteRow = { job_id: id, content: noteContent, source: 'system', created_at: patch._at || new Date().toISOString() };
       if (currentUser?.id) noteRow.user_id = currentUser.id;
       await sb.from('job_notes').insert(noteRow);
@@ -3055,6 +3067,9 @@ Command: "${transcript}"`
         {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
           const person = leavingCrewCheck.members[0];
           const rest = leavingCrewCheck.members.slice(1);
+          // Name the destination — YES records this person In Route to newJobId, which the
+          // answerer otherwise has no way to know (from clock-out it defaults to the shop).
+          const destJob = leavingCrewCheck.newJobId ? jobs.find(j => j.id === leavingCrewCheck.newJobId) : null;
           const advance = (stayed = false) => {
             const nextSomeoneStayed = leavingCrewCheck.someoneStayed || stayed;
             if (rest.length > 0) {
@@ -3080,7 +3095,7 @@ Command: "${transcript}"`
           return (
             <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
               <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
-                Is {person.name} coming with you?
+                Is {person.name} coming with you{destJob ? ` to ${destJob.site_name || destJob.customer}` : ''}?
               </div>
               <div style={{ display:"flex", gap:12 }}>
                 <button onClick={async () => {
@@ -3344,6 +3359,9 @@ Command: "${transcript}"`
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
         const rest = leavingCrewCheck.members.slice(1);
+        // Name the destination — YES records this person In Route to newJobId, which the
+        // answerer otherwise has no way to know (from clock-out it defaults to the shop).
+        const destJob = leavingCrewCheck.newJobId ? jobs.find(j => j.id === leavingCrewCheck.newJobId) : null;
         const advance = (stayed = false) => {
           const nextSomeoneStayed = leavingCrewCheck.someoneStayed || stayed;
           if (rest.length > 0) {
@@ -3369,7 +3387,7 @@ Command: "${transcript}"`
         return (
           <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
             <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
-              Is {person.name} coming with you?
+              Is {person.name} coming with you{destJob ? ` to ${destJob.site_name || destJob.customer}` : ''}?
             </div>
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
@@ -4012,6 +4030,9 @@ Command: "${transcript}"`
       {leavingCrewCheck && leavingCrewCheck.members.length > 0 && (() => {
         const person = leavingCrewCheck.members[0];
         const rest = leavingCrewCheck.members.slice(1);
+        // Name the destination — YES records this person In Route to newJobId, which the
+        // answerer otherwise has no way to know (from clock-out it defaults to the shop).
+        const destJob = leavingCrewCheck.newJobId ? jobs.find(j => j.id === leavingCrewCheck.newJobId) : null;
         const advance = (stayed = false) => {
           const nextSomeoneStayed = leavingCrewCheck.someoneStayed || stayed;
           if (rest.length > 0) {
@@ -4037,7 +4058,7 @@ Command: "${transcript}"`
         return (
           <Sheet title="CREW CHECK" onClose={() => setLeavingCrewCheck(null)}>
             <div className="mono" style={{ fontSize:15, color:"var(--text)", marginBottom:20 }}>
-              Is {person.name} coming with you?
+              Is {person.name} coming with you{destJob ? ` to ${destJob.site_name || destJob.customer}` : ''}?
             </div>
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
