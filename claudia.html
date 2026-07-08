@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 203;
+const APP_REV = 204;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -324,7 +324,9 @@ function buildCrewTimeline(crewLog, crew, users) {
       const end = next ? next.at : null;
       const endId = next ? next.id : null;
       const ongoing = !end && !!current;
-      periods.push({ status: e.status, start: e.at, startId: e.id, end, endId, ongoing });
+      // dangling = no closing note AND no live crew row: the clock-out was never recorded.
+      // Reports must never count these as "worked until now" — exclude and flag instead.
+      periods.push({ status: e.status, start: e.at, startId: e.id, end, endId, ongoing, dangling: !end && !current });
     });
     if (periods.length) result[name] = periods;
   });
@@ -1013,7 +1015,7 @@ function ClockTimer({ startedAt, todayMs }) {
 function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, currentUser }) {
   const job = jobs.find(j => j.id === jobId);
   const [receipts, setReceipts] = useState([]);
-  const [laborRows, setLaborRows] = useState([]); // [{name, driveMs, onSiteMs}]
+  const [laborRows, setLaborRows] = useState([]); // [{name, driveMs, onSiteMs, dangling}]
   const [loading, setLoading] = useState(true);
   const [addingReceipt, setAddingReceipt] = useState(false);
   const [rVendor, setRVendor] = useState('');
@@ -1028,25 +1030,27 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
 
   useEffect(() => {
     async function load() {
-      const [{ data: rcpts }, { data: notes }] = await Promise.all([
+      const [{ data: rcpts }, { data: notes }, { data: liveCrew }] = await Promise.all([
         sb.from('receipts').select('*').eq('job_id', jobId).order('created_at'),
         sb.from('job_notes').select('*').eq('job_id', jobId).eq('source', 'system').order('created_at'),
+        sb.from('job_crew').select('job_id, user_id, status').eq('job_id', jobId),
       ]);
       setReceipts(rcpts || []);
       fetchReceiptVendors().then(setVendorOptions);
-      // Build labor summary from notes timeline
-      const timeline = buildCrewTimeline(notes || [], [], users);
+      // Build labor summary from notes timeline. Dangling periods (no clock-out recorded,
+      // no live crew row) contribute 0 and flag the row — never count "until now".
+      const timeline = buildCrewTimeline(notes || [], liveCrew || [], users);
+      const sumMs = (periods, status) => periods
+        .filter(p => p.status === status && !p.dangling)
+        .reduce((s, p) => s + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
       const rows = users
         .filter(u => timeline[u.name])
         .map(u => {
           const periods = timeline[u.name] || [];
-          const driveMs = periods.filter(p => p.status === 'In Route')
-            .reduce((s, p) => s + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
-          const onSiteMs = periods.filter(p => p.status === 'On Site')
-            .reduce((s, p) => s + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
-          return { name: u.name, driveMs, onSiteMs };
+          return { name: u.name, driveMs: sumMs(periods, 'In Route'), onSiteMs: sumMs(periods, 'On Site'),
+            dangling: periods.some(p => p.dangling) };
         })
-        .filter(r => r.driveMs + r.onSiteMs > 0);
+        .filter(r => r.driveMs + r.onSiteMs > 0 || r.dangling);
       setLaborRows(rows);
       setLoading(false);
     }
@@ -1134,11 +1138,14 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
                   padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
                   <div className="head" style={{ fontSize:14, fontWeight:700 }}>{r.name}</div>
                   <div style={{ textAlign:"right" }}>
-                    <div className="mono" style={{ fontSize:13, color:"var(--olive-bright)" }}>
-                      {fmtElapsed(r.onSiteMs)} on site
+                    <div className="mono" style={{ fontSize:13, color: r.dangling ? "var(--danger)" : "var(--olive-bright)" }}>
+                      {r.dangling && '⚠️ '}{fmtElapsed(r.onSiteMs)} on site
                     </div>
                     {r.driveMs > 0 && (
                       <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>{fmtElapsed(r.driveMs)} drive</div>
+                    )}
+                    {r.dangling && (
+                      <div className="mono" style={{ fontSize:10, color:"var(--danger)" }}>missing clock-out — not counted</div>
                     )}
                   </div>
                 </div>
@@ -1677,6 +1684,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [tab, setTab] = useState('user');
   const [notes, setNotes] = useState([]);
+  const [crewRows, setCrewRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState(() => new Set());
   function toggleExpanded(key) {
@@ -1711,31 +1719,59 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
     setLoading(true);
     setNotes([]);
     setExpandedKeys(new Set());
-    sb.from('job_notes')
-      .select('id, job_id, content, created_at')
-      .eq('source', 'system')
-      .gte('created_at', weekStart.toISOString())
-      .lt('created_at', weekEnd.toISOString())
-      .order('created_at', { ascending: true })
-      .then(({ data }) => { setNotes(data || []); setLoading(false); });
+    Promise.all([
+      sb.from('job_notes')
+        .select('id, job_id, content, created_at')
+        .eq('source', 'system')
+        .gte('created_at', weekStart.toISOString())
+        .lt('created_at', weekEnd.toISOString())
+        .order('created_at', { ascending: true }),
+      // Live crew rows let buildCrewTimeline tell a genuinely-ongoing session (counts to now)
+      // from a dangling one with no clock-out recorded (excluded + flagged, never invented).
+      sb.from('job_crew').select('job_id, user_id, status'),
+    ]).then(([{ data }, { data: crew }]) => {
+      setNotes(data || []);
+      setCrewRows(crew || []);
+      setLoading(false);
+    });
   }, [weekStart.getTime()]);
 
-  const { byUser, byJob, byDay } = useMemo(() => {
+  const { byUser, byJob, byDay, danglingCount } = useMemo(() => {
     const byUser = {};
     const byJob = {};
     const byDay = {};
+    let danglingCount = 0;
     const notesByJobId = {};
     notes.forEach(n => {
       if (!notesByJobId[n.job_id]) notesByJobId[n.job_id] = [];
       notesByJobId[n.job_id].push({ id: n.id, content: n.content, at: n.created_at });
     });
+    const crewByJobId = {};
+    crewRows.forEach(c => { (crewByJobId[c.job_id] = crewByJobId[c.job_id] || []).push(c); });
     const weMs = weekEnd.getTime();
     Object.entries(notesByJobId).forEach(([jobId, jobNotes]) => {
-      const timeline = buildCrewTimeline(jobNotes, [], users);
+      const timeline = buildCrewTimeline(jobNotes, crewByJobId[jobId] || [], users);
       const job = jobs.find(j => j.id === jobId);
       const label = job ? job.customer : 'Unknown';
       Object.entries(timeline).forEach(([userName, periods]) => {
         periods.forEach(p => {
+          if (p.dangling) {
+            // No clock-out was ever recorded — counting to "now" is how totals got silently
+            // inflated. Contribute 0 and flag every aggregate this period touches instead.
+            danglingCount++;
+            const dayKey = dateISOInTZ(new Date(p.start), getAppTZ());
+            if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
+            if (!byUser[userName].jobs[jobId]) byUser[userName].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
+            if (!byJob[jobId]) byJob[jobId] = { label, totalMs: 0, users: {} };
+            if (!byJob[jobId].users[userName]) byJob[jobId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
+            if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {}, jobs: {} };
+            if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
+            if (!byDay[dayKey].jobs[jobId]) byDay[dayKey].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
+            byUser[userName].dangling = byUser[userName].jobs[jobId].dangling = true;
+            byJob[jobId].dangling = byJob[jobId].users[userName].dangling = true;
+            byDay[dayKey].dangling = byDay[dayKey].users[userName].dangling = byDay[dayKey].jobs[jobId].dangling = true;
+            return;
+          }
           const endMs = p.end ? new Date(p.end).getTime() : Math.min(Date.now(), weMs);
           const ms = endMs - new Date(p.start).getTime();
           if (ms <= 0) return;
@@ -1765,8 +1801,8 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
         });
       });
     });
-    return { byUser, byJob, byDay };
-  }, [notes, jobs, users, weekEnd]);
+    return { byUser, byJob, byDay, danglingCount };
+  }, [notes, crewRows, jobs, users, weekEnd]);
 
   const rowStyle = { marginBottom: 8, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
   const subRowStyle = (first) => ({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: first ? 'none' : '1px solid var(--line)' });
@@ -1825,6 +1861,14 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
       <div style={{ padding: '12px 16px' }}>
         {loading && <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13, letterSpacing: '0.1em' }}>LOADING…</div>}
 
+        {!loading && danglingCount > 0 && (
+          <div className="mono" style={{ fontSize: 11, color: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: 8,
+            padding: '8px 10px', marginBottom: 10, lineHeight: 1.5 }}>
+            ⚠️ {danglingCount} period{danglingCount !== 1 ? 's' : ''} with no clock-out recorded — excluded from these totals.
+            Open the flagged job's TIME LOG to add the missing end time.
+          </div>
+        )}
+
         {!loading && tab === 'user' && (
           sortedUsers.length === 0
             ? <div className="mono" style={{ textAlign: 'center', color: 'var(--muted)', padding: '40px 0', fontSize: 13 }}>No hours logged this week</div>
@@ -1834,7 +1878,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{userName.toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.dangling ? 'var(--danger)' : 'var(--olive-bright)' }}>{data.dangling && '⚠️ '}{fmtElapsed(data.totalMs)}</div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(userName) ? '▲' : '▼'}</span>
                   </div>
                 </button>
@@ -1843,7 +1887,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                     {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
                       <div key={jobId} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)', flex: 1, paddingRight: 10 }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} />
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} flagged={jd.dangling} />
                       </div>
                     ))}
                   </div>
@@ -1866,7 +1910,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: 'var(--olive-bright)' }}>{fmtElapsed(data.totalMs)}</div>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.dangling ? 'var(--danger)' : 'var(--olive-bright)' }}>{data.dangling && '⚠️ '}{fmtElapsed(data.totalMs)}</div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(jobId) ? '▲' : '▼'}</span>
                   </div>
                 </button>
@@ -1875,7 +1919,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} />
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} flagged={ud.dangling} />
                       </div>
                     ))}
                   </div>
@@ -1893,8 +1937,8 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{dayLabel(dayKey).toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.totalMs > IMPLAUSIBLE_DAY_MS ? 'var(--danger)' : 'var(--olive-bright)' }}>
-                      {data.totalMs > IMPLAUSIBLE_DAY_MS && '⚠️ '}{fmtElapsed(data.totalMs)}
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: (data.dangling || data.totalMs > IMPLAUSIBLE_DAY_MS) ? 'var(--danger)' : 'var(--olive-bright)' }}>
+                      {(data.dangling || data.totalMs > IMPLAUSIBLE_DAY_MS) && '⚠️ '}{fmtElapsed(data.totalMs)}
                     </div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(dayKey) ? '▲' : '▼'}</span>
                   </div>
@@ -1905,7 +1949,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} flagged={ud.totalMs > IMPLAUSIBLE_DAY_MS} />
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} flagged={ud.dangling || ud.totalMs > IMPLAUSIBLE_DAY_MS} />
                       </div>
                     ))}
                     <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginTop: 14, marginBottom: 2 }}>BY JOB</div>
@@ -1913,7 +1957,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                       <button key={jobId} onClick={() => onOpenJobDay && onOpenJobDay(jobId, dayKey)}
                         style={{ ...subRowStyle(i === 0), width: '100%', textAlign: 'left' }}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} flagged={jd.totalMs > IMPLAUSIBLE_DAY_MS} />
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} flagged={jd.dangling || jd.totalMs > IMPLAUSIBLE_DAY_MS} />
                       </button>
                     ))}
                   </div>
@@ -6682,9 +6726,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             {timeLogOpen && users.filter(u => crewTimeline[u.name]).map(u => {
               const name = u.name;
               const periods = (crewTimeline[name] || []).filter(p => dateISOInTZ(new Date(p.start), getAppTZ()) === crewLogDate);
-              const driveMs = periods.filter(p => p.status === 'In Route')
+              // dangling periods (no clock-out recorded) contribute 0 — see buildCrewTimeline
+              const driveMs = periods.filter(p => p.status === 'In Route' && !p.dangling)
                 .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
-              const onSiteMs = periods.filter(p => p.status === 'On Site')
+              const onSiteMs = periods.filter(p => p.status === 'On Site' && !p.dangling)
                 .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
               return (
                 <div key={u.id} style={{ padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
@@ -6697,9 +6742,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                     return (
                       <div key={i} style={{ marginTop:4 }}>
                         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                          <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
-                            {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtTimestamp(p.end) : '—')}
-                            {' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})
+                          <div className="mono" style={{ fontSize:12, color: p.dangling ? "var(--danger)" : "var(--muted)" }}>
+                            {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtTimestamp(p.end) : '⚠️ NO CLOCK-OUT')}
+                            {(p.end || p.ongoing) && <React.Fragment>{' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})</React.Fragment>}
                           </div>
                           <div style={{ display:"flex", gap:4 }}>
                             {!p.ongoing && (
