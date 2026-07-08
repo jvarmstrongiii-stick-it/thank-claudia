@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 206;
+const APP_REV = 207;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -562,6 +562,24 @@ async function updateReceiptRow(id, fields) {
   return error;
 }
 
+// Multi-page receipts: page photo paths live newline-joined in the single
+// receipts.storage_path text column (page 1 first) — no schema change. Always read
+// pages through this helper; never assume storage_path is a single path.
+function receiptPages(r) { return (r?.storage_path || '').split('\n').filter(Boolean); }
+const receiptPhotoUrl = path => `${SUPABASE_URL}/storage/v1/object/public/job-photos/${path}`;
+
+// Upload one more page photo and append it to an existing receipt row.
+// Returns the updated storage_path string, or null on failure.
+async function appendReceiptPage(receipt, jobId, file) {
+  const path = `${jobId}/receipt-${Date.now()}.${(file.name||'jpg').split('.').pop()}`;
+  const { error: upErr } = await sb.storage.from('job-photos').upload(path, file, { cacheControl:'3600', upsert:false });
+  if (upErr) return { error: upErr };
+  const storage_path = [...receiptPages(receipt), path].join('\n');
+  const error = await updateReceiptRow(receipt.id, { storage_path });
+  if (error) return { error };
+  return { storage_path };
+}
+
 async function fetchPhotos(jobId) {
   const { data, error } = await sb.from('job_photos')
     .select('*').eq('job_id', jobId).order('created_at', { ascending: true });
@@ -1029,6 +1047,9 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
   const [vendorOptions, setVendorOptions] = useState([]);
   const fileRef = useRef();
   const uploadRef = useRef();
+  const [receiptPagePrompt, setReceiptPagePrompt] = useState(null); // receipt row — "more pages?" after a snap
+  const pageRef = useRef();
+  const pageTargetRef = useRef(null);
 
   useEffect(() => {
     async function load() {
@@ -1104,7 +1125,10 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
         created_at: new Date().toISOString(),
       });
       if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
-      if (data) setReceipts(r => [...r, data]);
+      if (data) {
+        setReceipts(r => [...r, data]);
+        setReceiptPagePrompt(data); // multi-page receipts: offer to snap the next page
+      }
       setRVendor(''); setRAmount(''); setAddingReceipt(false);
       showToast?.(vendor || amount ? 'Receipt saved' : 'Photo saved — add amount manually');
     } catch (err) {
@@ -1116,9 +1140,33 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
   }
 
   async function deleteReceipt(r) {
-    if (r.storage_path) await sb.storage.from('job-photos').remove([r.storage_path]);
+    const pages = receiptPages(r);
+    if (pages.length) await sb.storage.from('job-photos').remove(pages);
     await sb.from('receipts').delete().eq('id', r.id);
     setReceipts(rs => rs.filter(x => x.id !== r.id));
+    if (receiptPagePrompt?.id === r.id) setReceiptPagePrompt(null);
+  }
+
+  // Extra page for an existing receipt — see handleJobReceiptPageFile in JobDetail (same pattern).
+  async function handleReceiptPageFile(e) {
+    const file = e.target.files?.[0];
+    const target = pageTargetRef.current;
+    if (!file || !target) { if (e.target) e.target.value = ''; return; }
+    setRScanning(true);
+    try {
+      const { storage_path, error } = await appendReceiptPage(target, jobId, file);
+      if (error) { showToast?.('Page upload failed: ' + (error.message || 'error'), true); return; }
+      const updated = { ...target, storage_path };
+      setReceipts(rs => rs.map(x => x.id === target.id ? { ...x, storage_path } : x));
+      setReceiptPagePrompt(updated);
+      pageTargetRef.current = updated;
+      showToast?.(`Page ${receiptPages(updated).length} saved`);
+    } catch (err) {
+      showToast?.('Page failed: ' + (err.message || 'error'), true);
+    } finally {
+      setRScanning(false);
+      e.target.value = '';
+    }
   }
 
   const totalReceiptAmt = receipts.reduce((s, r) => s + Number(r.amount || 0), 0);
@@ -1195,13 +1243,13 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
             ) : (
               <div key={r.id} style={{ display:"flex", alignItems:"center", gap:8,
                 padding:"6px 0", borderBottom:"1px solid var(--line)" }}>
-                {r.storage_path && (
-                  <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`}
+                {receiptPages(r).length > 0 && (
+                  <img src={receiptPhotoUrl(receiptPages(r)[0])}
                     onError={e => { e.target.style.display='none'; }}
                     alt="receipt" style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
                 )}
                 <div style={{ flex:1 }}>
-                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}</div>
+                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}{receiptPages(r).length > 1 ? ` 📷×${receiptPages(r).length}` : ''}</div>
                   <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
                     {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}{r.paid_by ? ` · paid by ${r.paid_by}` : ''}
                   </div>
@@ -1213,6 +1261,31 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
               </div>
             )
           ))}
+
+          {receiptPagePrompt && (
+            <div style={{ marginTop:8, marginBottom:4, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--olive-bright)" }}>
+              <div className="mono" style={{ fontSize:12, color:"var(--text)", marginBottom:8 }}>
+                {receiptPages(receiptPagePrompt).length > 1
+                  ? `Page ${receiptPages(receiptPagePrompt).length} saved — more pages?`
+                  : 'Receipt saved — more pages?'}
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => { pageTargetRef.current = receiptPagePrompt; pageRef.current.click(); }}
+                  className="head" disabled={rScanning}
+                  style={{ flex:1, padding:"10px 0", borderRadius:6, border:"none",
+                    background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
+                  {rScanning ? 'SAVING…' : '📷 YES — NEXT PAGE'}
+                </button>
+                <button onClick={() => setReceiptPagePrompt(null)} className="head" disabled={rScanning}
+                  style={{ flex:1, padding:"10px 0", borderRadius:6, border:"1px solid var(--line)",
+                    background:"var(--panel)", color:"var(--muted)", fontSize:13, fontWeight:700 }}>
+                  NO — DONE
+                </button>
+              </div>
+            </div>
+          )}
+          <input ref={pageRef} type="file" accept="image/*" capture="environment"
+            style={{ display:"none" }} onChange={handleReceiptPageFile} />
 
           {addingReceipt ? (
             <div style={{ marginTop:10, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
@@ -5080,6 +5153,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [vendorOptions, setVendorOptions] = useState([]);
   const receiptFileRef = useRef();
   const receiptUploadRef = useRef();
+  const [receiptPagePrompt, setReceiptPagePrompt] = useState(null); // receipt row — "more pages?" after a snap
+  const receiptPageRef = useRef();        // hidden camera input for extra pages
+  const receiptPageTargetRef = useRef(null); // which receipt the next page attaches to (ref, not state — set in the same tap that opens the camera)
   // All section collapsibles start CLOSED on every load (Jack's preference; persist-open wasn't surviving hard refresh)
   const [photosOpen, setPhotosOpenRaw] = useState(false);
   const [showPhotoSheet, setShowPhotoSheet] = useState(false);
@@ -5863,11 +5939,37 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         created_at: new Date().toISOString(),
       });
       if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
-      if (data) setReceipts(r => [...r, data]);
+      if (data) {
+        setReceipts(r => [...r, data]);
+        setReceiptPagePrompt(data); // multi-page receipts: offer to snap the next page
+      }
       setRVendor(''); setRAmount(''); setAddingReceipt(false);
       showToast?.(vendor || amount ? 'Receipt saved' : 'Photo saved — add amount manually');
     } catch (err) {
       showToast?.('Receipt failed: ' + (err.message || 'error'), true);
+    } finally {
+      setRScanning(false);
+      e.target.value = '';
+    }
+  }
+  // Extra page for an existing receipt (target set via receiptPageTargetRef by the button
+  // that opened the camera). The row is already saved, so a lost camera round-trip on
+  // mobile costs nothing — re-add via the receipt's ✎ ADD PAGE.
+  async function handleJobReceiptPageFile(e) {
+    const file = e.target.files?.[0];
+    const target = receiptPageTargetRef.current;
+    if (!file || !target) { if (e.target) e.target.value = ''; return; }
+    setRScanning(true);
+    try {
+      const { storage_path, error } = await appendReceiptPage(target, job.id, file);
+      if (error) { showToast?.('Page upload failed: ' + (error.message || 'error'), true); return; }
+      const updated = { ...target, storage_path };
+      setReceipts(rs => rs.map(x => x.id === target.id ? { ...x, storage_path } : x));
+      setReceiptPagePrompt(updated); // keep the prompt up — there may be another page
+      receiptPageTargetRef.current = updated;
+      showToast?.(`Page ${receiptPages(updated).length} saved`);
+    } catch (err) {
+      showToast?.('Page failed: ' + (err.message || 'error'), true);
     } finally {
       setRScanning(false);
       e.target.value = '';
@@ -5884,10 +5986,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     setEditingReceipt(null);
   }
   async function deleteJobReceipt(r) {
-    if (r.storage_path) await sb.storage.from('job-photos').remove([r.storage_path]);
+    const pages = receiptPages(r);
+    if (pages.length) await sb.storage.from('job-photos').remove(pages);
     await sb.from('receipts').delete().eq('id', r.id);
     setReceipts(rs => rs.filter(x => x.id !== r.id));
     if (editingReceipt?.id === r.id) setEditingReceipt(null);
+    if (receiptPagePrompt?.id === r.id) setReceiptPagePrompt(null);
   }
 
   const materialsSection = (
@@ -6133,22 +6237,27 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 </div>
                 <div style={{ display:"flex", gap:8 }}>
                   <button onClick={saveReceiptEdit} className="head" style={{ flex:1, padding:"8px 0", borderRadius:6, border:"none", background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>SAVE</button>
+                  <button onClick={() => { receiptPageTargetRef.current = r; receiptPageRef.current.click(); }} className="head" disabled={rScanning}
+                    style={{ padding:"8px 12px", borderRadius:6, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)", fontSize:13 }}>
+                    {rScanning ? '…' : '📷 ADD PAGE'}
+                  </button>
                   <button onClick={() => deleteJobReceipt(r)} className="head" style={{ padding:"8px 12px", borderRadius:6, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)", fontSize:13 }}>DELETE</button>
                   <button onClick={() => setEditingReceipt(null)} className="head" style={{ padding:"8px 12px", borderRadius:6, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)", fontSize:13 }}>CANCEL</button>
                 </div>
               </div>
             ) : (
               <div key={r.id}
-                onClick={() => r.storage_path && setLightbox({ url: `${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`, kind: 'receipt' })}
+                onClick={() => receiptPages(r).length && setLightbox({ url: receiptPhotoUrl(receiptPages(r)[0]), kind: 'receipt' })}
                 style={{ display:"flex", alignItems:"center", gap:8, padding:"6px 0", borderBottom:"1px solid var(--line)",
                   cursor: r.storage_path ? "pointer" : "default" }}>
-                {r.storage_path && (
-                  <img src={`${SUPABASE_URL}/storage/v1/object/public/job-photos/${r.storage_path}`} alt="receipt"
+                {receiptPages(r).map((pg, pi) => (
+                  <img key={pg} src={receiptPhotoUrl(pg)} alt={`receipt page ${pi+1}`}
+                    onClick={e => { e.stopPropagation(); setLightbox({ url: receiptPhotoUrl(pg), kind: 'receipt' }); }}
                     onError={e => { e.target.style.display='none'; }}
                     style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
-                )}
+                ))}
                 <div style={{ flex:1 }}>
-                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}{r.storage_path ? ' 📷' : ''}</div>
+                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}{receiptPages(r).length > 1 ? ` 📷×${receiptPages(r).length}` : (r.storage_path ? ' 📷' : '')}</div>
                   <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
                     {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}{r.paid_by ? ` · paid by ${r.paid_by}` : ''}
                   </div>
@@ -6160,6 +6269,30 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               </div>
             )
           ))}
+          {receiptPagePrompt && (
+            <div style={{ marginTop:8, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--olive-bright)" }}>
+              <div className="mono" style={{ fontSize:12, color:"var(--text)", marginBottom:8 }}>
+                {receiptPages(receiptPagePrompt).length > 1
+                  ? `Page ${receiptPages(receiptPagePrompt).length} saved — more pages?`
+                  : 'Receipt saved — more pages?'}
+              </div>
+              <div style={{ display:"flex", gap:8 }}>
+                <button onClick={() => { receiptPageTargetRef.current = receiptPagePrompt; receiptPageRef.current.click(); }}
+                  className="head" disabled={rScanning}
+                  style={{ flex:1, padding:"10px 0", borderRadius:6, border:"none",
+                    background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>
+                  {rScanning ? 'SAVING…' : '📷 YES — NEXT PAGE'}
+                </button>
+                <button onClick={() => setReceiptPagePrompt(null)} className="head" disabled={rScanning}
+                  style={{ flex:1, padding:"10px 0", borderRadius:6, border:"1px solid var(--line)",
+                    background:"var(--panel)", color:"var(--muted)", fontSize:13, fontWeight:700 }}>
+                  NO — DONE
+                </button>
+              </div>
+            </div>
+          )}
+          <input ref={receiptPageRef} type="file" accept="image/*" capture="environment"
+            style={{ display:"none" }} onChange={handleJobReceiptPageFile} />
           {receipts.length === 0 && !addingReceipt && (
             <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>None yet</div>
           )}
