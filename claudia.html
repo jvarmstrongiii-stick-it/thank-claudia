@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 208;
+const APP_REV = 209;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -302,11 +302,19 @@ function fmtElapsed(ms) {
   const m = mins % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
-const CREW_FIELD_STATUSES = ['In Route','On Site'];
+// 'Materials Run'/'Shop Run' are paid pauses — real, counted periods, unlike plain 'Paused'.
+const CREW_FIELD_STATUSES = ['In Route','On Site','Materials Run','Shop Run'];
+// Every status shown by the RESUME button / hidden from ON SITE + PAUSE in the clock bars.
+const ON_BREAK_STATUSES = ['Paused','Materials Run','Shop Run'];
+// Pause reason → job_crew status. Reasons not listed here map to 'Paused' (zero-counted).
+const PAUSE_STATUS_MAP = { 'getting materials': 'Materials Run', 'shop run': 'Shop Run' };
 function parseCrewLogEntry(n) {
   const m = (n.content||'').match(/^Status → (.+?) \(([^)]+)\)/);
   if (!m) return null;
-  return { id: n.id, status: m[1], userName: m[2], at: n.at };
+  // Materials Run/Shop Run notes carry a trailing '· bill:job' or '· bill:shop' tag saying
+  // whose labor bucket the time counts against — absent on every other status note.
+  const billMatch = (n.content||'').match(/· bill:(job|shop)/);
+  return { id: n.id, status: m[1], userName: m[2], at: n.at, billTo: billMatch ? billMatch[1] : null };
 }
 function buildCrewTimeline(crewLog, crew, users) {
   const entries = (crewLog||[]).map(parseCrewLogEntry).filter(Boolean)
@@ -326,7 +334,7 @@ function buildCrewTimeline(crewLog, crew, users) {
       const ongoing = !end && !!current;
       // dangling = no closing note AND no live crew row: the clock-out was never recorded.
       // Reports must never count these as "worked until now" — exclude and flag instead.
-      periods.push({ status: e.status, start: e.at, startId: e.id, end, endId, ongoing, dangling: !end && !current });
+      periods.push({ status: e.status, start: e.at, startId: e.id, end, endId, ongoing, dangling: !end && !current, billTo: e.billTo });
     });
     if (periods.length) result[name] = periods;
   });
@@ -867,7 +875,7 @@ async function clearCrewWithNote(jobId, userId, personName, at, suffix = '', act
 async function fetchActiveCrewAssignments() {
   const { data, error } = await sb.from('job_crew')
     .select('user_id, job_id, status, status_at')
-    .in('status', ['In Route','On Site','Paused'])
+    .in('status', ['In Route','On Site','Paused','Materials Run','Shop Run'])
     .order('status_at', { ascending: false });
   if (error) { console.warn('fetchActiveCrewAssignments error', error.message || error); return []; }
   return data || [];
@@ -1035,20 +1043,50 @@ function ClockTimer({ startedAt, todayMs, paused }) {
 
 // Pause-reason picker: pausing stops the clock (period closes, daily total freezes)
 // without clocking out — the session and crew row stay alive as 'Paused'.
+// Reasons that count as real logged time (not a zero-counted break) — picking one of
+// these asks a follow-up "bill to job or shop" question before confirming.
+const PAID_PAUSE_REASONS = Object.keys(PAUSE_STATUS_MAP);
 function PauseSheet({ onPick, onClose }) {
   const [other, setOther] = useState('');
+  const [billStep, setBillStep] = useState(null); // reason awaiting a bill-to answer
   const opts = [
     ['🥪', 'LUNCH', 'lunch'],
     ['🧰', 'GETTING MATERIALS', 'getting materials'],
+    ['🏬', 'SHOP RUN', 'shop run'],
     ['🚻', 'WASHY WASHY', 'washy washy'],
   ];
+  function pick(reason) {
+    if (PAID_PAUSE_REASONS.includes(reason)) setBillStep(reason);
+    else onPick(reason, null);
+  }
+  if (billStep) return (
+    <Sheet title="BILL THIS TIME TO" onClose={onClose}>
+      <button onClick={() => setBillStep(null)} className="mono"
+        style={{ fontSize:13, color:"var(--muted)", background:"none", border:"none", padding:0, marginBottom:14, cursor:"pointer" }}>
+        ‹ back
+      </button>
+      <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:14 }}>
+        This counts as logged time — who pays for it?
+      </div>
+      <button onClick={() => onPick(billStep, 'job')} className="head"
+        style={{ width:"100%", padding:16, marginBottom:10, fontSize:15, fontWeight:700, borderRadius:10,
+          background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)", textAlign:"left" }}>
+        🔧 THIS JOB
+      </button>
+      <button onClick={() => onPick(billStep, 'shop')} className="head"
+        style={{ width:"100%", padding:16, fontSize:15, fontWeight:700, borderRadius:10,
+          background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)", textAlign:"left" }}>
+        🏬 THE SHOP
+      </button>
+    </Sheet>
+  );
   return (
     <Sheet title="PAUSE THE CLOCK" onClose={onClose}>
       <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:14 }}>
         Time stops until you resume — what's the break for?
       </div>
       {opts.map(([icon, label, val]) => (
-        <button key={val} onClick={() => onPick(val)} className="head"
+        <button key={val} onClick={() => pick(val)} className="head"
           style={{ width:"100%", padding:14, marginBottom:10, fontSize:15, fontWeight:700, borderRadius:10,
             background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)", textAlign:"left" }}>
           {icon} {label}
@@ -1056,7 +1094,7 @@ function PauseSheet({ onPick, onClose }) {
       ))}
       <div style={{ display:"flex", gap:8 }}>
         <input placeholder="Other…" value={other} onChange={e => setOther(e.target.value)} style={{ flex:1 }} />
-        <button onClick={() => other.trim() && onPick(other.trim())} className="head" disabled={!other.trim()}
+        <button onClick={() => other.trim() && onPick(other.trim(), null)} className="head" disabled={!other.trim()}
           style={{ padding:"0 16px", borderRadius:8, border:"none",
             background: other.trim() ? "var(--olive-bright)" : "var(--panel)",
             color: other.trim() ? "var(--bg)" : "var(--muted)", fontSize:13, fontWeight:700 }}>
@@ -1101,14 +1139,21 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
       const sumMs = (periods, status) => periods
         .filter(p => p.status === status && !p.dangling)
         .reduce((s, p) => s + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+      const isRun = p => p.status === 'Materials Run' || p.status === 'Shop Run';
+      const periodMs = p => new Date(p.end || Date.now()) - new Date(p.start);
+      // Materials/Shop Run time billed to the shop isn't this job's labor cost — HoursReport
+      // attributes it to the shop job's own bucket instead; excluded from this job entirely.
+      const sumRunMs = periods => periods.filter(p => isRun(p) && !p.dangling && p.billTo !== 'shop').reduce((s, p) => s + periodMs(p), 0);
+      const shopBilledMs = periods => periods.filter(p => isRun(p) && !p.dangling && p.billTo === 'shop').reduce((s, p) => s + periodMs(p), 0);
       const rows = users
         .filter(u => timeline[u.name])
         .map(u => {
           const periods = timeline[u.name] || [];
           return { name: u.name, driveMs: sumMs(periods, 'In Route'), onSiteMs: sumMs(periods, 'On Site'),
+            runMs: sumRunMs(periods), shopBilledMs: shopBilledMs(periods),
             dangling: periods.some(p => p.dangling) };
         })
-        .filter(r => r.driveMs + r.onSiteMs > 0 || r.dangling);
+        .filter(r => r.driveMs + r.onSiteMs + r.runMs > 0 || r.shopBilledMs > 0 || r.dangling);
       setLaborRows(rows);
       setLoading(false);
     }
@@ -1228,6 +1273,12 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
                     </div>
                     {r.driveMs > 0 && (
                       <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>{fmtElapsed(r.driveMs)} drive</div>
+                    )}
+                    {r.runMs > 0 && (
+                      <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>{fmtElapsed(r.runMs)} materials/shop run</div>
+                    )}
+                    {r.shopBilledMs > 0 && (
+                      <div className="mono" style={{ fontSize:10, color:"var(--gold)" }}>+{fmtElapsed(r.shopBilledMs)} billed to shop — see Hours Report</div>
                     )}
                     {r.dangling && (
                       <div className="mono" style={{ fontSize:10, color:"var(--danger)" }}>missing clock-out — not counted</div>
@@ -1858,6 +1909,9 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
     });
     const crewByJobId = {};
     crewRows.forEach(c => { (crewByJobId[c.job_id] = crewByJobId[c.job_id] || []).push(c); });
+    // Materials Run/Shop Run periods tagged 'bill:shop' count against the shop job's bucket
+    // instead of the job they were physically logged against — see buildCrewTimeline's billTo.
+    const shopJob = jobs.find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
     const weMs = weekEnd.getTime();
     Object.entries(notesByJobId).forEach(([jobId, jobNotes]) => {
       const timeline = buildCrewTimeline(jobNotes, crewByJobId[jobId] || [], users);
@@ -1871,12 +1925,12 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
             danglingCount++;
             const dayKey = dateISOInTZ(new Date(p.start), getAppTZ());
             if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
-            if (!byUser[userName].jobs[jobId]) byUser[userName].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
+            if (!byUser[userName].jobs[jobId]) byUser[userName].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
             if (!byJob[jobId]) byJob[jobId] = { label, totalMs: 0, users: {} };
-            if (!byJob[jobId].users[userName]) byJob[jobId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
+            if (!byJob[jobId].users[userName]) byJob[jobId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
             if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {}, jobs: {} };
-            if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
-            if (!byDay[dayKey].jobs[jobId]) byDay[dayKey].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
+            if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+            if (!byDay[dayKey].jobs[jobId]) byDay[dayKey].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
             byUser[userName].dangling = byUser[userName].jobs[jobId].dangling = true;
             byJob[jobId].dangling = byJob[jobId].users[userName].dangling = true;
             byDay[dayKey].dangling = byDay[dayKey].users[userName].dangling = byDay[dayKey].jobs[jobId].dangling = true;
@@ -1885,29 +1939,30 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
           const endMs = p.end ? new Date(p.end).getTime() : Math.min(Date.now(), weMs);
           const ms = endMs - new Date(p.start).getTime();
           if (ms <= 0) return;
+          const isRun = p.status === 'Materials Run' || p.status === 'Shop Run';
+          const billShop = isRun && p.billTo === 'shop';
+          const jId = billShop ? (shopJob?.id || jobId) : jobId;
+          const jLabel = billShop ? (shopJob?.customer || 'TMC SHOP') : label;
+          const bucket = p.status === 'In Route' ? 'driveMs' : isRun ? 'runMs' : 'onSiteMs';
           if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
           byUser[userName].totalMs += ms;
-          if (!byUser[userName].jobs[jobId]) byUser[userName].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
-          byUser[userName].jobs[jobId].totalMs += ms;
-          if (p.status === 'In Route') byUser[userName].jobs[jobId].driveMs += ms;
-          else byUser[userName].jobs[jobId].onSiteMs += ms;
-          if (!byJob[jobId]) byJob[jobId] = { label, totalMs: 0, users: {} };
-          byJob[jobId].totalMs += ms;
-          if (!byJob[jobId].users[userName]) byJob[jobId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
-          byJob[jobId].users[userName].totalMs += ms;
-          if (p.status === 'In Route') byJob[jobId].users[userName].driveMs += ms;
-          else byJob[jobId].users[userName].onSiteMs += ms;
+          if (!byUser[userName].jobs[jId]) byUser[userName].jobs[jId] = { label: jLabel, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+          byUser[userName].jobs[jId].totalMs += ms;
+          byUser[userName].jobs[jId][bucket] += ms;
+          if (!byJob[jId]) byJob[jId] = { label: jLabel, totalMs: 0, users: {} };
+          byJob[jId].totalMs += ms;
+          if (!byJob[jId].users[userName]) byJob[jId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+          byJob[jId].users[userName].totalMs += ms;
+          byJob[jId].users[userName][bucket] += ms;
           const dayKey = dateISOInTZ(new Date(p.start), getAppTZ());
           if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {}, jobs: {} };
           byDay[dayKey].totalMs += ms;
-          if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0 };
+          if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
           byDay[dayKey].users[userName].totalMs += ms;
-          if (p.status === 'In Route') byDay[dayKey].users[userName].driveMs += ms;
-          else byDay[dayKey].users[userName].onSiteMs += ms;
-          if (!byDay[dayKey].jobs[jobId]) byDay[dayKey].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0 };
-          byDay[dayKey].jobs[jobId].totalMs += ms;
-          if (p.status === 'In Route') byDay[dayKey].jobs[jobId].driveMs += ms;
-          else byDay[dayKey].jobs[jobId].onSiteMs += ms;
+          byDay[dayKey].users[userName][bucket] += ms;
+          if (!byDay[dayKey].jobs[jId]) byDay[dayKey].jobs[jId] = { label: jLabel, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+          byDay[dayKey].jobs[jId].totalMs += ms;
+          byDay[dayKey].jobs[jId][bucket] += ms;
         });
       });
     });
@@ -1918,15 +1973,20 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
   const subRowStyle = (first) => ({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: first ? 'none' : '1px solid var(--line)' });
   const IMPLAUSIBLE_DAY_MS = 16 * 3600 * 1000; // one person can't plausibly log more than this in a single day — flags dangling/never-closed sessions
 
-  function SubBreakdown({ driveMs, onSiteMs, totalMs, flagged }) {
+  function SubBreakdown({ driveMs, onSiteMs, runMs, totalMs, flagged }) {
+    const parts = [
+      driveMs > 0 && `${fmtElapsed(driveMs)} drive`,
+      onSiteMs > 0 && `${fmtElapsed(onSiteMs)} on site`,
+      runMs > 0 && `${fmtElapsed(runMs)} run`,
+    ].filter(Boolean);
     return (
       <div style={{ textAlign: 'right' }}>
         <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: flagged ? 'var(--danger)' : 'var(--olive-bright)' }}>
           {flagged && '⚠️ '}{fmtElapsed(totalMs)}
         </div>
-        {driveMs > 0 && onSiteMs > 0 && (
+        {parts.length > 1 && (
           <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
-            {fmtElapsed(driveMs)} drive · {fmtElapsed(onSiteMs)} on site
+            {parts.join(' · ')}
           </div>
         )}
       </div>
@@ -1997,7 +2057,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                     {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
                       <div key={jobId} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)', flex: 1, paddingRight: 10 }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} flagged={jd.dangling} />
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} flagged={jd.dangling} />
                       </div>
                     ))}
                   </div>
@@ -2029,7 +2089,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} flagged={ud.dangling} />
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} flagged={ud.dangling} />
                       </div>
                     ))}
                   </div>
@@ -2059,7 +2119,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} totalMs={ud.totalMs} flagged={ud.dangling || ud.totalMs > IMPLAUSIBLE_DAY_MS} />
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} flagged={ud.dangling || ud.totalMs > IMPLAUSIBLE_DAY_MS} />
                       </div>
                     ))}
                     <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginTop: 14, marginBottom: 2 }}>BY JOB</div>
@@ -2067,7 +2127,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                       <button key={jobId} onClick={() => onOpenJobDay && onOpenJobDay(jobId, dayKey)}
                         style={{ ...subRowStyle(i === 0), width: '100%', textAlign: 'left' }}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} totalMs={jd.totalMs} flagged={jd.dangling || jd.totalMs > IMPLAUSIBLE_DAY_MS} />
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} flagged={jd.dangling || jd.totalMs > IMPLAUSIBLE_DAY_MS} />
                       </button>
                     ))}
                   </div>
@@ -2516,7 +2576,7 @@ Command: "${transcript}"`
       .select('job_id, status, status_at')
       // 'Paused' counts as an active session — omitting it here would make the reconcile
       // read a paused tech as "clocked out elsewhere" and wipe their local session.
-      .eq('user_id', currentUser.id).in('status', ['In Route', 'On Site', 'Paused'])
+      .eq('user_id', currentUser.id).in('status', ['In Route', 'On Site', 'Paused', 'Materials Run', 'Shop Run'])
       .order('status_at', { ascending: false });
     if (error) return; // network guard — never act on a failed fetch
     const mine = (data && data[0]) || null;
@@ -2582,7 +2642,7 @@ Command: "${transcript}"`
       setSelectedId(clockSession.jobId);
     } else {
       fetchActiveCrewAssignments().then(assignments => {
-        const mine = assignments.find(a => a.user_id === currentUser.id && ['On Site','In Route','Paused'].includes(a.status));
+        const mine = assignments.find(a => a.user_id === currentUser.id && ['On Site','In Route',...ON_BREAK_STATUSES].includes(a.status));
         if (mine) setSelectedId(mine.job_id);
       });
     }
@@ -2627,40 +2687,49 @@ Command: "${transcript}"`
     setFieldConfirmTime(nowTimeHHMM());
     setFieldTimeConfirm({ type: 'clockOut', jobStatus });
   }
-  function handlePause(reason) {
+  function handlePause(reason, billTo) {
     setShowPause(false);
     setFieldConfirmTime(nowTimeHHMM());
-    setFieldTimeConfirm({ type: 'pause', reason });
+    setFieldTimeConfirm({ type: 'pause', reason, billTo });
   }
   function handleResume() {
     setFieldConfirmTime(nowTimeHHMM());
     setFieldTimeConfirm({ type: 'resume' });
   }
 
-  // Pause the clock without clocking out: banks the leg so far, writes a
-  // 'Status → Paused' note (which CLOSES the current timeline period — paused time counts
-  // zero in every report), and flips the shared crew row to 'Paused' so teammates see it.
-  async function pauseClock(reason, at = new Date().toISOString()) {
-    if (!clockSession?.jobId || clockSession.status === 'Paused') return;
+  // Pause the clock without clocking out: banks the leg so far, writes a 'Status → X' note
+  // tagged with the reason (and bill target, for paid reasons), and flips the shared crew row.
+  // Plain breaks (lunch/washy washy/other) close the timeline period — CLOSES it, so that
+  // span counts zero in every report. 'Materials Run'/'Shop Run' are real field statuses
+  // instead, so the span between pause and resume counts as worked time.
+  async function pauseClock(reason, at = new Date().toISOString(), billTo = null) {
+    if (!clockSession?.jobId || ON_BREAK_STATUSES.includes(clockSession.status)) return;
     const { jobId, startedAt, legStartedAt } = clockSession;
-    const ok = await upsertJobCrewStatus(jobId, currentUser.id, 'Paused', at);
+    const status = PAUSE_STATUS_MAP[reason] || 'Paused';
+    const ok = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
     if (!ok) { showToast('Could not pause — check connection', true); return; }
+    const billTag = billTo ? ` · bill:${billTo}` : '';
     await sb.from('job_notes').insert({
-      job_id: jobId, content: `Status → Paused (${currentUser.name}) — ${reason}`,
+      job_id: jobId, content: `Status → ${status} (${currentUser.name}) — ${reason}${billTag}`,
       source: 'system', created_at: at, user_id: currentUser.id,
     });
     // Bank the worked leg BEFORE the pause anchor moves (leg-banking invariant).
     addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
-    const session = { ...clockSession, status: 'Paused', prevStatus: clockSession.status,
-      pausedReason: reason, pausedAt: at, legStartedAt: at };
+    const session = { ...clockSession, status, prevStatus: clockSession.status,
+      pausedReason: reason, pausedAt: at, billTo, legStartedAt: at };
     saveClockSession(currentUser.id, session);
     setClockSession(session);
     refresh();
   }
 
   async function resumeClock(at = new Date().toISOString()) {
-    if (!clockSession?.jobId || clockSession.status !== 'Paused') return;
+    if (!clockSession?.jobId || !ON_BREAK_STATUSES.includes(clockSession.status)) return;
     const back = clockSession.prevStatus === 'In Route' ? 'In Route' : 'On Site';
+    // Materials Run/Shop Run are real, counted legs — bank this leg like any other transition.
+    // Plain Paused already contributed nothing (never a field status), so nothing to bank there.
+    if (clockSession.status !== 'Paused') {
+      addTodayMs(currentUser.id, new Date(at).getTime() - new Date(clockSession.legStartedAt).getTime());
+    }
     const ok = await upsertJobCrewStatus(clockSession.jobId, currentUser.id, back, at);
     if (!ok) { showToast('Could not resume — check connection', true); return; }
     await sb.from('job_notes').insert({
@@ -3409,7 +3478,7 @@ Command: "${transcript}"`
                 if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
                 else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
                 else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
-                else if (fc.type === 'pause') pauseClock(fc.reason, at);
+                else if (fc.type === 'pause') pauseClock(fc.reason, at, fc.billTo);
                 else if (fc.type === 'resume') resumeClock(at);
                 else flipToOnSite(at);
               }} className="head"
@@ -3700,7 +3769,7 @@ Command: "${transcript}"`
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
               else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
               else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
-              else if (fc.type === 'pause') pauseClock(fc.reason, at);
+              else if (fc.type === 'pause') pauseClock(fc.reason, at, fc.billTo);
               else if (fc.type === 'resume') resumeClock(at);
               else flipToOnSite(at);
             }} className="head"
@@ -3824,14 +3893,14 @@ Command: "${transcript}"`
                 <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
                   {clockJob ? (clockJob.site_name || clockJob.customer) : 'SHOP'}
                 </div>
-                <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : clockSession.status === 'Paused' ? "var(--gold)" : "var(--muted)", marginTop:2 }}>
-                  {clockSession.status === 'Paused'
-                    ? `PAUSED — ${(clockSession.pausedReason || 'break').toUpperCase()}`
+                <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : ON_BREAK_STATUSES.includes(clockSession.status) ? "var(--gold)" : "var(--muted)", marginTop:2 }}>
+                  {ON_BREAK_STATUSES.includes(clockSession.status)
+                    ? `${clockSession.status.toUpperCase()} — ${(clockSession.pausedReason || 'break').toUpperCase()}`
                     : clockSession.status.toUpperCase()}
                 </div>
               </div>
               <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} paused={clockSession.status === 'Paused'} />
-              {clockSession.jobId && clockSession.status !== 'Paused' && (
+              {clockSession.jobId && !ON_BREAK_STATUSES.includes(clockSession.status) && (
                 <button onClick={clockSession.status === 'In Route' ? handleFlipToOnSite : undefined} className="head"
                   style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                     background: clockSession.status === 'On Site' ? "var(--olive-bright)" : "var(--panel)",
@@ -3848,7 +3917,7 @@ Command: "${transcript}"`
                   ⏸ PAUSE
                 </button>
               )}
-              {clockSession.status === 'Paused' && (
+              {ON_BREAK_STATUSES.includes(clockSession.status) && (
                 <button onClick={handleResume} className="head"
                   style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                     background:"var(--olive-bright)", border:"none", color:"var(--bg)" }}>
@@ -4392,7 +4461,7 @@ Command: "${transcript}"`
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
               else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
               else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
-              else if (fc.type === 'pause') pauseClock(fc.reason, at);
+              else if (fc.type === 'pause') pauseClock(fc.reason, at, fc.billTo);
               else if (fc.type === 'resume') resumeClock(at);
               else flipToOnSite(at);
             }} className="head"
@@ -6168,14 +6237,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
                 {clockJob ? (clockJob.site_name || clockJob.customer) : 'SHOP'}
               </div>
-              <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : clockSession.status === 'Paused' ? "var(--gold)" : "var(--muted)", marginTop:2 }}>
-                {clockSession.status === 'Paused'
-                  ? `PAUSED — ${(clockSession.pausedReason || 'break').toUpperCase()}`
+              <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : ON_BREAK_STATUSES.includes(clockSession.status) ? "var(--gold)" : "var(--muted)", marginTop:2 }}>
+                {ON_BREAK_STATUSES.includes(clockSession.status)
+                  ? `${clockSession.status.toUpperCase()} — ${(clockSession.pausedReason || 'break').toUpperCase()}`
                   : clockSession.status.toUpperCase()}
               </div>
             </button>
             <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs ? getTodayMs() : 0} paused={clockSession.status === 'Paused'} />
-            {clockSession.jobId && clockSession.status !== 'Paused' && (
+            {clockSession.jobId && !ON_BREAK_STATUSES.includes(clockSession.status) && (
               <button onClick={clockSession.status === 'In Route' ? onFlipToOnSite : undefined} className="head"
                 style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                   background: clockSession.status === 'On Site' ? "var(--olive-bright)" : "var(--panel)",
@@ -6192,7 +6261,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 ⏸ PAUSE
               </button>
             )}
-            {clockSession.status === 'Paused' && (
+            {ON_BREAK_STATUSES.includes(clockSession.status) && (
               <button onClick={onResume} className="head"
                 style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                   background:"var(--olive-bright)", border:"none", color:"var(--bg)" }}>
@@ -6965,7 +7034,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                         {u.name}{isMe ? ' (You)' : ''}
                       </div>
                       {c && (
-                        <div className="mono" style={{ fontSize:12, color: c.status === 'On Site' ? "var(--green)" : "var(--olive-bright)", marginTop:2 }}>
+                        <div className="mono" style={{ fontSize:12, color: c.status === 'On Site' ? "var(--green)" : ON_BREAK_STATUSES.includes(c.status) ? "var(--gold)" : "var(--olive-bright)", marginTop:2 }}>
                           {c.status} · {fmtTimestamp(c.status_at)}
                         </div>
                       )}
@@ -7019,6 +7088,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
               const onSiteMs = periods.filter(p => p.status === 'On Site' && !p.dangling)
                 .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+              const runMs = periods.filter(p => (p.status === 'Materials Run' || p.status === 'Shop Run') && !p.dangling)
+                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
               return (
                 <div key={u.id} style={{ padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
                   <div className="head" style={{ fontSize:14, fontWeight:700, color:"var(--text)", marginBottom:4 }}>{name}</div>
@@ -7033,6 +7104,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                           <div className="mono" style={{ fontSize:12, color: p.dangling ? "var(--danger)" : "var(--muted)" }}>
                             {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtTimestamp(p.end) : '⚠️ NO CLOCK-OUT')}
                             {(p.end || p.ongoing) && <React.Fragment>{' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})</React.Fragment>}
+                            {p.billTo && <span style={{ color:"var(--gold)" }}>{' '}— billed to {p.billTo === 'shop' ? 'shop' : 'this job'}</span>}
                           </div>
                           <div style={{ display:"flex", gap:4 }}>
                             {!p.ongoing && (
@@ -7076,7 +7148,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                     );
                   })}
                   <div className="mono" style={{ fontSize:12, color:"var(--olive-bright)", marginTop:6 }}>
-                    Drive: {fmtElapsed(driveMs)} · On Site: {fmtElapsed(onSiteMs)}
+                    Drive: {fmtElapsed(driveMs)} · On Site: {fmtElapsed(onSiteMs)}{runMs > 0 ? ` · Run: ${fmtElapsed(runMs)}` : ''}
                   </div>
                   {addingLogFor === name ? (
                     <div style={{ marginTop:8, padding:10, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8 }}>
