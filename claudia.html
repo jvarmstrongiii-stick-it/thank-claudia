@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 207;
+const APP_REV = 208;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -867,7 +867,7 @@ async function clearCrewWithNote(jobId, userId, personName, at, suffix = '', act
 async function fetchActiveCrewAssignments() {
   const { data, error } = await sb.from('job_crew')
     .select('user_id, job_id, status, status_at')
-    .in('status', ['In Route','On Site'])
+    .in('status', ['In Route','On Site','Paused'])
     .order('status_at', { ascending: false });
   if (error) { console.warn('fetchActiveCrewAssignments error', error.message || error); return []; }
   return data || [];
@@ -1014,21 +1014,56 @@ function Splash({ onSelect }) {
 }
 
 /* ── Clock components ──────────────────────────────────────────────────────── */
-function ClockTimer({ startedAt, todayMs }) {
+function ClockTimer({ startedAt, todayMs, paused }) {
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
   }, []);
-  const legMs = Math.max(0, now - new Date(startedAt).getTime());
+  // While paused the live leg contributes nothing — the total freezes at the banked amount.
+  const legMs = paused ? 0 : Math.max(0, now - new Date(startedAt).getTime());
   const safeLegMs = Math.min(legMs, 16 * 3600000); // cap single leg at 16h
   const total = (todayMs || 0) + safeLegMs;
   const h = Math.floor(total / 3600000);
   const m = Math.floor((total % 3600000) / 60000);
   return (
-    <span className="mono" style={{ fontSize:12, color:"var(--olive-bright)", fontWeight:700 }}>
-      {h}:{String(m).padStart(2,'0')}
+    <span className="mono" style={{ fontSize:12, color: paused ? "var(--gold)" : "var(--olive-bright)", fontWeight:700 }}>
+      {paused && '⏸ '}{h}:{String(m).padStart(2,'0')}
     </span>
+  );
+}
+
+// Pause-reason picker: pausing stops the clock (period closes, daily total freezes)
+// without clocking out — the session and crew row stay alive as 'Paused'.
+function PauseSheet({ onPick, onClose }) {
+  const [other, setOther] = useState('');
+  const opts = [
+    ['🥪', 'LUNCH', 'lunch'],
+    ['🧰', 'GETTING MATERIALS', 'getting materials'],
+    ['🚻', 'WASHY WASHY', 'washy washy'],
+  ];
+  return (
+    <Sheet title="PAUSE THE CLOCK" onClose={onClose}>
+      <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:14 }}>
+        Time stops until you resume — what's the break for?
+      </div>
+      {opts.map(([icon, label, val]) => (
+        <button key={val} onClick={() => onPick(val)} className="head"
+          style={{ width:"100%", padding:14, marginBottom:10, fontSize:15, fontWeight:700, borderRadius:10,
+            background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)", textAlign:"left" }}>
+          {icon} {label}
+        </button>
+      ))}
+      <div style={{ display:"flex", gap:8 }}>
+        <input placeholder="Other…" value={other} onChange={e => setOther(e.target.value)} style={{ flex:1 }} />
+        <button onClick={() => other.trim() && onPick(other.trim())} className="head" disabled={!other.trim()}
+          style={{ padding:"0 16px", borderRadius:8, border:"none",
+            background: other.trim() ? "var(--olive-bright)" : "var(--panel)",
+            color: other.trim() ? "var(--bg)" : "var(--muted)", fontSize:13, fontWeight:700 }}>
+          PAUSE
+        </button>
+      </div>
+    </Sheet>
   );
 }
 
@@ -2292,6 +2327,7 @@ function App() {
   const [showClockOut, setShowClockOut] = useState(false);
   const [showMoveJob, setShowMoveJob] = useState(false);
   const [showLeaving, setShowLeaving] = useState(false);
+  const [showPause, setShowPause] = useState(false); // pause-reason picker (lunch/materials/…)
   const [lastLeaveJob, setLastLeaveJob] = useState(null); // { job, mapsJobId } — last to leave a job; navigation chains after this resolves
   const [leavingCrewCheck, setLeavingCrewCheck] = useState(null); // { members:[user], newJobId, oldJobId }
   const [joiningOnSiteCheck, setJoiningOnSiteCheck] = useState(null); // { members:[user], jobId }
@@ -2478,7 +2514,9 @@ Command: "${transcript}"`
     if (!currentUser?.id) return;
     const { data, error } = await sb.from('job_crew')
       .select('job_id, status, status_at')
-      .eq('user_id', currentUser.id).in('status', ['In Route', 'On Site'])
+      // 'Paused' counts as an active session — omitting it here would make the reconcile
+      // read a paused tech as "clocked out elsewhere" and wipe their local session.
+      .eq('user_id', currentUser.id).in('status', ['In Route', 'On Site', 'Paused'])
       .order('status_at', { ascending: false });
     if (error) return; // network guard — never act on a failed fetch
     const mine = (data && data[0]) || null;
@@ -2544,7 +2582,7 @@ Command: "${transcript}"`
       setSelectedId(clockSession.jobId);
     } else {
       fetchActiveCrewAssignments().then(assignments => {
-        const mine = assignments.find(a => a.user_id === currentUser.id && (a.status === 'On Site' || a.status === 'In Route'));
+        const mine = assignments.find(a => a.user_id === currentUser.id && ['On Site','In Route','Paused'].includes(a.status));
         if (mine) setSelectedId(mine.job_id);
       });
     }
@@ -2588,6 +2626,52 @@ Command: "${transcript}"`
     setShowClockOut(false);
     setFieldConfirmTime(nowTimeHHMM());
     setFieldTimeConfirm({ type: 'clockOut', jobStatus });
+  }
+  function handlePause(reason) {
+    setShowPause(false);
+    setFieldConfirmTime(nowTimeHHMM());
+    setFieldTimeConfirm({ type: 'pause', reason });
+  }
+  function handleResume() {
+    setFieldConfirmTime(nowTimeHHMM());
+    setFieldTimeConfirm({ type: 'resume' });
+  }
+
+  // Pause the clock without clocking out: banks the leg so far, writes a
+  // 'Status → Paused' note (which CLOSES the current timeline period — paused time counts
+  // zero in every report), and flips the shared crew row to 'Paused' so teammates see it.
+  async function pauseClock(reason, at = new Date().toISOString()) {
+    if (!clockSession?.jobId || clockSession.status === 'Paused') return;
+    const { jobId, startedAt, legStartedAt } = clockSession;
+    const ok = await upsertJobCrewStatus(jobId, currentUser.id, 'Paused', at);
+    if (!ok) { showToast('Could not pause — check connection', true); return; }
+    await sb.from('job_notes').insert({
+      job_id: jobId, content: `Status → Paused (${currentUser.name}) — ${reason}`,
+      source: 'system', created_at: at, user_id: currentUser.id,
+    });
+    // Bank the worked leg BEFORE the pause anchor moves (leg-banking invariant).
+    addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
+    const session = { ...clockSession, status: 'Paused', prevStatus: clockSession.status,
+      pausedReason: reason, pausedAt: at, legStartedAt: at };
+    saveClockSession(currentUser.id, session);
+    setClockSession(session);
+    refresh();
+  }
+
+  async function resumeClock(at = new Date().toISOString()) {
+    if (!clockSession?.jobId || clockSession.status !== 'Paused') return;
+    const back = clockSession.prevStatus === 'In Route' ? 'In Route' : 'On Site';
+    const ok = await upsertJobCrewStatus(clockSession.jobId, currentUser.id, back, at);
+    if (!ok) { showToast('Could not resume — check connection', true); return; }
+    await sb.from('job_notes').insert({
+      job_id: clockSession.jobId, content: `Status → ${back} (${currentUser.name}) — back from ${clockSession.pausedReason || 'break'}`,
+      source: 'system', created_at: at, user_id: currentUser.id,
+    });
+    const session = { jobId: clockSession.jobId, status: back,
+      startedAt: clockSession.startedAt, legStartedAt: at };
+    saveClockSession(currentUser.id, session);
+    setClockSession(session);
+    refresh();
   }
 
   async function undoClockAction() {
@@ -2655,7 +2739,10 @@ Command: "${transcript}"`
         setPendingShopActivity({ shopJobId: jobId, startedAt: legStartedAt || startedAt, mapsJobId: null });
       }
     }
-    addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
+    // From Paused the leg was already banked at pause time — banking again would count the break.
+    if (clockSession.status !== 'Paused') {
+      addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
+    }
     saveClockSession(currentUser.id, null);
     setClockSession(null);
     setClockUndo(undo);
@@ -2732,7 +2819,10 @@ Command: "${transcript}"`
       const wasShop = oldJobId && jobs.find(j => j.id === oldJobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
       const shopLegStart = clockSession.legStartedAt || startedAt;
       // bank the leg we're leaving into today's running total before the new leg starts
-      addTodayMs(currentUser.id, Date.now() - new Date(shopLegStart).getTime());
+      // (skip from Paused — that leg was already banked when the pause started)
+      if (clockSession.status !== 'Paused') {
+        addTodayMs(currentUser.id, Date.now() - new Date(shopLegStart).getTime());
+      }
       if (oldJobId) {
         const { note: leaveNote } = await clearCrewWithNote(oldJobId, currentUser.id, currentUser.name, at, '', currentUser.id);
         if (leaveNote?.id) undo.noteIds.push(leaveNote.id);
@@ -3299,6 +3389,8 @@ Command: "${transcript}"`
               {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
                 : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
                 : fieldTimeConfirm.type === 'clockOut' ? 'CLOCKING OUT'
+                : fieldTimeConfirm.type === 'pause' ? `PAUSING — ${(fieldTimeConfirm.reason||'break').toUpperCase()}`
+                : fieldTimeConfirm.type === 'resume' ? 'RESUMING WORK'
                 : 'MARKING ON SITE'}
             </div>
             <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
@@ -3317,6 +3409,8 @@ Command: "${transcript}"`
                 if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
                 else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
                 else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
+                else if (fc.type === 'pause') pauseClock(fc.reason, at);
+                else if (fc.type === 'resume') resumeClock(at);
                 else flipToOnSite(at);
               }} className="head"
                 style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
@@ -3386,6 +3480,8 @@ Command: "${transcript}"`
         browseMode={browseMode}
         clockSession={clockSession}
         onFlipToOnSite={handleFlipToOnSite}
+        onPause={() => setShowPause(true)}
+        onResume={handleResume}
         onLeaving={() => setShowLeaving(true)}
         clockUndo={clockUndo}
         onUndoClock={undoClockAction}
@@ -3577,12 +3673,15 @@ Command: "${transcript}"`
           onClose={() => setCloseJobPromptId(null)}
           showToast={showToast} />
       )}
+      {showPause && <PauseSheet onPick={handlePause} onClose={() => setShowPause(false)} />}
       {fieldTimeConfirm && (
         <Sheet title="CONFIRM TIME" onClose={() => setFieldTimeConfirm(null)}>
           <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
             {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
               : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
               : fieldTimeConfirm.type === 'clockOut' ? 'CLOCKING OUT'
+              : fieldTimeConfirm.type === 'pause' ? `PAUSING — ${(fieldTimeConfirm.reason||'break').toUpperCase()}`
+              : fieldTimeConfirm.type === 'resume' ? 'RESUMING WORK'
               : 'MARKING ON SITE'}
           </div>
           <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
@@ -3601,6 +3700,8 @@ Command: "${transcript}"`
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
               else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
               else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
+              else if (fc.type === 'pause') pauseClock(fc.reason, at);
+              else if (fc.type === 'resume') resumeClock(at);
               else flipToOnSite(at);
             }} className="head"
               style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
@@ -3723,12 +3824,14 @@ Command: "${transcript}"`
                 <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
                   {clockJob ? (clockJob.site_name || clockJob.customer) : 'SHOP'}
                 </div>
-                <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : "var(--muted)", marginTop:2 }}>
-                  {clockSession.status.toUpperCase()}
+                <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : clockSession.status === 'Paused' ? "var(--gold)" : "var(--muted)", marginTop:2 }}>
+                  {clockSession.status === 'Paused'
+                    ? `PAUSED — ${(clockSession.pausedReason || 'break').toUpperCase()}`
+                    : clockSession.status.toUpperCase()}
                 </div>
               </div>
-              <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} />
-              {clockSession.jobId && (
+              <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs(currentUser.id)} paused={clockSession.status === 'Paused'} />
+              {clockSession.jobId && clockSession.status !== 'Paused' && (
                 <button onClick={clockSession.status === 'In Route' ? handleFlipToOnSite : undefined} className="head"
                   style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                     background: clockSession.status === 'On Site' ? "var(--olive-bright)" : "var(--panel)",
@@ -3736,6 +3839,20 @@ Command: "${transcript}"`
                     border: clockSession.status === 'On Site' ? "none" : "1px solid var(--line)",
                     cursor: clockSession.status === 'On Site' ? "default" : "pointer" }}>
                   ON SITE
+                </button>
+              )}
+              {clockSession.jobId && clockSession.status === 'On Site' && (
+                <button onClick={() => setShowPause(true)} className="head"
+                  style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                    background:"var(--panel)", border:"1px solid var(--gold)", color:"var(--gold)" }}>
+                  ⏸ PAUSE
+                </button>
+              )}
+              {clockSession.status === 'Paused' && (
+                <button onClick={handleResume} className="head"
+                  style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                    background:"var(--olive-bright)", border:"none", color:"var(--bg)" }}>
+                  ▶ RESUME
                 </button>
               )}
               <button onClick={() => setShowLeaving(true)} className="head"
@@ -4248,12 +4365,15 @@ Command: "${transcript}"`
           onClose={() => setCloseJobPromptId(null)}
           showToast={showToast} />
       )}
+      {showPause && <PauseSheet onPick={handlePause} onClose={() => setShowPause(false)} />}
       {fieldTimeConfirm && (
         <Sheet title="CONFIRM TIME" onClose={() => setFieldTimeConfirm(null)}>
           <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:12 }}>
             {fieldTimeConfirm.type === 'clockIn' ? `CLOCK IN — ${(fieldTimeConfirm.status||'').toUpperCase()}`
               : fieldTimeConfirm.type === 'moveJob' ? 'MOVING TO NEW JOB'
               : fieldTimeConfirm.type === 'clockOut' ? 'CLOCKING OUT'
+              : fieldTimeConfirm.type === 'pause' ? `PAUSING — ${(fieldTimeConfirm.reason||'break').toUpperCase()}`
+              : fieldTimeConfirm.type === 'resume' ? 'RESUMING WORK'
               : 'MARKING ON SITE'}
           </div>
           <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
@@ -4272,6 +4392,8 @@ Command: "${transcript}"`
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
               else if (fc.type === 'moveJob') moveToInRoute(fc.jobId, at);
               else if (fc.type === 'clockOut') clockOut(fc.jobStatus, at);
+              else if (fc.type === 'pause') pauseClock(fc.reason, at);
+              else if (fc.type === 'resume') resumeClock(at);
               else flipToOnSite(at);
             }} className="head"
               style={{ flex:1, padding:16, fontSize:16, fontWeight:700, borderRadius:10,
@@ -5089,7 +5211,7 @@ function DuplicateEquipmentSheet({ scan, existing, onOverride, onKeep }) {
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
 function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users, jobs, browseMode,
-                     clockSession, onFlipToOnSite, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect, showToast, onDuplicate, onUpdateMaterials, focusTimeLog }) {
+                     clockSession, onFlipToOnSite, onPause, onResume, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect, showToast, onDuplicate, onUpdateMaterials, focusTimeLog }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showMapsPrompt, setShowMapsPrompt] = useState(false);
@@ -6046,12 +6168,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               <div className="head" style={{ fontSize:12, fontWeight:700, color:"var(--green)", lineHeight:1.2 }}>
                 {clockJob ? (clockJob.site_name || clockJob.customer) : 'SHOP'}
               </div>
-              <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : "var(--muted)", marginTop:2 }}>
-                {clockSession.status.toUpperCase()}
+              <div className="mono" style={{ fontSize:10, color: clockSession.status === 'On Site' ? "var(--green)" : clockSession.status === 'Paused' ? "var(--gold)" : "var(--muted)", marginTop:2 }}>
+                {clockSession.status === 'Paused'
+                  ? `PAUSED — ${(clockSession.pausedReason || 'break').toUpperCase()}`
+                  : clockSession.status.toUpperCase()}
               </div>
             </button>
-            <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs ? getTodayMs() : 0} />
-            {clockSession.jobId && (
+            <ClockTimer startedAt={clockSession.legStartedAt || clockSession.startedAt} todayMs={getTodayMs ? getTodayMs() : 0} paused={clockSession.status === 'Paused'} />
+            {clockSession.jobId && clockSession.status !== 'Paused' && (
               <button onClick={clockSession.status === 'In Route' ? onFlipToOnSite : undefined} className="head"
                 style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
                   background: clockSession.status === 'On Site' ? "var(--olive-bright)" : "var(--panel)",
@@ -6059,6 +6183,20 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                   border: clockSession.status === 'On Site' ? "none" : "1px solid var(--line)",
                   cursor: clockSession.status === 'On Site' ? "default" : "pointer" }}>
                 ON SITE
+              </button>
+            )}
+            {clockSession.jobId && clockSession.status === 'On Site' && (
+              <button onClick={onPause} className="head"
+                style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                  background:"var(--panel)", border:"1px solid var(--gold)", color:"var(--gold)" }}>
+                ⏸ PAUSE
+              </button>
+            )}
+            {clockSession.status === 'Paused' && (
+              <button onClick={onResume} className="head"
+                style={{ fontSize:11, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                  background:"var(--olive-bright)", border:"none", color:"var(--bg)" }}>
+                ▶ RESUME
               </button>
             )}
             <button onClick={onLeaving} className="head"
