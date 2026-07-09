@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 209;
+const APP_REV = 210;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1841,7 +1841,7 @@ function MoveJobSheet({ clockSession, jobs, onMove, onClose, onNewJob }) {
 }
 
 /* ── HoursReport ────────────────────────────────────────────────────────────── */
-function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
+function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
   const [weekOffset, setWeekOffset] = useState(0);
   const [tab, setTab] = useState('user');
   const [notes, setNotes] = useState([]);
@@ -1972,6 +1972,10 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
   const rowStyle = { marginBottom: 8, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
   const subRowStyle = (first) => ({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: first ? 'none' : '1px solid var(--line)' });
   const IMPLAUSIBLE_DAY_MS = 16 * 3600 * 1000; // one person can't plausibly log more than this in a single day — flags dangling/never-closed sessions
+  // Never compare against data.totalMs (a day's combined total across everyone) — two or
+  // three techs each having a normal day easily sums past 16h with nothing wrong. Flag only
+  // when a SINGLE person's day (or an actual dangling period) crosses the threshold.
+  const dayImplausible = data => data.dangling || Object.values(data.users).some(u => u.dangling || u.totalMs > IMPLAUSIBLE_DAY_MS);
 
   function SubBreakdown({ driveMs, onSiteMs, runMs, totalMs, flagged }) {
     const parts = [
@@ -2055,10 +2059,11 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                 {expandedKeys.has(userName) && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
                     {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
-                      <div key={jobId} style={subRowStyle(i === 0)}>
+                      <button key={jobId} onClick={() => onOpenJob && onOpenJob(jobId)}
+                        style={{ ...subRowStyle(i === 0), width: '100%', textAlign: 'left' }}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)', flex: 1, paddingRight: 10 }}>{jd.label}</div>
                         <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} flagged={jd.dangling} />
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
@@ -2107,8 +2112,8 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay }) {
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{dayLabel(dayKey).toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: (data.dangling || data.totalMs > IMPLAUSIBLE_DAY_MS) ? 'var(--danger)' : 'var(--olive-bright)' }}>
-                      {(data.dangling || data.totalMs > IMPLAUSIBLE_DAY_MS) && '⚠️ '}{fmtElapsed(data.totalMs)}
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: dayImplausible(data) ? 'var(--danger)' : 'var(--olive-bright)' }}>
+                      {dayImplausible(data) && '⚠️ '}{fmtElapsed(data.totalMs)}
                     </div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(dayKey) ? '▲' : '▼'}</span>
                   </div>
@@ -3518,7 +3523,8 @@ Command: "${transcript}"`
     );
   }
   if (showHours) return <HoursReport jobs={jobs} users={users} onClose={() => setShowHours(false)}
-    onOpenJobDay={(jobId, dayKey) => { setShowHours(false); setSelectedId(jobId); setFocusTimeLog({ jobId, date: dayKey, nonce: Date.now() }); }} />;
+    onOpenJobDay={(jobId, dayKey) => { setShowHours(false); setSelectedId(jobId); setFocusTimeLog({ jobId, date: dayKey, nonce: Date.now() }); }}
+    onOpenJob={(jobId) => { setShowHours(false); setSelectedId(jobId); }} />;
   if (showBalances) return <BalancesScreen jobs={jobs} onClose={() => setShowBalances(false)}
     onOpenJob={(id) => { setShowBalances(false); setSelectedId(id); }} />;
   if (showMaterials) return <MaterialsScreen jobs={jobs} onClose={() => setShowMaterials(false)}
