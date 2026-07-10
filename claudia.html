@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 212;
+const APP_REV = 213;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -5342,6 +5342,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [time, setTime] = useState(job.scheduled_time);
   const [originalAsk, setOriginalAsk] = useState(job.original_ask || '');
   const [notes, setNotes] = useState(job.notes || '');
+  const [editingValue, setEditingValue] = useState(false);
+  const [valueDraft, setValueDraft] = useState('');
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -6146,6 +6148,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
   const crewTimeline = buildCrewTimeline(crewLog, crew, users);
   const isShop = job.customer?.toUpperCase() === TMC_SHOP_NAME; // shop job gets a stripped-down layout
+  const isClosed = job.status === 'Closed'; // Closed jobs are locked to field edits — see CLAUDE.md
 
   async function saveJobReceipt(storagePath) {
     if (!rAmount && !rVendor) { setRSaving(false); return; }
@@ -6217,6 +6220,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       e.target.value = '';
     }
   }
+  function saveValueEdit() {
+    setEditingValue(false);
+    if (valueDraft !== (job.value ?? '')) onUpdate({ value: valueDraft });
+  }
   async function saveReceiptEdit() {
     if (!editingReceipt) return;
     const { id, vendor, amount, date, paid_by } = editingReceipt;
@@ -6239,25 +6246,29 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const materialsSection = (
     <div style={{ marginTop:16 }}>
       <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>MATERIALS NEEDED</div>
-      <div style={{ display:"flex", gap:8 }}>
-        <input value={matText} onChange={e => setMatText(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter') addMaterial(matText); }}
-          placeholder="Add a material…"
-          style={{ flex:1, boxSizing:"border-box", padding:"10px 12px", borderRadius:8,
-            background:"var(--bg)", border:"1px solid var(--line)", color:"var(--text)", fontSize:15, fontFamily:"inherit" }} />
-        <button onClick={() => addMaterial(matText)} disabled={!matText.trim()} className="head"
-          style={{ padding:"0 16px", borderRadius:8, fontSize:14, fontWeight:700, border:"none",
-            background: matText.trim() ? "var(--olive-bright)" : "var(--line)",
-            color: matText.trim() ? "var(--bg)" : "var(--muted)" }}>ADD</button>
-      </div>
+      {!isClosed && (
+        <div style={{ display:"flex", gap:8 }}>
+          <input value={matText} onChange={e => setMatText(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') addMaterial(matText); }}
+            placeholder="Add a material…"
+            style={{ flex:1, boxSizing:"border-box", padding:"10px 12px", borderRadius:8,
+              background:"var(--bg)", border:"1px solid var(--line)", color:"var(--text)", fontSize:15, fontFamily:"inherit" }} />
+          <button onClick={() => addMaterial(matText)} disabled={!matText.trim()} className="head"
+            style={{ padding:"0 16px", borderRadius:8, fontSize:14, fontWeight:700, border:"none",
+              background: matText.trim() ? "var(--olive-bright)" : "var(--line)",
+              color: matText.trim() ? "var(--bg)" : "var(--muted)" }}>ADD</button>
+        </div>
+      )}
       {materials.map((m, i) => (
         <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
-          <input type="checkbox" checked={!!m.acquired} onChange={() => toggleMaterial(i)}
-            style={{ width:20, height:20, accentColor:"var(--green)", cursor:"pointer", flexShrink:0 }} />
+          <input type="checkbox" checked={!!m.acquired} onChange={() => toggleMaterial(i)} disabled={isClosed}
+            style={{ width:20, height:20, accentColor:"var(--green)", cursor: isClosed ? "default" : "pointer", flexShrink:0 }} />
           <span style={{ flex:1, fontSize:15, color: m.acquired ? "var(--muted)" : "var(--text)",
             textDecoration: m.acquired ? "line-through" : "none" }}>{m.text}</span>
-          <button onClick={() => removeMaterial(i)} className="mono"
-            style={{ background:"none", border:"none", color:"var(--muted)", fontSize:15, padding:"0 4px", cursor:"pointer" }}>✕</button>
+          {!isClosed && (
+            <button onClick={() => removeMaterial(i)} className="mono"
+              style={{ background:"none", border:"none", color:"var(--muted)", fontSize:15, padding:"0 4px", cursor:"pointer" }}>✕</button>
+          )}
         </div>
       ))}
     </div>
@@ -6271,9 +6282,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         <button onClick={() => setShowCapCalc(true)} className="mono"
           style={{ marginLeft:"auto", fontSize:13, fontWeight:700, padding:"7px 12px", borderRadius:6,
             border:"1px solid var(--line)", color:"var(--muted)" }}>μF</button>
-        <button onClick={onEdit} className="head"
-          style={{ fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
-            border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>EDIT</button>
+        {!isClosed && (
+          <button onClick={onEdit} className="head"
+            style={{ fontSize:13, fontWeight:600, padding:"7px 14px", borderRadius:6,
+              border:"1px solid var(--brass)", color:"var(--brass-bright)" }}>EDIT</button>
+        )}
       </div>
       {showCapCalc && <CapacitorCalc onClose={() => setShowCapCalc(false)} />}
       {/* Clock status bar in job detail — only shown when this IS the clocked-in job */}
@@ -6403,17 +6416,41 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         {!isShop && (
           <div style={{ marginTop:14, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
             <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>JOB VALUE</span>
-            <span className="head" style={{ fontSize:24, fontWeight:700, color:"var(--olive-bright)" }}>{money(job.value)}</span>
+            {editingValue ? (
+              <input type="number" inputMode="decimal" autoFocus value={valueDraft}
+                onChange={e => setValueDraft(e.target.value)}
+                onBlur={saveValueEdit}
+                onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+                className="head" style={{ fontSize:24, fontWeight:700, color:"var(--olive-bright)",
+                  width:120, textAlign:"right", background:"var(--bg)", border:"1px solid var(--olive)",
+                  borderRadius:6, padding:"2px 6px" }} />
+            ) : (
+              <span className="head"
+                onClick={isClosed ? undefined : () => { setValueDraft(job.value ?? ''); setEditingValue(true); }}
+                style={{ fontSize:24, fontWeight:700, color:"var(--olive-bright)",
+                  cursor: isClosed ? "default" : "pointer" }}>
+                {money(job.value)}{!isClosed && ' ✎'}
+              </span>
+            )}
           </div>
         )}
 
         {!isShop && (
-          <button onClick={() => setShowResched(true)} style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-            <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>SCHEDULED</span>
-            <span className="head" style={{ fontSize:17, fontWeight:600, color:"var(--brass-bright)" }}>
-              {fmtDate(job.scheduled_date)} · {fmtTime(job.scheduled_time)} ✎
-            </span>
-          </button>
+          isClosed ? (
+            <div style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center", boxSizing:"border-box" }}>
+              <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>SCHEDULED</span>
+              <span className="head" style={{ fontSize:17, fontWeight:600, color:"var(--brass-bright)" }}>
+                {fmtDate(job.scheduled_date)} · {fmtTime(job.scheduled_time)}
+              </span>
+            </div>
+          ) : (
+            <button onClick={() => setShowResched(true)} style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>SCHEDULED</span>
+              <span className="head" style={{ fontSize:17, fontWeight:600, color:"var(--brass-bright)" }}>
+                {fmtDate(job.scheduled_date)} · {fmtTime(job.scheduled_time)} ✎
+              </span>
+            </button>
+          )
         )}
 
         {!isShop && (
@@ -6445,7 +6482,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>ORIGINAL ASK</div>
             <textarea value={originalAsk} onChange={e => setOriginalAsk(e.target.value)}
               onBlur={() => { if (originalAsk !== (job.original_ask||'')) onUpdate({ original_ask: originalAsk }); }}
-              placeholder="What did the customer ask for?"
+              placeholder="What did the customer ask for?" readOnly={isClosed}
               rows={2} style={{ resize:"vertical", lineHeight:1.4 }} />
           </div>
         )}
@@ -6455,6 +6492,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
             <textarea value={notes} onChange={e => setNotes(e.target.value)}
               onBlur={() => { if (notes !== (job.notes||'')) onUpdate({ notes }); }}
+              readOnly={isClosed}
               rows={3} style={{ resize:"vertical", lineHeight:1.4 }} />
           </div>
         )}
@@ -6470,11 +6508,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 </span>
               )}
             </div>
-            <button onClick={() => setAddingReceipt(a => !a)} className="head"
-              style={{ fontSize:12, fontWeight:700, padding:"4px 10px", borderRadius:5,
-                background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
-              {addingReceipt ? '✕' : '+ ADD'}
-            </button>
+            {!isClosed && (
+              <button onClick={() => setAddingReceipt(a => !a)} className="head"
+                style={{ fontSize:12, fontWeight:700, padding:"4px 10px", borderRadius:5,
+                  background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                {addingReceipt ? '✕' : '+ ADD'}
+              </button>
+            )}
           </div>
           {receipts.map(r => (
             editingReceipt?.id === r.id ? (
@@ -6520,10 +6560,14 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                     {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}{r.paid_by ? ` · paid by ${r.paid_by}` : ''}
                   </div>
                 </div>
-                <button onClick={e => { e.stopPropagation(); setEditingReceipt({ id:r.id, vendor:r.vendor||'', amount:r.amount ?? '', date:r.date||'', paid_by:r.paid_by||'' }); }}
-                  className="mono" style={{ fontSize:15, color:"var(--muted)", padding:"4px 6px" }}>✎</button>
-                <button onClick={e => { e.stopPropagation(); deleteJobReceipt(r); }} className="mono"
-                  style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
+                {!isClosed && (
+                  <button onClick={e => { e.stopPropagation(); setEditingReceipt({ id:r.id, vendor:r.vendor||'', amount:r.amount ?? '', date:r.date||'', paid_by:r.paid_by||'' }); }}
+                    className="mono" style={{ fontSize:15, color:"var(--muted)", padding:"4px 6px" }}>✎</button>
+                )}
+                {!isClosed && (
+                  <button onClick={e => { e.stopPropagation(); deleteJobReceipt(r); }} className="mono"
+                    style={{ fontSize:16, color:"var(--danger,#c0392b)", padding:"4px 6px" }}>🗑</button>
+                )}
               </div>
             )
           ))}
@@ -6956,6 +7000,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             {logTitleForType(job.type)}{history.length > 0 ? ` (${history.length})` : ''}
           </div>
           {recordLogOpen && (<>
+          {!isClosed && (<>
           <textarea value={logText} onChange={e => setLogText(e.target.value)}
             placeholder="What did you do today?"
             style={{ width:"100%", boxSizing:"border-box", minHeight:58, fontSize:15, resize:"vertical",
@@ -6967,11 +7012,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               color: logText.trim() ? "var(--bg)" : "var(--muted)", border:"none" }}>
             ADD
           </button>
+          </>)}
           {[...history].sort((a,b) => (b.date||'').localeCompare(a.date||'')).map((h,i) => (
             <div key={h.id||i} style={{ padding:"10px 0", borderTop:"1px solid var(--line)" }}>
               <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
                 <div className="mono" style={{ fontSize:13, color:"var(--brass)" }}>{fmtDate(h.date)}</div>
-                {h.id && editingNote?.id !== h.id && (
+                {!isClosed && h.id && editingNote?.id !== h.id && (
                   <button onClick={() => setEditingNote({ id: h.id, content: h.note })}
                     style={{ background:"none", border:"none", color:"var(--muted)", fontSize:16, padding:"0 4px", cursor:"pointer" }}>✎</button>
                 )}
@@ -7157,16 +7203,18 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                             {(p.end || p.ongoing) && <React.Fragment>{' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})</React.Fragment>}
                             {p.billTo && <span style={{ color:"var(--gold)" }}>{' '}— billed to {p.billTo === 'shop' ? 'shop' : 'this job'}</span>}
                           </div>
-                          <div style={{ display:"flex", gap:4 }}>
-                            {!p.ongoing && (
-                              <button onClick={() => isEditing ? setEditingLogPeriod(null) : openLogEdit(name, i, p)} className="mono"
-                                style={{ fontSize:14, color:"var(--muted)", padding:"4px 6px" }}>{isEditing ? '✕' : '✎'}</button>
-                            )}
-                            {!isEditing && (
-                              <button onClick={() => deleteLogPeriod(p, name)} className="mono"
-                                style={{ fontSize:14, color:"var(--danger)", padding:"4px 6px" }}>🗑</button>
-                            )}
-                          </div>
+                          {!isClosed && (
+                            <div style={{ display:"flex", gap:4 }}>
+                              {!p.ongoing && (
+                                <button onClick={() => isEditing ? setEditingLogPeriod(null) : openLogEdit(name, i, p)} className="mono"
+                                  style={{ fontSize:14, color:"var(--muted)", padding:"4px 6px" }}>{isEditing ? '✕' : '✎'}</button>
+                              )}
+                              {!isEditing && (
+                                <button onClick={() => deleteLogPeriod(p, name)} className="mono"
+                                  style={{ fontSize:14, color:"var(--danger)", padding:"4px 6px" }}>🗑</button>
+                              )}
+                            </div>
+                          )}
                         </div>
                         {isEditing && (
                           <div style={{ marginTop:6 }}>
@@ -7201,7 +7249,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                   <div className="mono" style={{ fontSize:12, color:"var(--olive-bright)", marginTop:6 }}>
                     Drive: {fmtElapsed(driveMs)} · On Site: {fmtElapsed(onSiteMs)}{runMs > 0 ? ` · Run: ${fmtElapsed(runMs)}` : ''}
                   </div>
-                  {addingLogFor === name ? (
+                  {!isClosed && (addingLogFor === name ? (
                     <div style={{ marginTop:8, padding:10, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8 }}>
                       <div style={{ display:"flex", gap:6, marginBottom:8 }}>
                         {['In Route','On Site'].map(s => (
@@ -7232,7 +7280,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                   ) : (
                     <button onClick={() => openAddLog(name)} className="mono"
                       style={{ fontSize:12, color:"var(--muted)", marginTop:8, padding:"4px 0" }}>+ ADD ENTRY</button>
-                  )}
+                  ))}
                 </div>
               );
             })}
