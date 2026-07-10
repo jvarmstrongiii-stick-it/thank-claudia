@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 210;
+const APP_REV = 211;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2409,6 +2409,9 @@ function App() {
   const [staleClock, setStaleClock] = useState(null); // { session, sinceDate } — clock session left open from a prior day
   const clockSessionRef = useRef(clockSession); // latest clockSession for reconcile (avoids stale closures)
   useEffect(() => { clockSessionRef.current = clockSession; }, [clockSession]);
+  // Guards clockIn/clockOut/flipToOnSite/moveToInRoute/pauseClock/resumeClock against
+  // overlapping (double-tap) invocations racing each other's stale clockSession closure.
+  const clockActionInFlight = useRef(false);
 
   function showToast(msg, isError=false) {
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -2708,44 +2711,56 @@ Command: "${transcript}"`
   // span counts zero in every report. 'Materials Run'/'Shop Run' are real field statuses
   // instead, so the span between pause and resume counts as worked time.
   async function pauseClock(reason, at = new Date().toISOString(), billTo = null) {
-    if (!clockSession?.jobId || ON_BREAK_STATUSES.includes(clockSession.status)) return;
-    const { jobId, startedAt, legStartedAt } = clockSession;
-    const status = PAUSE_STATUS_MAP[reason] || 'Paused';
-    const ok = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
-    if (!ok) { showToast('Could not pause — check connection', true); return; }
-    const billTag = billTo ? ` · bill:${billTo}` : '';
-    await sb.from('job_notes').insert({
-      job_id: jobId, content: `Status → ${status} (${currentUser.name}) — ${reason}${billTag}`,
-      source: 'system', created_at: at, user_id: currentUser.id,
-    });
-    // Bank the worked leg BEFORE the pause anchor moves (leg-banking invariant).
-    addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
-    const session = { ...clockSession, status, prevStatus: clockSession.status,
-      pausedReason: reason, pausedAt: at, billTo, legStartedAt: at };
-    saveClockSession(currentUser.id, session);
-    setClockSession(session);
-    refresh();
+    if (clockActionInFlight.current) return;
+    clockActionInFlight.current = true;
+    try {
+      if (!clockSession?.jobId || ON_BREAK_STATUSES.includes(clockSession.status)) return;
+      const { jobId, startedAt, legStartedAt } = clockSession;
+      const status = PAUSE_STATUS_MAP[reason] || 'Paused';
+      const ok = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
+      if (!ok) { showToast('Could not pause — check connection', true); return; }
+      const billTag = billTo ? ` · bill:${billTo}` : '';
+      await sb.from('job_notes').insert({
+        job_id: jobId, content: `Status → ${status} (${currentUser.name}) — ${reason}${billTag}`,
+        source: 'system', created_at: at, user_id: currentUser.id,
+      });
+      // Bank the worked leg BEFORE the pause anchor moves (leg-banking invariant).
+      addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
+      const session = { ...clockSession, status, prevStatus: clockSession.status,
+        pausedReason: reason, pausedAt: at, billTo, legStartedAt: at };
+      saveClockSession(currentUser.id, session);
+      setClockSession(session);
+      refresh();
+    } finally {
+      clockActionInFlight.current = false;
+    }
   }
 
   async function resumeClock(at = new Date().toISOString()) {
-    if (!clockSession?.jobId || !ON_BREAK_STATUSES.includes(clockSession.status)) return;
-    const back = clockSession.prevStatus === 'In Route' ? 'In Route' : 'On Site';
-    // Materials Run/Shop Run are real, counted legs — bank this leg like any other transition.
-    // Plain Paused already contributed nothing (never a field status), so nothing to bank there.
-    if (clockSession.status !== 'Paused') {
-      addTodayMs(currentUser.id, new Date(at).getTime() - new Date(clockSession.legStartedAt).getTime());
+    if (clockActionInFlight.current) return;
+    clockActionInFlight.current = true;
+    try {
+      if (!clockSession?.jobId || !ON_BREAK_STATUSES.includes(clockSession.status)) return;
+      const back = clockSession.prevStatus === 'In Route' ? 'In Route' : 'On Site';
+      // Materials Run/Shop Run are real, counted legs — bank this leg like any other transition.
+      // Plain Paused already contributed nothing (never a field status), so nothing to bank there.
+      if (clockSession.status !== 'Paused') {
+        addTodayMs(currentUser.id, new Date(at).getTime() - new Date(clockSession.legStartedAt).getTime());
+      }
+      const ok = await upsertJobCrewStatus(clockSession.jobId, currentUser.id, back, at);
+      if (!ok) { showToast('Could not resume — check connection', true); return; }
+      await sb.from('job_notes').insert({
+        job_id: clockSession.jobId, content: `Status → ${back} (${currentUser.name}) — back from ${clockSession.pausedReason || 'break'}`,
+        source: 'system', created_at: at, user_id: currentUser.id,
+      });
+      const session = { jobId: clockSession.jobId, status: back,
+        startedAt: clockSession.startedAt, legStartedAt: at };
+      saveClockSession(currentUser.id, session);
+      setClockSession(session);
+      refresh();
+    } finally {
+      clockActionInFlight.current = false;
     }
-    const ok = await upsertJobCrewStatus(clockSession.jobId, currentUser.id, back, at);
-    if (!ok) { showToast('Could not resume — check connection', true); return; }
-    await sb.from('job_notes').insert({
-      job_id: clockSession.jobId, content: `Status → ${back} (${currentUser.name}) — back from ${clockSession.pausedReason || 'break'}`,
-      source: 'system', created_at: at, user_id: currentUser.id,
-    });
-    const session = { jobId: clockSession.jobId, status: back,
-      startedAt: clockSession.startedAt, legStartedAt: at };
-    saveClockSession(currentUser.id, session);
-    setClockSession(session);
-    refresh();
   }
 
   async function undoClockAction() {
@@ -2763,65 +2778,77 @@ Command: "${transcript}"`
   }
 
   async function clockIn(jobId, status, at = new Date().toISOString()) {
+    if (clockActionInFlight.current) return;
+    clockActionInFlight.current = true;
     try {
-      const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
-      if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
-      const job = jobs.find(j => j.id === jobId);
-      const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-      if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
-        await updateJob(jobId, { status: 'In Progress', _skipNote: true });
+      try {
+        const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
+        if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
+        const job = jobs.find(j => j.id === jobId);
+        const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
+        if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
+          await updateJob(jobId, { status: 'In Progress', _skipNote: true });
+        }
+        const { data: inNote } = await sb.from('job_notes').insert({
+          job_id: jobId, content: `Status → ${status} (${currentUser.name})`,
+          source: 'system', created_at: at, user_id: currentUser.id,
+        }).select().single();
+        const session = { jobId, status, startedAt: at, legStartedAt: at };
+        setClockUndo({ prevSession: null, restore: [], clear: [{ jobId }], noteIds: inNote ? [inNote.id] : [] });
+        saveClockSession(currentUser.id, session);
+        setClockSession(session);
+        setShowClockIn(false);
+        setSelectedId(jobId);
+        refresh();
+        // Open chores are the first thing a tech sees after clocking in (skip if there are none).
+        if (chores.some(c => !c.done)) setShowChoresGate(true);
+        if (status === 'In Route') {
+          const addr = (siteAddr(job) || custAddr(job)).trim();
+          if (addr) setPendingMapsJob(job);
+        }
+      } catch(e) {
+        showToast('Clock in failed — ' + (e.message || 'check connection'), true);
       }
-      const { data: inNote } = await sb.from('job_notes').insert({
-        job_id: jobId, content: `Status → ${status} (${currentUser.name})`,
-        source: 'system', created_at: at, user_id: currentUser.id,
-      }).select().single();
-      const session = { jobId, status, startedAt: at, legStartedAt: at };
-      setClockUndo({ prevSession: null, restore: [], clear: [{ jobId }], noteIds: inNote ? [inNote.id] : [] });
-      saveClockSession(currentUser.id, session);
-      setClockSession(session);
-      setShowClockIn(false);
-      setSelectedId(jobId);
-      refresh();
-      // Open chores are the first thing a tech sees after clocking in (skip if there are none).
-      if (chores.some(c => !c.done)) setShowChoresGate(true);
-      if (status === 'In Route') {
-        const addr = (siteAddr(job) || custAddr(job)).trim();
-        if (addr) setPendingMapsJob(job);
-      }
-    } catch(e) {
-      showToast('Clock in failed — ' + (e.message || 'check connection'), true);
+    } finally {
+      clockActionInFlight.current = false;
     }
   }
 
   async function clockOut(jobStatus, at = new Date().toISOString()) {
-    if (!clockSession) return;
-    const { jobId, startedAt, legStartedAt } = clockSession;
-    const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [], noteIds: [] };
-    const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
-    if (jobId) {
-      const { note: outNote } = await clearCrewWithNote(jobId, currentUser.id, currentUser.name, at, '', currentUser.id);
-      if (outNote?.id) undo.noteIds.push(outNote.id);
-      if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
-      const remaining = await fetchJobCrew(jobId);
-      const stillOnSite = remaining.filter(c => c.status === 'On Site');
-      const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
-      const shopJob = jobs.find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
-      if (othersOnSite.length > 0) {
-        setLeavingCrewCheck({ members: othersOnSite, newJobId: shopJob?.id || null, oldJobId: jobId,
-          someoneStayed: false, fromShop: wasShop, shopStartedAt: legStartedAt || startedAt });
-      } else if (wasShop) {
-        setPendingShopActivity({ shopJobId: jobId, startedAt: legStartedAt || startedAt, mapsJobId: null });
+    if (clockActionInFlight.current) return;
+    clockActionInFlight.current = true;
+    try {
+      if (!clockSession) return;
+      const { jobId, startedAt, legStartedAt } = clockSession;
+      const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [], noteIds: [] };
+      const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
+      if (jobId) {
+        const { note: outNote } = await clearCrewWithNote(jobId, currentUser.id, currentUser.name, at, '', currentUser.id);
+        if (outNote?.id) undo.noteIds.push(outNote.id);
+        if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
+        const remaining = await fetchJobCrew(jobId);
+        const stillOnSite = remaining.filter(c => c.status === 'On Site');
+        const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
+        const shopJob = jobs.find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
+        if (othersOnSite.length > 0) {
+          setLeavingCrewCheck({ members: othersOnSite, newJobId: shopJob?.id || null, oldJobId: jobId,
+            someoneStayed: false, fromShop: wasShop, shopStartedAt: legStartedAt || startedAt });
+        } else if (wasShop) {
+          setPendingShopActivity({ shopJobId: jobId, startedAt: legStartedAt || startedAt, mapsJobId: null });
+        }
       }
+      // From Paused the leg was already banked at pause time — banking again would count the break.
+      if (clockSession.status !== 'Paused') {
+        addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
+      }
+      saveClockSession(currentUser.id, null);
+      setClockSession(null);
+      setClockUndo(undo);
+      setShowClockOut(false);
+      refresh();
+    } finally {
+      clockActionInFlight.current = false;
     }
-    // From Paused the leg was already banked at pause time — banking again would count the break.
-    if (clockSession.status !== 'Paused') {
-      addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
-    }
-    saveClockSession(currentUser.id, null);
-    setClockSession(null);
-    setClockUndo(undo);
-    setShowClockOut(false);
-    refresh();
   }
 
   // Stale prior-day session: close it at the chosen time, writing the Cleared note for HoursReport.
@@ -2853,100 +2880,112 @@ Command: "${transcript}"`
   }
 
   async function flipToOnSite(at = new Date().toISOString()) {
-    if (!clockSession?.jobId) return;
-    const undo = { prevSession: clockSession, restore: [{ jobId: clockSession.jobId, status: 'In Route' }], clear: [], noteIds: [] };
-    await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site', at);
-    const job = jobs.find(j => j.id === clockSession.jobId);
-    const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-    if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
-      await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
-    }
-    const { data: onSiteNote } = await sb.from('job_notes').insert({
-      job_id: clockSession.jobId, content: `Status → On Site (${currentUser.name})`,
-      source: 'system', created_at: at, user_id: currentUser.id,
-    }).select().single();
-    if (onSiteNote) undo.noteIds.push(onSiteNote.id);
-    const remaining = await fetchJobCrew(clockSession.jobId);
-    const othersInRoute = remaining.filter(c => c.status === 'In Route' && c.user_id !== currentUser.id);
-    const inRouteUsers = users.filter(u => othersInRoute.find(c => c.user_id === u.id));
-    if (inRouteUsers.length > 0) setJoiningOnSiteCheck({ members: inRouteUsers, jobId: clockSession.jobId });
-    // In Route → On Site is the same continuous leg — do NOT reset legStartedAt or bank,
-    // or the in-route minutes vanish from today's total.
-    const session = { ...clockSession, status: 'On Site' };
-    saveClockSession(currentUser.id, session);
-    setClockSession(session);
-    setClockUndo(undo);
-    refresh();
-  }
-
-  async function moveToInRoute(newJobId, at = new Date().toISOString()) {
+    if (clockActionInFlight.current) return;
+    clockActionInFlight.current = true;
     try {
-      const { jobId: oldJobId, startedAt } = clockSession;
-      const undo = {
-        prevSession: clockSession,
-        restore: oldJobId ? [{ jobId: oldJobId, status: clockSession.status }] : [],
-        clear: [{ jobId: newJobId }],
-        noteIds: [],
-      };
-      let isLastOut = false;
-      let hasCrew = false;
-      const wasShop = oldJobId && jobs.find(j => j.id === oldJobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
-      const shopLegStart = clockSession.legStartedAt || startedAt;
-      // bank the leg we're leaving into today's running total before the new leg starts
-      // (skip from Paused — that leg was already banked when the pause started)
-      if (clockSession.status !== 'Paused') {
-        addTodayMs(currentUser.id, Date.now() - new Date(shopLegStart).getTime());
-      }
-      if (oldJobId) {
-        const { note: leaveNote } = await clearCrewWithNote(oldJobId, currentUser.id, currentUser.name, at, '', currentUser.id);
-        if (leaveNote?.id) undo.noteIds.push(leaveNote.id);
-        const remaining = await fetchJobCrew(oldJobId);
-        const stillOnSite = remaining.filter(c => c.status === 'On Site');
-        isLastOut = stillOnSite.length === 0;
-        const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
-        if (othersOnSite.length > 0) {
-          setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId,
-            mapsJobId: wasShop ? null : newJobId, someoneStayed: false,
-            fromShop: wasShop, shopStartedAt: shopLegStart });
-          hasCrew = true;
-        }
-      }
-      const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route', at);
-      if (!ok) { showToast('Could not update crew status — check connection', true); return; }
-      const newJob = jobs.find(j => j.id === newJobId);
+      if (!clockSession?.jobId) return;
+      const undo = { prevSession: clockSession, restore: [{ jobId: clockSession.jobId, status: 'In Route' }], clear: [], noteIds: [] };
+      await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site', at);
+      const job = jobs.find(j => j.id === clockSession.jobId);
       const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-      if (newJob && newJob.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(newJob.status) < wIdx('In Progress')) {
-        await updateJob(newJobId, { status: 'In Progress', _skipNote: true });
+      if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
+        await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
       }
-      const { data: routeNote } = await sb.from('job_notes').insert({
-        job_id: newJobId, content: `Status → In Route (${currentUser.name})`,
+      const { data: onSiteNote } = await sb.from('job_notes').insert({
+        job_id: clockSession.jobId, content: `Status → On Site (${currentUser.name})`,
         source: 'system', created_at: at, user_id: currentUser.id,
       }).select().single();
-      if (routeNote) undo.noteIds.push(routeNote.id);
-      const session = { jobId: newJobId, status: 'In Route', startedAt, legStartedAt: at };
+      if (onSiteNote) undo.noteIds.push(onSiteNote.id);
+      const remaining = await fetchJobCrew(clockSession.jobId);
+      const othersInRoute = remaining.filter(c => c.status === 'In Route' && c.user_id !== currentUser.id);
+      const inRouteUsers = users.filter(u => othersInRoute.find(c => c.user_id === u.id));
+      if (inRouteUsers.length > 0) setJoiningOnSiteCheck({ members: inRouteUsers, jobId: clockSession.jobId });
+      // In Route → On Site is the same continuous leg — do NOT reset legStartedAt or bank,
+      // or the in-route minutes vanish from today's total.
+      const session = { ...clockSession, status: 'On Site' };
       saveClockSession(currentUser.id, session);
       setClockSession(session);
       setClockUndo(undo);
-      setShowMoveJob(false);
-      setSelectedId(newJobId);
       refresh();
-      if (!hasCrew) {
-        if (wasShop) {
-          setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopLegStart, mapsJobId: newJobId });
-        } else {
-          // No crew on the old job ⇒ last one out. Ask "is this job done?" first,
-          // then fire navigation when that prompt resolves (navigation is always last).
-          const oldJob = (isLastOut && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
-          if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
-            setLastLeaveJob({ job: oldJob, mapsJobId: newJobId });
-          } else {
-            const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
-            if (addr) setPendingMapsJob(newJob);
+    } finally {
+      clockActionInFlight.current = false;
+    }
+  }
+
+  async function moveToInRoute(newJobId, at = new Date().toISOString()) {
+    if (clockActionInFlight.current) return;
+    clockActionInFlight.current = true;
+    try {
+      try {
+        const { jobId: oldJobId, startedAt } = clockSession;
+        const undo = {
+          prevSession: clockSession,
+          restore: oldJobId ? [{ jobId: oldJobId, status: clockSession.status }] : [],
+          clear: [{ jobId: newJobId }],
+          noteIds: [],
+        };
+        let isLastOut = false;
+        let hasCrew = false;
+        const wasShop = oldJobId && jobs.find(j => j.id === oldJobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
+        const shopLegStart = clockSession.legStartedAt || startedAt;
+        // bank the leg we're leaving into today's running total before the new leg starts
+        // (skip from Paused — that leg was already banked when the pause started)
+        if (clockSession.status !== 'Paused') {
+          addTodayMs(currentUser.id, Date.now() - new Date(shopLegStart).getTime());
+        }
+        if (oldJobId) {
+          const { note: leaveNote } = await clearCrewWithNote(oldJobId, currentUser.id, currentUser.name, at, '', currentUser.id);
+          if (leaveNote?.id) undo.noteIds.push(leaveNote.id);
+          const remaining = await fetchJobCrew(oldJobId);
+          const stillOnSite = remaining.filter(c => c.status === 'On Site');
+          isLastOut = stillOnSite.length === 0;
+          const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
+          if (othersOnSite.length > 0) {
+            setLeavingCrewCheck({ members: othersOnSite, newJobId, oldJobId,
+              mapsJobId: wasShop ? null : newJobId, someoneStayed: false,
+              fromShop: wasShop, shopStartedAt: shopLegStart });
+            hasCrew = true;
           }
         }
+        const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route', at);
+        if (!ok) { showToast('Could not update crew status — check connection', true); return; }
+        const newJob = jobs.find(j => j.id === newJobId);
+        const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
+        if (newJob && newJob.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(newJob.status) < wIdx('In Progress')) {
+          await updateJob(newJobId, { status: 'In Progress', _skipNote: true });
+        }
+        const { data: routeNote } = await sb.from('job_notes').insert({
+          job_id: newJobId, content: `Status → In Route (${currentUser.name})`,
+          source: 'system', created_at: at, user_id: currentUser.id,
+        }).select().single();
+        if (routeNote) undo.noteIds.push(routeNote.id);
+        const session = { jobId: newJobId, status: 'In Route', startedAt, legStartedAt: at };
+        saveClockSession(currentUser.id, session);
+        setClockSession(session);
+        setClockUndo(undo);
+        setShowMoveJob(false);
+        setSelectedId(newJobId);
+        refresh();
+        if (!hasCrew) {
+          if (wasShop) {
+            setPendingShopActivity({ shopJobId: oldJobId, startedAt: shopLegStart, mapsJobId: newJobId });
+          } else {
+            // No crew on the old job ⇒ last one out. Ask "is this job done?" first,
+            // then fire navigation when that prompt resolves (navigation is always last).
+            const oldJob = (isLastOut && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
+            if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+              setLastLeaveJob({ job: oldJob, mapsJobId: newJobId });
+            } else {
+              const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
+              if (addr) setPendingMapsJob(newJob);
+            }
+          }
+        }
+      } catch(e) {
+        showToast('Move failed — ' + (e.message || 'check connection'), true);
       }
-    } catch(e) {
-      showToast('Move failed — ' + (e.message || 'check connection'), true);
+    } finally {
+      clockActionInFlight.current = false;
     }
   }
 
