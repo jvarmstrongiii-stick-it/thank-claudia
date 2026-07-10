@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 214;
+const APP_REV = 215;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2866,14 +2866,10 @@ Command: "${transcript}"`
         const { note: outNote } = await clearCrewWithNote(jobId, currentUser.id, currentUser.name, at, '', currentUser.id);
         if (outNote?.id) undo.noteIds.push(outNote.id);
         if (jobStatus) await updateJob(jobId, { status: jobStatus, _skipNote: true });
-        const remaining = await fetchJobCrew(jobId);
-        const stillOnSite = remaining.filter(c => c.status === 'On Site');
-        const othersOnSite = users.filter(u => u.id !== currentUser.id && stillOnSite.find(c => c.user_id === u.id));
-        const shopJob = jobs.find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
-        if (othersOnSite.length > 0) {
-          setLeavingCrewCheck({ members: othersOnSite, newJobId: shopJob?.id || null, oldJobId: jobId,
-            someoneStayed: false, fromShop: wasShop, shopStartedAt: legStartedAt || startedAt });
-        } else if (wasShop) {
+        // Clocking out is Jack leaving for the day, not heading somewhere else — never ask
+        // "is so-and-so coming with you" here (that's moveToInRoute's question). Anyone still
+        // on site stays exactly as they are; only they (or someone else) can change their status.
+        if (wasShop) {
           setPendingShopActivity({ shopJobId: jobId, startedAt: legStartedAt || startedAt, mapsJobId: null });
         }
       }
