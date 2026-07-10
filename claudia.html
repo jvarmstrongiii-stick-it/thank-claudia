@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 213;
+const APP_REV = 214;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1854,6 +1854,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
   const [crewRows, setCrewRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [expandedKeys, setExpandedKeys] = useState(() => new Set());
+  const [flagExplain, setFlagExplain] = useState(null); // { dangling, implausible } or { dayLevel: true }
   function toggleExpanded(key) {
     setExpandedKeys(prev => {
       const next = new Set(prev);
@@ -1983,7 +1984,8 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
   // when a SINGLE person's day (or an actual dangling period) crosses the threshold.
   const dayImplausible = data => data.dangling || Object.values(data.users).some(u => u.dangling || u.totalMs > IMPLAUSIBLE_DAY_MS);
 
-  function SubBreakdown({ driveMs, onSiteMs, runMs, totalMs, flagged }) {
+  function SubBreakdown({ driveMs, onSiteMs, runMs, totalMs, dangling, implausible, onExplain }) {
+    const flagged = dangling || implausible;
     const parts = [
       driveMs > 0 && `${fmtElapsed(driveMs)} drive`,
       onSiteMs > 0 && `${fmtElapsed(onSiteMs)} on site`,
@@ -1992,7 +1994,10 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
     return (
       <div style={{ textAlign: 'right' }}>
         <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: flagged ? 'var(--danger)' : 'var(--olive-bright)' }}>
-          {flagged && '⚠️ '}{fmtElapsed(totalMs)}
+          {flagged && (
+            <span onClick={e => { e.stopPropagation(); onExplain({ dangling, implausible }); }} style={{ cursor: 'pointer' }}>⚠️ </span>
+          )}
+          {fmtElapsed(totalMs)}
         </div>
         {parts.length > 1 && (
           <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
@@ -2058,7 +2063,12 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                   style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '13px 14px', background: 'none', border: 'none', cursor: 'pointer' }}>
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{userName.toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.dangling ? 'var(--danger)' : 'var(--olive-bright)' }}>{data.dangling && '⚠️ '}{fmtElapsed(data.totalMs)}</div>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.dangling ? 'var(--danger)' : 'var(--olive-bright)' }}>
+                      {data.dangling && (
+                        <span onClick={e => { e.stopPropagation(); setFlagExplain({ dangling: true }); }} style={{ cursor: 'pointer' }}>⚠️ </span>
+                      )}
+                      {fmtElapsed(data.totalMs)}
+                    </div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(userName) ? '▲' : '▼'}</span>
                   </div>
                 </button>
@@ -2068,7 +2078,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                       <button key={jobId} onClick={() => onOpenJob && onOpenJob(jobId)}
                         style={{ ...subRowStyle(i === 0), width: '100%', textAlign: 'left' }}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)', flex: 1, paddingRight: 10 }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} flagged={jd.dangling} />
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} dangling={jd.dangling} onExplain={setFlagExplain} />
                       </button>
                     ))}
                   </div>
@@ -2091,7 +2101,12 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.dangling ? 'var(--danger)' : 'var(--olive-bright)' }}>{data.dangling && '⚠️ '}{fmtElapsed(data.totalMs)}</div>
+                    <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: data.dangling ? 'var(--danger)' : 'var(--olive-bright)' }}>
+                      {data.dangling && (
+                        <span onClick={e => { e.stopPropagation(); setFlagExplain({ dangling: true }); }} style={{ cursor: 'pointer' }}>⚠️ </span>
+                      )}
+                      {fmtElapsed(data.totalMs)}
+                    </div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(jobId) ? '▲' : '▼'}</span>
                   </div>
                 </button>
@@ -2100,7 +2115,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} flagged={ud.dangling} />
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} dangling={ud.dangling} onExplain={setFlagExplain} />
                       </div>
                     ))}
                   </div>
@@ -2119,7 +2134,10 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                   <div className="head" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{dayLabel(dayKey).toUpperCase()}</div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <div className="mono" style={{ fontSize: 15, fontWeight: 700, color: dayImplausible(data) ? 'var(--danger)' : 'var(--olive-bright)' }}>
-                      {dayImplausible(data) && '⚠️ '}{fmtElapsed(data.totalMs)}
+                      {dayImplausible(data) && (
+                        <span onClick={e => { e.stopPropagation(); setFlagExplain({ dayLevel: true }); }} style={{ cursor: 'pointer' }}>⚠️ </span>
+                      )}
+                      {fmtElapsed(data.totalMs)}
                     </div>
                     <span className="mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{expandedKeys.has(dayKey) ? '▲' : '▼'}</span>
                   </div>
@@ -2130,7 +2148,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
                       <div key={uName} style={subRowStyle(i === 0)}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} flagged={ud.dangling || ud.totalMs > IMPLAUSIBLE_DAY_MS} />
+                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} dangling={ud.dangling} implausible={ud.totalMs > IMPLAUSIBLE_DAY_MS} onExplain={setFlagExplain} />
                       </div>
                     ))}
                     <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', letterSpacing: '0.08em', marginTop: 14, marginBottom: 2 }}>BY JOB</div>
@@ -2138,7 +2156,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                       <button key={jobId} onClick={() => onOpenJobDay && onOpenJobDay(jobId, dayKey)}
                         style={{ ...subRowStyle(i === 0), width: '100%', textAlign: 'left' }}>
                         <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} flagged={jd.dangling || jd.totalMs > IMPLAUSIBLE_DAY_MS} />
+                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} dangling={jd.dangling} implausible={jd.totalMs > IMPLAUSIBLE_DAY_MS} onExplain={setFlagExplain} />
                       </button>
                     ))}
                   </div>
@@ -2147,6 +2165,22 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
             ))
         )}
       </div>
+
+      {flagExplain && (
+        <Sheet title="WHY FLAGGED?" onClose={() => setFlagExplain(null)}>
+          <div className="mono" style={{ fontSize: 14, lineHeight: 1.6, color: 'var(--text)' }}>
+            {flagExplain.dayLevel && (
+              <div>This day has at least one flagged issue below — either a missing clock-out or one person's total running over 16 hours. Expand this day to see which tech or job it is.</div>
+            )}
+            {!flagExplain.dayLevel && flagExplain.dangling && (
+              <div style={{ marginBottom: flagExplain.implausible ? 10 : 0 }}>One or more time periods here have no clock-out recorded, so they're excluded from this total. Open the job's TIME LOG to add the missing end time.</div>
+            )}
+            {!flagExplain.dayLevel && flagExplain.implausible && (
+              <div>This total is over 16 hours for one person in a single day — unusually high. Check the TIME LOG for that day for a bad or overlapping entry.</div>
+            )}
+          </div>
+        </Sheet>
+      )}
     </div>
   );
 }
