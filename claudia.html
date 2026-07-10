@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 211;
+const APP_REV = 212;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -841,11 +841,17 @@ async function fetchJobCrew(jobId) {
 
 // statusAt: pass the user's CONFIRMED time (fieldTimeConfirm rewind) so CREW STATUS shows
 // the real transition time, not the moment the button was tapped. Defaults to now.
+// lastJobCrewError: set on failure so callers can surface the real DB error instead of a
+// generic "check connection" toast (e.g. a stale CHECK constraint rejecting a new status
+// value) — read it synchronously right after awaiting this call, before any other crew
+// update can interleave and overwrite it.
+let lastJobCrewError = null;
 async function upsertJobCrewStatus(jobId, userId, status, statusAt = new Date().toISOString()) {
+  lastJobCrewError = null;
   const { data, error } = await sb.from('job_crew')
     .upsert({ job_id: jobId, user_id: userId, status, status_at: statusAt }, { onConflict: 'job_id,user_id' })
     .select().single();
-  if (error) { console.warn('upsertJobCrewStatus error', error.message || error); return null; }
+  if (error) { lastJobCrewError = error; console.warn('upsertJobCrewStatus error', error.message || error); return null; }
   return data;
 }
 
@@ -2718,7 +2724,7 @@ Command: "${transcript}"`
       const { jobId, startedAt, legStartedAt } = clockSession;
       const status = PAUSE_STATUS_MAP[reason] || 'Paused';
       const ok = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
-      if (!ok) { showToast('Could not pause — check connection', true); return; }
+      if (!ok) { showToast('Could not pause — ' + (lastJobCrewError?.message || 'check connection'), true); return; }
       const billTag = billTo ? ` · bill:${billTo}` : '';
       await sb.from('job_notes').insert({
         job_id: jobId, content: `Status → ${status} (${currentUser.name}) — ${reason}${billTag}`,
@@ -2748,7 +2754,7 @@ Command: "${transcript}"`
         addTodayMs(currentUser.id, new Date(at).getTime() - new Date(clockSession.legStartedAt).getTime());
       }
       const ok = await upsertJobCrewStatus(clockSession.jobId, currentUser.id, back, at);
-      if (!ok) { showToast('Could not resume — check connection', true); return; }
+      if (!ok) { showToast('Could not resume — ' + (lastJobCrewError?.message || 'check connection'), true); return; }
       await sb.from('job_notes').insert({
         job_id: clockSession.jobId, content: `Status → ${back} (${currentUser.name}) — back from ${clockSession.pausedReason || 'break'}`,
         source: 'system', created_at: at, user_id: currentUser.id,
@@ -2783,7 +2789,7 @@ Command: "${transcript}"`
     try {
       try {
         const crewResult = await upsertJobCrewStatus(jobId, currentUser.id, status, at);
-        if (!crewResult) { showToast('Could not save crew status — check connection', true); return; }
+        if (!crewResult) { showToast('Could not save crew status — ' + (lastJobCrewError?.message || 'check connection'), true); return; }
         const job = jobs.find(j => j.id === jobId);
         const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
         if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
@@ -2948,7 +2954,7 @@ Command: "${transcript}"`
           }
         }
         const ok = await upsertJobCrewStatus(newJobId, currentUser.id, 'In Route', at);
-        if (!ok) { showToast('Could not update crew status — check connection', true); return; }
+        if (!ok) { showToast('Could not update crew status — ' + (lastJobCrewError?.message || 'check connection'), true); return; }
         const newJob = jobs.find(j => j.id === newJobId);
         const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
         if (newJob && newJob.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(newJob.status) < wIdx('In Progress')) {
