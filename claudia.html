@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 215;
+const APP_REV = 216;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -712,6 +712,37 @@ function warrantyStatus(eq) {
   return { type:'pending', daysLeft, deadline: deadline.toISOString().split('T')[0] };
 }
 
+// Deterministic capacity-code table for split-system condensers/heat pumps — model number
+// digit groups are fixed by manufacturer convention, unlike tonnage which the vision model
+// derives via mental arithmetic and sometimes gets wrong even when the model # OCR'd correctly.
+const CAPACITY_CODE_TO_TON = {
+  '018':'1.5', '024':'2', '030':'2.5', '036':'3', '042':'3.5', '048':'4',
+  '054':'4.5', '060':'5', '072':'6', '090':'7.5', '102':'8.5', '120':'10',
+  '150':'12.5', '180':'15', '210':'17.5', '240':'20',
+};
+// Goodman/Amana/Daikin condenser & heat pump model format: PREFIX + 2-digit SEER + 3-digit capacity code
+const CAPACITY_MODEL_PREFIX_RE = /^(?:GSX|SSX|GSZ|SSZ|DSZC|DSXC|ASX|ASZ|GSXC|SSXC)\d{2}(\d{3})/;
+
+function deriveTonnageFromModel(modelNumber) {
+  if (!modelNumber) return null;
+  const m = String(modelNumber).toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const match = m.match(CAPACITY_MODEL_PREFIX_RE);
+  if (!match) return null;
+  const code = match[1];
+  const tons = CAPACITY_CODE_TO_TON[code];
+  if (!tons) return null;
+  return `${tons} ton (${(Number(code) * 1000).toLocaleString()} BTU)`;
+}
+
+// Overrides the vision model's tonnage guess with a deterministic decode whenever the
+// model number matches a known capacity-coded prefix — the model # OCR is reliable,
+// the mental-math decode of it is not (see CLAUDE.md gotcha: r216 wrong-tonnage scans).
+function finalizeScanResult(result) {
+  const derived = deriveTonnageFromModel(result.model_number);
+  if (derived) result.tonnage = derived;
+  return result;
+}
+
 async function readFileForScan(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -750,7 +781,7 @@ async function scanNameplateFromB64(b64, mediaType) {
   const text = (data.content[0].text || '').trim();
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('No JSON in response');
-  return JSON.parse(m[0]);
+  return finalizeScanResult(JSON.parse(m[0]));
 }
 
 async function scanNameplate(file) {
@@ -804,7 +835,7 @@ async function scanNameplateFromUrl(url) {
   const text = (data.content[0].text || '').trim();
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('No JSON in response');
-  return JSON.parse(m[0]);
+  return finalizeScanResult(JSON.parse(m[0]));
 }
 
 async function fetchChores() {
