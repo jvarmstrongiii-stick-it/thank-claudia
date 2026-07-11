@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 217;
+const APP_REV = 218;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -374,6 +374,37 @@ function shiftDateISO(dateStr, delta) {
   const pad = n => String(n).padStart(2,"0");
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
 }
+// Calendar grid builders. These only ever walk already-resolved 'YYYY-MM-DD' day keys
+// (never a raw instant) via local Date arithmetic, same trick as shiftDateISO above —
+// an instant's calendar day still MUST go through dateISOInTZ elsewhere; these just lay
+// out a grid of days that are already known.
+function buildMonthGrid(anchorISO) {
+  const [y, mo] = anchorISO.split('-').map(Number);
+  const firstOfMonth = new Date(y, mo - 1, 1);
+  const gridStart = new Date(y, mo - 1, 1 - firstOfMonth.getDay());
+  const pad = n => String(n).padStart(2, "0");
+  const cells = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(gridStart.getFullYear(), gridStart.getMonth(), gridStart.getDate() + i);
+    cells.push({
+      dateISO: `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`,
+      inCurrentMonth: d.getMonth() === mo - 1,
+    });
+  }
+  return cells;
+}
+function buildWeekDates(anchorISO) {
+  const [y, mo, da] = anchorISO.split('-').map(Number);
+  const anchor = new Date(y, mo - 1, da);
+  const weekStart = new Date(y, mo - 1, da - anchor.getDay());
+  const pad = n => String(n).padStart(2, "0");
+  const days = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
+    days.push(`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`);
+  }
+  return days;
+}
 function toLocalDateTimeInput(iso) {
   const d = iso ? new Date(iso) : new Date();
   if (isNaN(d)) return '';
@@ -429,8 +460,9 @@ function fromRow(row, notes=[]) {
     email: c.email || '',
     type: row.flow_type || 'Service Call',
     status: row.current_status || 'New',
-    scheduled_date: scheduledAt ? dateISOInTZ(new Date(scheduledAt), getAppTZ()) : todayLocalISO(),
-    scheduled_time: scheduledAt ? tzTimeHHMM(new Date(scheduledAt)) : '09:00',
+    has_schedule: !!scheduledAt,
+    scheduled_date: scheduledAt ? dateISOInTZ(new Date(scheduledAt), getAppTZ()) : null,
+    scheduled_time: scheduledAt ? tzTimeHHMM(new Date(scheduledAt)) : null,
     value: Number(row.value) || 0,
     original_ask: row.original_ask || '',
     notes: row.notes || '',
@@ -1877,6 +1909,268 @@ function MoveJobSheet({ clockSession, jobs, onMove, onClose, onNewJob }) {
   );
 }
 
+/* ── CalendarView ──────────────────────────────────────────────────────────── */
+// Only jobs with a real scheduled_at ever appear here — a 'Ready to Schedule'/'In Progress'
+// job with no date has nowhere valid to sit on a calendar and must not pile onto "today".
+const CALENDAR_STATUSES = ['In Progress', 'Scheduled', 'Ready to Schedule'];
+function getCalendarJobs(jobs) {
+  return (jobs || []).filter(j => CALENDAR_STATUSES.includes(j.status) && j.has_schedule);
+}
+const CAL_VIEW_KEY = 'tmc_calendar_view_mode';
+function getCalendarViewMode() {
+  try { return localStorage.getItem(CAL_VIEW_KEY) || 'agenda'; } catch { return 'agenda'; }
+}
+function setCalendarViewMode(mode) {
+  try { localStorage.setItem(CAL_VIEW_KEY, mode); } catch {}
+}
+// Same overdue/scheduled/neutral formula as StatusPill/JobCard — no new color rule invented.
+function calJobColor(j) {
+  const overdue = j.status === 'Scheduled' && j.scheduled_date < todayISO();
+  const scheduled = j.status === 'Scheduled' && !overdue;
+  return overdue ? '#b5432f' : scheduled ? 'var(--green)' : 'var(--muted)';
+}
+const CAL_DAY_LABEL = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+// Draggable (Pointer Events — no HTML5 dragdrop, which barely works on touch) job chip used
+// in Month/Week grid cells. A plain tap (no movement past threshold) still opens the job;
+// only a real drag onto a different day cell offers a reschedule.
+function CalendarChip({ job, dateISO, onOpenJob, onDragEnd }) {
+  const dragRef = useRef(null);
+  const draggedRef = useRef(false);
+  function onPointerDown(e) {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    dragRef.current = { startX: e.clientX, startY: e.clientY, moved: false, pointerId: e.pointerId };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  }
+  function onPointerMove(e) {
+    const d = dragRef.current;
+    if (!d || d.pointerId !== e.pointerId) return;
+    if (!d.moved && (Math.abs(e.clientX - d.startX) > 6 || Math.abs(e.clientY - d.startY) > 6)) d.moved = true;
+  }
+  function onPointerUp(e) {
+    const d = dragRef.current;
+    dragRef.current = null;
+    if (!d || d.pointerId !== e.pointerId) return;
+    if (d.moved) {
+      draggedRef.current = true;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const cell = el && el.closest('[data-cal-date]');
+      const overDate = cell ? cell.getAttribute('data-cal-date') : null;
+      if (overDate && overDate !== dateISO) onDragEnd(job, overDate);
+    }
+  }
+  function onClick(e) {
+    e.stopPropagation();
+    if (draggedRef.current) { draggedRef.current = false; return; }
+    onOpenJob(job.id);
+  }
+  const color = calJobColor(job);
+  return (
+    <div onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onClick={onClick}
+      className="mono" style={{ fontSize:10, padding:"2px 4px", marginBottom:2, borderRadius:4, cursor:"grab",
+        background: color+"22", borderLeft:`2px solid ${color}`, color:"var(--text)", touchAction:"none",
+        whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+      {fmtTime(job.scheduled_time)} {job.customer}
+    </div>
+  );
+}
+
+// Shared Month/Week day cell — maxShown/minHeight are the only knobs that differ between them.
+function CalendarDayCell({ dateISO, dimmed, dayJobs, maxShown, minHeight, onOpenJob, onDragEnd, onExpand }) {
+  const isToday = dateISO === todayLocalISO();
+  const shown = dayJobs.slice(0, maxShown);
+  const overflow = dayJobs.length - shown.length;
+  return (
+    <div data-cal-date={dateISO} onClick={() => onExpand(dateISO)}
+      style={{ minHeight, border: isToday ? "1px solid var(--olive-bright)" : "1px solid var(--line)",
+        borderRadius:6, padding:4, background:"var(--panel)", opacity: dimmed ? 0.4 : 1, cursor:"pointer" }}>
+      <div className="mono" style={{ fontSize:11, marginBottom:2,
+        color: isToday ? "var(--olive-bright)" : "var(--muted)", fontWeight: isToday ? 700 : 400 }}>
+        {Number(dateISO.slice(8,10))}
+      </div>
+      {shown.map(j => <CalendarChip key={j.id} job={j} dateISO={dateISO} onOpenJob={onOpenJob} onDragEnd={onDragEnd} />)}
+      {overflow > 0 && (
+        <div onClick={e => { e.stopPropagation(); onExpand(dateISO); }}
+          className="mono" style={{ fontSize:9, color:"var(--muted)", marginTop:1, cursor:"pointer" }}>+{overflow} more</div>
+      )}
+    </div>
+  );
+}
+
+function CalendarView({ jobs, onClose, onOpenJob, onReschedule }) {
+  const [viewMode, setViewMode] = useState(() => getCalendarViewMode());
+  const [expandedDay, setExpandedDay] = useState(null);
+  const [periodAnchor, setPeriodAnchor] = useState(() => todayLocalISO());
+
+  function changeMode(mode) { setViewMode(mode); setCalendarViewMode(mode); }
+
+  const calendarJobs = useMemo(() => getCalendarJobs(jobs), [jobs]);
+  const jobsByDate = useMemo(() => {
+    const map = {};
+    calendarJobs.forEach(j => { (map[j.scheduled_date] = map[j.scheduled_date] || []).push(j); });
+    Object.values(map).forEach(list => list.sort((a,b) => (a.scheduled_time||'').localeCompare(b.scheduled_time||'')));
+    return map;
+  }, [calendarJobs]);
+
+  function pageBy(delta) {
+    if (viewMode === 'month') {
+      const [y, mo] = periodAnchor.split('-').map(Number);
+      const d = new Date(y, mo - 1 + delta, 1);
+      setPeriodAnchor(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`);
+    } else if (viewMode === 'week') {
+      setPeriodAnchor(shiftDateISO(periodAnchor, delta * 7));
+    } else {
+      setPeriodAnchor(shiftDateISO(periodAnchor, delta * 14));
+    }
+  }
+
+  const monthGrid = useMemo(() => viewMode === 'month' ? buildMonthGrid(periodAnchor) : [], [viewMode, periodAnchor]);
+  const weekDates = useMemo(() => viewMode === 'week' ? buildWeekDates(periodAnchor) : [], [viewMode, periodAnchor]);
+  const agendaDays = useMemo(() => {
+    if (viewMode !== 'agenda') return [];
+    const days = [];
+    for (let i = 0; i < 14; i++) days.push(shiftDateISO(periodAnchor, i));
+    return days;
+  }, [viewMode, periodAnchor]);
+
+  const periodLabel = useMemo(() => {
+    const fmtShort = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { month:'short', day:'numeric' });
+    if (viewMode === 'month') {
+      const [y, mo] = periodAnchor.split('-').map(Number);
+      return new Date(y, mo - 1, 1).toLocaleDateString('en-US', { month:'long', year:'numeric' }).toUpperCase();
+    }
+    if (viewMode === 'week') {
+      const dates = buildWeekDates(periodAnchor);
+      return `${fmtShort(dates[0])} – ${fmtShort(dates[6])}`;
+    }
+    return `${fmtShort(periodAnchor)} – ${fmtShort(shiftDateISO(periodAnchor, 13))}`;
+  }, [viewMode, periodAnchor]);
+
+  function handleChipDragEnd(job, targetDate) {
+    if (confirm(`Move ${job.site_name || job.customer || 'this job'} to ${CAL_DAY_LABEL(targetDate)}?`)) {
+      onReschedule(job.id, targetDate);
+    }
+  }
+
+  return (
+    <div className="fade-in" style={{ minHeight:'100vh', background:'var(--bg)' }}>
+      <div style={{ padding:'18px 16px 14px', borderBottom:'1px solid var(--line)', background:'var(--panel)', position:'sticky', top:0, zIndex:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <button onClick={onClose} className="head" style={{ fontSize:22, color:'var(--text)', background:'none', border:'none', padding:'0 6px', cursor:'pointer' }}>‹</button>
+          <div className="head" style={{ fontSize:20, fontWeight:700 }}>CALENDAR</div>
+        </div>
+        <div style={{ display:'flex', gap:8, marginTop:12 }}>
+          {['agenda','month','week'].map(m => (
+            <button key={m} onClick={() => changeMode(m)} className="head"
+              style={{ flex:1, padding:'9px 0', borderRadius:7, fontSize:13, fontWeight:700,
+                background: viewMode===m ? 'var(--olive-bright)' : 'var(--panel)',
+                color: viewMode===m ? 'var(--bg)' : 'var(--muted)',
+                border:`1px solid ${viewMode===m ? 'var(--olive-bright)' : 'var(--line)'}`, cursor:'pointer' }}>
+              {m.toUpperCase()}
+            </button>
+          ))}
+        </div>
+        <div style={{ display:'flex', alignItems:'center', gap:8, marginTop:12 }}>
+          <button onClick={() => pageBy(-1)} className="head"
+            style={{ fontSize:16, padding:'4px 12px', background:'var(--panel)', border:'1px solid var(--line)', borderRadius:6, color:'var(--text)', cursor:'pointer' }}>‹</button>
+          <div className="mono" style={{ flex:1, textAlign:'center', fontSize:13, color:'var(--text)', letterSpacing:'0.05em' }}>{periodLabel}</div>
+          <button onClick={() => pageBy(1)} className="head"
+            style={{ fontSize:16, padding:'4px 12px', background:'var(--panel)', border:'1px solid var(--line)', borderRadius:6, color:'var(--text)', cursor:'pointer' }}>›</button>
+        </div>
+      </div>
+
+      <div style={{ padding:'12px 16px' }}>
+        {viewMode === 'month' && (
+          <div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4, marginBottom:4 }}>
+              {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d => (
+                <div key={d} className="mono" style={{ fontSize:10, color:'var(--muted)', textAlign:'center' }}>{d}</div>
+              ))}
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4 }}>
+              {monthGrid.map(cell => (
+                <CalendarDayCell key={cell.dateISO} dateISO={cell.dateISO} dimmed={!cell.inCurrentMonth}
+                  dayJobs={jobsByDate[cell.dateISO] || []} maxShown={3} minHeight={82}
+                  onOpenJob={onOpenJob} onDragEnd={handleChipDragEnd} onExpand={setExpandedDay} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {viewMode === 'week' && (
+          <div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4, marginBottom:4 }}>
+              {weekDates.map(d => (
+                <div key={d} className="mono" style={{ fontSize:10, color:'var(--muted)', textAlign:'center' }}>
+                  {new Date(d+'T00:00:00').toLocaleDateString('en-US',{weekday:'short'}).toUpperCase()}
+                </div>
+              ))}
+            </div>
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(7,1fr)', gap:4 }}>
+              {weekDates.map(d => (
+                <CalendarDayCell key={d} dateISO={d} dimmed={false}
+                  dayJobs={jobsByDate[d] || []} maxShown={6} minHeight={220}
+                  onOpenJob={onOpenJob} onDragEnd={handleChipDragEnd} onExpand={setExpandedDay} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {viewMode === 'agenda' && (
+          <div>
+            {agendaDays.map(d => {
+              const dayJobs = jobsByDate[d] || [];
+              const isToday = d === todayLocalISO();
+              return (
+                <div key={d} style={{ marginBottom:14 }}>
+                  <div className="head" style={{ fontSize:13, fontWeight:700,
+                    color: isToday ? 'var(--olive-bright)' : 'var(--text)',
+                    borderBottom:'1px solid var(--line)', paddingBottom:6, marginBottom:6 }}>
+                    {CAL_DAY_LABEL(d).toUpperCase()}{isToday ? ' · TODAY' : ''}
+                  </div>
+                  {dayJobs.length === 0 ? (
+                    <div className="mono" style={{ fontSize:12, color:'var(--muted)', padding:'4px 0' }}>No jobs</div>
+                  ) : dayJobs.map(j => {
+                    const color = calJobColor(j);
+                    return (
+                      <button key={j.id} onClick={() => onOpenJob(j.id)}
+                        style={{ display:'flex', alignItems:'center', gap:10, width:'100%', textAlign:'left',
+                          padding:'8px 10px', marginBottom:6, background:'var(--panel)', border:'1px solid var(--line)',
+                          borderLeft:`3px solid ${color}`, borderRadius:8, cursor:'pointer' }}>
+                        <div className="mono" style={{ fontSize:13, color:'var(--brass-bright)', minWidth:70 }}>{fmtTime(j.scheduled_time)}</div>
+                        <div className="head" style={{ fontSize:14, color:'var(--text)', flex:1 }}>{j.site_name || j.customer}</div>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {expandedDay && (
+        <Sheet title={CAL_DAY_LABEL(expandedDay).toUpperCase()} onClose={() => setExpandedDay(null)}>
+          {(jobsByDate[expandedDay] || []).length === 0 ? (
+            <div className="mono" style={{ fontSize:13, color:'var(--muted)', padding:'12px 0' }}>No jobs</div>
+          ) : (jobsByDate[expandedDay] || []).map(j => {
+            const color = calJobColor(j);
+            return (
+              <button key={j.id} onClick={() => { setExpandedDay(null); onOpenJob(j.id); }}
+                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', textAlign:'left',
+                  padding:'10px', marginBottom:8, background:'var(--panel)', border:'1px solid var(--line)',
+                  borderLeft:`3px solid ${color}`, borderRadius:8, cursor:'pointer' }}>
+                <div className="mono" style={{ fontSize:13, color:'var(--brass-bright)', minWidth:70 }}>{fmtTime(j.scheduled_time)}</div>
+                <div className="head" style={{ fontSize:14, color:'var(--text)', flex:1 }}>{j.site_name || j.customer}</div>
+              </button>
+            );
+          })}
+        </Sheet>
+      )}
+    </div>
+  );
+}
+
 /* ── HoursReport ────────────────────────────────────────────────────────────── */
 function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
   const [weekOffset, setWeekOffset] = useState(0);
@@ -2455,6 +2749,7 @@ function App() {
   const [focusTimeLog, setFocusTimeLog] = useState(null); // { jobId, date, nonce } | null — deep-link from Hours' BY DAY tab
   const [showBalances, setShowBalances] = useState(false);
   const [showMaterials, setShowMaterials] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(false);
   const [users, setUsers] = useState(FALLBACK_USERS);
   const [expandedCustomers, setExpandedCustomers] = useState(new Set());
   const [clockSession, setClockSession] = useState(() => {
@@ -3640,6 +3935,9 @@ Command: "${transcript}"`
     onOpenJob={(id) => { setShowBalances(false); setSelectedId(id); }} />;
   if (showMaterials) return <MaterialsScreen jobs={jobs} onClose={() => setShowMaterials(false)}
     onUpdateMaterials={updateJobMaterials} onOpenJob={(id) => { setShowMaterials(false); setSelectedId(id); }} />;
+  if (showCalendar) return <CalendarView jobs={jobs} onClose={() => setShowCalendar(false)}
+    onOpenJob={(id) => { setShowCalendar(false); setSelectedId(id); }}
+    onReschedule={(id, dateISO) => { const j = jobs.find(x => x.id === id); updateJob(id, { scheduled_date: dateISO, scheduled_time: j?.scheduled_time }); }} />;
   if (showChoresGate) return (
     <React.Fragment>
       <ChoresView chores={chores} jobs={jobs} users={users} currentUser={currentUser}
@@ -3963,6 +4261,10 @@ Command: "${transcript}"`
   const FILTERS = [...usedStatuses, "All", ...(hasClosed ? ["Closed"] : [])];
   const effectiveFilter = filter ?? usedStatuses[0] ?? "All";
   const q = search.trim().toLowerCase();
+  const upcomingJobs = getCalendarJobs(jobs)
+    .filter(j => j.scheduled_date >= todayISO())
+    .sort((a,b) => (a.scheduled_date + a.scheduled_time).localeCompare(b.scheduled_date + b.scheduled_time))
+    .slice(0, 6);
 
   function matchesSearch(j) {
     if (!q) return true;
@@ -4138,6 +4440,38 @@ Command: "${transcript}"`
                   </button>
                 );
               })}
+            </div>
+          )}
+
+          {/* Upcoming — same getCalendarJobs scope as CalendarView, entry point into full Calendar */}
+          {!q && upcomingJobs.length > 0 && (
+            <div style={{ display:"flex", gap:8, padding:"10px 16px 0", overflowX:"auto",
+              WebkitOverflowScrolling:"touch", scrollbarWidth:"none" }}>
+              {upcomingJobs.map(j => {
+                const color = calJobColor(j);
+                return (
+                  <button key={j.id} onClick={() => setSelectedId(j.id)}
+                    style={{ display:"flex", flexDirection:"column", flexShrink:0, padding:"7px 12px",
+                      borderRadius:8, border:"1px solid var(--line)", borderLeft:`3px solid ${color}`,
+                      background:"var(--panel)", textAlign:"left", cursor:"pointer", maxWidth:160 }}>
+                    <span className="mono" style={{ fontSize:10, color:"var(--brass-bright)", whiteSpace:"nowrap" }}>
+                      {fmtDate(j.scheduled_date)} · {fmtTime(j.scheduled_time)}
+                    </span>
+                    <span className="head" style={{ fontSize:13, fontWeight:700, color:"var(--text)",
+                      whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis", maxWidth:136 }}>
+                      {j.site_name || j.customer}
+                    </span>
+                  </button>
+                );
+              })}
+              <button onClick={() => setShowCalendar(true)}
+                style={{ display:"flex", alignItems:"center", flexShrink:0, padding:"7px 14px",
+                  borderRadius:8, border:"1px solid var(--olive-bright)", background:"none",
+                  textAlign:"left", cursor:"pointer" }}>
+                <span className="head" style={{ fontSize:12, fontWeight:700, color:"var(--olive-bright)", whiteSpace:"nowrap" }}>
+                  VIEW ALL ›
+                </span>
+              </button>
             </div>
           )}
 
@@ -4677,6 +5011,7 @@ Command: "${transcript}"`
           {[
             { label:"REFRESH", icon:"↺", action: () => { refresh(); setShowMenu(false); } },
             { label:"HOURS REPORT", icon:"⏱", action: () => { setShowMenu(false); setShowHours(true); } },
+            { label:"CALENDAR", icon:"📅", action: () => { setShowMenu(false); setShowCalendar(true); } },
             { label:"BALANCES", icon:"$", action: () => { setShowMenu(false); setShowBalances(true); } },
             { label:"MATERIALS", icon:"🧰", action: () => { setShowMenu(false); setShowMaterials(true); } },
             { label:"CAP CALCULATOR", icon:"μF", action: () => { setShowMenu(false); setShowCapCalc(true); } },
@@ -5404,8 +5739,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [pendingStatus, setPendingStatus] = useState(null);
   const [confirmTime, setConfirmTime] = useState('');
   const [showResched, setShowResched] = useState(false);
-  const [date, setDate] = useState(job.scheduled_date);
-  const [time, setTime] = useState(job.scheduled_time);
+  const [date, setDate] = useState(job.scheduled_date || todayISO());
+  const [time, setTime] = useState(job.scheduled_time || nowTimeRounded15());
   const [originalAsk, setOriginalAsk] = useState(job.original_ask || '');
   const [notes, setNotes] = useState(job.notes || '');
   const [editingValue, setEditingValue] = useState(false);
@@ -7681,6 +8016,8 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
       : ((initial.customer_address||initial.address||"") === (initial.site_address||initial.address||"")),
     value: initial.value===0||initial.value ? String(initial.value) : "",
     site_name: initial.site_name || "",
+    scheduled_date: initial.scheduled_date || todayISO(),
+    scheduled_time: initial.scheduled_time || nowTimeRounded15(),
   } : {
     customer:"", location:"", customer_address:"", site_address:"", site_name:"",
     same_address: loadSameAddrPref(),
