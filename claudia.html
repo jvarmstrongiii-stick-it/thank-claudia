@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 218;
+const APP_REV = 219;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -5765,6 +5765,13 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [logText, setLogText] = useState(''); // "what we did today" entry box
   const [materials, setMaterials] = useState(job.materials_needed || []);
   const [matText, setMatText] = useState('');
+  // Shop-only: checking a material off the TMC SHOP list shows it struck-through briefly (with
+  // an undo option) then removes it from view — unlike a regular job, where checked materials
+  // stay visible/struck-through indefinitely. Data always keeps acquired:true either way.
+  const [shopAcquiredPending, setShopAcquiredPending] = useState(() => new Set());
+  const [shopUndoToast, setShopUndoToast] = useState(null); // { idx, text } | null
+  const shopHideTimers = useRef({});
+  useEffect(() => () => { Object.values(shopHideTimers.current).forEach(clearTimeout); }, []);
   const [crew, setCrew] = useState([]);
   const [crewLog, setCrewLog] = useState(job.crewLog || []);
   const [crewLogDate, setCrewLogDate] = useState(todayISO());
@@ -5887,9 +5894,28 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     if (onUpdateMaterials) await onUpdateMaterials(job.id, next);
   }
   async function toggleMaterial(idx) {
+    const wasAcquired = !!materials[idx]?.acquired;
+    const text = materials[idx]?.text;
     const next = materials.map((m, i) => i === idx ? { ...m, acquired: !m.acquired } : m);
     setMaterials(next);
     if (onUpdateMaterials) await onUpdateMaterials(job.id, next);
+    if (!isShop) return;
+    clearTimeout(shopHideTimers.current[idx]);
+    if (!wasAcquired) {
+      // freshly checked off on the shop list — stays visible briefly with an undo option, then hides
+      setShopAcquiredPending(prev => new Set(prev).add(idx));
+      setShopUndoToast({ idx, text });
+      shopHideTimers.current[idx] = setTimeout(() => {
+        setShopAcquiredPending(prev => { const n = new Set(prev); n.delete(idx); return n; });
+        setShopUndoToast(t => (t?.idx === idx ? null : t));
+        delete shopHideTimers.current[idx];
+      }, 2000);
+    } else {
+      // unchecked (undo tap, or re-toggled directly) — cancel any pending hide
+      setShopAcquiredPending(prev => { const n = new Set(prev); n.delete(idx); return n; });
+      setShopUndoToast(t => (t?.idx === idx ? null : t));
+      delete shopHideTimers.current[idx];
+    }
   }
   async function removeMaterial(idx) {
     const next = materials.filter((_, i) => i !== idx);
@@ -6660,7 +6686,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               color: matText.trim() ? "var(--bg)" : "var(--muted)" }}>ADD</button>
         </div>
       )}
-      {materials.map((m, i) => (
+      {materials.map((m, i) => ({ m, i }))
+        .filter(({ m, i }) => !isShop || !m.acquired || shopAcquiredPending.has(i))
+        .map(({ m, i }) => (
         <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"8px 0", borderTop:"1px solid var(--line)" }}>
           <input type="checkbox" checked={!!m.acquired} onChange={() => toggleMaterial(i)} disabled={isClosed}
             style={{ width:20, height:20, accentColor:"var(--green)", cursor: isClosed ? "default" : "pointer", flexShrink:0 }} />
@@ -6672,6 +6700,20 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
           )}
         </div>
       ))}
+      {isShop && shopUndoToast && (
+        <div style={{ position:"fixed", bottom:90, left:"50%", transform:"translateX(-50%)",
+          background:"var(--panel-2)", border:"1px solid var(--olive-bright)", borderRadius:8,
+          padding:"10px 12px 10px 16px", zIndex:250, display:"flex", alignItems:"center", gap:14,
+          boxShadow:"0 4px 20px rgba(0,0,0,0.5)", maxWidth:"90vw" }}>
+          <span className="mono" style={{ fontSize:14, color:"var(--text)", whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis" }}>
+            ✓ {shopUndoToast.text}
+          </span>
+          <button onClick={() => toggleMaterial(shopUndoToast.idx)} className="head"
+            style={{ fontSize:13, fontWeight:700, color:"var(--olive-bright)", background:"none", border:"none", padding:"4px 2px", cursor:"pointer", flexShrink:0 }}>
+            UNDO
+          </button>
+        </div>
+      )}
     </div>
   );
 
