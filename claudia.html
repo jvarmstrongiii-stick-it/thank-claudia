@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 220;
+const APP_REV = 221;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3455,9 +3455,36 @@ Command: "${transcript}"`
     if (edited.status === "Completed/Needs Billing") spawnBillingChore({ ...edited, _customer_id: customerId });
   }
 
+  // Purges every job_id-linked table before deleting the job itself — a job used to be
+  // deletable while leaving job_notes/job_crew/job_photos/receipts/chores orphaned behind it
+  // (surfaced as an unremovable "Unknown" entry in HoursReport). Bails on the first failure
+  // so a partial purge can never leave a NEW orphan the same way the original bug did.
   async function deleteJob(id) {
-    const { error } = await sb.from('jobs').delete().eq('id', id);
+    const { data: photos } = await sb.from('job_photos').select('storage_path').eq('job_id', id);
+    if (photos?.length) await sb.storage.from('job-photos').remove(photos.map(p => p.storage_path).filter(Boolean));
+    let { error } = await sb.from('job_photos').delete().eq('job_id', id);
     if (error) { showToast("Error deleting job", true); console.error(error); return; }
+
+    const { data: receipts } = await sb.from('receipts').select('id, storage_path').eq('job_id', id);
+    if (receipts?.length) {
+      const allPages = receipts.flatMap(receiptPages);
+      if (allPages.length) await sb.storage.from('job-photos').remove(allPages);
+    }
+    ({ error } = await sb.from('receipts').delete().eq('job_id', id));
+    if (error) { showToast("Error deleting job", true); console.error(error); return; }
+
+    ({ error } = await sb.from('job_notes').delete().eq('job_id', id));
+    if (error) { showToast("Error deleting job", true); console.error(error); return; }
+
+    ({ error } = await sb.from('job_crew').delete().eq('job_id', id));
+    if (error) { showToast("Error deleting job", true); console.error(error); return; }
+
+    ({ error } = await sb.from('chores').delete().eq('job_id', id));
+    if (error) { showToast("Error deleting job", true); console.error(error); return; }
+
+    ({ error } = await sb.from('jobs').delete().eq('id', id));
+    if (error) { showToast("Error deleting job", true); console.error(error); return; }
+
     setJobs(js => js.filter(j => j.id !== id));
     setChores(cs => cs.filter(c => c.job_id !== id));
     setSelectedId(null);
