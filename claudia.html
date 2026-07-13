@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 228;
+const APP_REV = 229;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -7015,7 +7015,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                   borderRadius:6, padding:"2px 6px" }} />
             ) : (
               <span className="head"
-                onClick={isClosed ? undefined : () => { setValueDraft(job.value ?? ''); setEditingValue(true); }}
+                onClick={isClosed ? undefined : () => { setValueDraft(job.value || ''); setEditingValue(true); }}
                 style={{ fontSize:24, fontWeight:700, color:"var(--olive-bright)",
                   cursor: isClosed ? "default" : "pointer" }}>
                 {money(job.value)}{!isClosed && ' ✎'}
