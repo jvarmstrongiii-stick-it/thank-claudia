@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 225;
+const APP_REV = 227;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -264,6 +264,8 @@ function openMapsNav(job) {
 function custAddr(j) { return j.customer_address || j.address || ""; }
 function uid() { return "job_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function money(n) { return "$" + Number(n||0).toLocaleString("en-US"); }
+// Job value minus any deposit collected — the actual amount still owed.
+function jobBalance(j) { return Math.max(0, Number(j.value||0) - Number(j.deposit_amount||0)); }
 // Open-chore priority order: your voice reminders, then your other assigned chores,
 // then unassigned, then everyone else's (shown, not hidden).
 function sortChoresForUser(list, userId) {
@@ -484,6 +486,11 @@ function fromRow(row, notes=[]) {
     materials_needed: Array.isArray(row.materials_needed) ? row.materials_needed : [],
     created_at: row.created_at || '',
     updated_at: row.updated_at || '',
+    // Deposit fields: not in toRow (mirrors materials_needed/site_name) so a missing column
+    // never breaks a normal job save — written only via the guarded updateJobDeposit.
+    deposit_amount: row.deposit_amount != null ? Number(row.deposit_amount) : null,
+    deposit_method: row.deposit_method || null, // 'cash' | 'check'
+    deposit_check_number: row.deposit_check_number || null,
     // Most recent "Job status → Closed" system note — used to sort the dashboard's Closed
     // tab by when a job was actually closed, not by its (frozen, no-longer-meaningful) schedule.
     // notes is created_at-ascending from fetchJobs, so the last match is the most recent close.
@@ -2582,7 +2589,7 @@ function BalancesScreen({ jobs, onClose, onOpenJob }) {
     });
     Object.values(buckets).forEach(b => {
       b.jobs.sort((a, b2) => Number(b2.value||0) - Number(a.value||0));
-      b.total = b.jobs.reduce((s, j) => s + Number(j.value||0), 0);
+      b.total = b.jobs.reduce((s, j) => s + jobBalance(j), 0);
     });
     return buckets;
   }, [jobs]);
@@ -2628,7 +2635,8 @@ function BalancesScreen({ jobs, onClose, onOpenJob }) {
   const rowStyle = { marginBottom: 8, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
   const subRowStyle = (first) => ({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: first ? 'none' : '1px solid var(--line)' });
 
-  function JobRow({ j, first, dateLabel }) {
+  function JobRow({ j, first, dateLabel, amount }) {
+    const shown = amount ?? j.value;
     return (
       <button onClick={() => onOpenJob(j.id)} style={{ ...subRowStyle(first), width: '100%', textAlign: 'left' }}>
         <div style={{ flex: 1, paddingRight: 10 }}>
@@ -2641,8 +2649,13 @@ function BalancesScreen({ jobs, onClose, onOpenJob }) {
             <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{j.customer}</div>
           )}
           {dateLabel && <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>{dateLabel}</div>}
+          {shown !== j.value && (
+            <div className="mono" style={{ fontSize: 10, color: 'var(--muted)', marginTop: 1 }}>
+              value {money(j.value)} − deposit {money(j.deposit_amount)}
+            </div>
+          )}
         </div>
-        <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--olive-bright)' }}>{money(j.value)}</div>
+        <div className="mono" style={{ fontSize: 13, fontWeight: 700, color: 'var(--olive-bright)' }}>{money(shown)}</div>
       </button>
     );
   }
@@ -2677,7 +2690,7 @@ function BalancesScreen({ jobs, onClose, onOpenJob }) {
               </button>
               {expandedKeys.has(key) && (
                 <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
-                  {cat.jobs.map((j, i) => <JobRow key={j.id} j={j} first={i === 0} />)}
+                  {cat.jobs.map((j, i) => <JobRow key={j.id} j={j} first={i === 0} amount={jobBalance(j)} />)}
                 </div>
               )}
             </div>
@@ -3481,6 +3494,26 @@ Command: "${transcript}"`
     return true;
   }
 
+  // Deposit fields are written only here (not via toRow) so unmigrated job saves never break.
+  // Clearing deposit_check_number whenever method isn't 'check' avoids a stale check number
+  // lingering after switching a deposit from check to cash.
+  async function updateJobDeposit(id, fields) {
+    const patch = {
+      deposit_amount: fields.deposit_amount != null ? Number(fields.deposit_amount) : null,
+      deposit_method: fields.deposit_method || null,
+      deposit_check_number: fields.deposit_method === 'check' ? (fields.deposit_check_number || null) : null,
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await sb.from('jobs').update(patch).eq('id', id);
+    if (error) {
+      if (error.code === 'PGRST204') showToast("Deposit needs one-time DB setup — ask Jack", true);
+      else { showToast("Error saving deposit", true); console.error(error); }
+      return false;
+    }
+    setJobs(js => js.map(j => j.id === id ? { ...j, ...patch } : j));
+    return true;
+  }
+
   async function saveEdit(edited) {
     const customerId = await resolveCustomer(edited);
     if (!customerId) { showToast("Could not resolve customer", true); return; }
@@ -4050,6 +4083,7 @@ Command: "${transcript}"`
           setAdding(true);
         }}
         onUpdateMaterials={updateJobMaterials}
+        onUpdateDeposit={updateJobDeposit}
         focusTimeLog={focusTimeLog} />
       {showLeaving && clockSession && (
         <LeavingSheet clockSession={clockSession} jobs={jobs}
@@ -4345,7 +4379,7 @@ Command: "${transcript}"`
   if (!q && effectiveFilter === "Closed") {
     shown.sort((a, b) => (b.closed_at || b.updated_at || '').localeCompare(a.closed_at || a.updated_at || ''));
   }
-  const outstanding = jobs.filter(j => isActive(j.status)).reduce((s,j) => s + Number(j.value||0), 0);
+  const outstanding = jobs.filter(j => isActive(j.status)).reduce((s,j) => s + jobBalance(j), 0);
 
   return (
     <div className="fade-in">
@@ -5802,7 +5836,7 @@ function DuplicateEquipmentSheet({ scan, existing, onOverride, onKeep }) {
 
 /* ── JobDetail ─────────────────────────────────────────────────────────────── */
 function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users, jobs, browseMode,
-                     clockSession, onFlipToOnSite, onPause, onResume, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect, showToast, onDuplicate, onUpdateMaterials, focusTimeLog }) {
+                     clockSession, onFlipToOnSite, onPause, onResume, onLeaving, clockUndo, onUndoClock, getTodayMs, onJobSelect, showToast, onDuplicate, onUpdateMaterials, onUpdateDeposit, focusTimeLog }) {
   const [showCapCalc, setShowCapCalc] = useState(false);
   const [showStatus, setShowStatus] = useState(false);
   const [showMapsPrompt, setShowMapsPrompt] = useState(false);
@@ -5815,6 +5849,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [notes, setNotes] = useState(job.notes || '');
   const [editingValue, setEditingValue] = useState(false);
   const [valueDraft, setValueDraft] = useState('');
+  const [editingDeposit, setEditingDeposit] = useState(false);
+  const [depositDraft, setDepositDraft] = useState({ amount:'', method:'cash', check_number:'' });
   const [photos, setPhotos] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
@@ -6716,6 +6752,31 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     setEditingValue(false);
     if (valueDraft !== (job.value ?? '')) onUpdate({ value: valueDraft });
   }
+  function openDepositEdit() {
+    setDepositDraft({
+      amount: job.deposit_amount ?? '',
+      method: job.deposit_method || 'cash',
+      check_number: job.deposit_check_number || '',
+    });
+    setEditingDeposit(true);
+  }
+  async function saveDeposit() {
+    const amt = Number(depositDraft.amount);
+    if (!amt || amt <= 0) { showToast?.('Enter a deposit amount', true); return; }
+    if (depositDraft.method === 'check' && !depositDraft.check_number.trim()) { showToast?.('Enter a check number', true); return; }
+    if (!onUpdateDeposit) return;
+    const ok = await onUpdateDeposit(job.id, {
+      deposit_amount: amt,
+      deposit_method: depositDraft.method,
+      deposit_check_number: depositDraft.method === 'check' ? depositDraft.check_number.trim() : null,
+    });
+    if (ok) setEditingDeposit(false);
+  }
+  async function removeDeposit() {
+    if (!onUpdateDeposit) return;
+    const ok = await onUpdateDeposit(job.id, { deposit_amount: null, deposit_method: null, deposit_check_number: null });
+    if (ok) setEditingDeposit(false);
+  }
   async function saveReceiptEdit() {
     if (!editingReceipt) return;
     const { id, vendor, amount, date, paid_by } = editingReceipt;
@@ -6934,6 +6995,73 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                   cursor: isClosed ? "default" : "pointer" }}>
                 {money(job.value)}{!isClosed && ' ✎'}
               </span>
+            )}
+          </div>
+        )}
+
+        {!isShop && (
+          <div style={{ marginTop:10, padding:14, background:"var(--panel)", border: editingDeposit ? "1px solid var(--olive-bright)" : "1px solid var(--line)", borderRadius:10 }}>
+            {editingDeposit ? (
+              <>
+                <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:10 }}>DEPOSIT</div>
+                <input type="number" inputMode="decimal" autoFocus placeholder="$ Amount"
+                  value={depositDraft.amount} onChange={e => setDepositDraft(d => ({ ...d, amount:e.target.value }))}
+                  style={{ width:"100%", boxSizing:"border-box", marginBottom:10, padding:"10px 12px", borderRadius:8,
+                    background:"var(--bg)", border:"1px solid var(--line)", color:"var(--text)", fontSize:15, fontFamily:"inherit" }} />
+                <div style={{ display:"flex", gap:8, marginBottom:10 }}>
+                  <button onClick={() => setDepositDraft(d => ({ ...d, method:'cash' }))} className="head"
+                    style={{ flex:1, padding:12, borderRadius:8, fontSize:14, fontWeight:700,
+                      background: depositDraft.method === 'cash' ? "var(--olive-bright)" : "var(--panel)",
+                      color: depositDraft.method === 'cash' ? "var(--bg)" : "var(--text)",
+                      border: depositDraft.method === 'cash' ? "none" : "1px solid var(--line)" }}>
+                    💵 CASH
+                  </button>
+                  <button onClick={() => setDepositDraft(d => ({ ...d, method:'check' }))} className="head"
+                    style={{ flex:1, padding:12, borderRadius:8, fontSize:14, fontWeight:700,
+                      background: depositDraft.method === 'check' ? "var(--olive-bright)" : "var(--panel)",
+                      color: depositDraft.method === 'check' ? "var(--bg)" : "var(--text)",
+                      border: depositDraft.method === 'check' ? "none" : "1px solid var(--line)" }}>
+                    📝 CHECK
+                  </button>
+                </div>
+                {depositDraft.method === 'check' && (
+                  <input placeholder="Check #" value={depositDraft.check_number}
+                    onChange={e => setDepositDraft(d => ({ ...d, check_number:e.target.value }))}
+                    style={{ width:"100%", boxSizing:"border-box", marginBottom:10, padding:"10px 12px", borderRadius:8,
+                      background:"var(--bg)", border:"1px solid var(--line)", color:"var(--text)", fontSize:15, fontFamily:"inherit" }} />
+                )}
+                <div style={{ display:"flex", gap:8 }}>
+                  <button onClick={saveDeposit} className="head" style={{ flex:1, padding:"10px 0", borderRadius:6, border:"none", background:"var(--olive-bright)", color:"var(--bg)", fontSize:13, fontWeight:700 }}>SAVE</button>
+                  {job.deposit_amount != null && (
+                    <button onClick={removeDeposit} className="head" style={{ padding:"10px 12px", borderRadius:6, background:"transparent", color:"var(--danger)", border:"1px solid var(--danger)", fontSize:13 }}>REMOVE</button>
+                  )}
+                  <button onClick={() => setEditingDeposit(false)} className="head" style={{ padding:"10px 12px", borderRadius:6, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)", fontSize:13 }}>CANCEL</button>
+                </div>
+              </>
+            ) : (
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>DEPOSIT</span>
+                {job.deposit_amount != null ? (
+                  <span className="head" onClick={isClosed ? undefined : openDepositEdit}
+                    style={{ fontSize:20, fontWeight:700, color:"var(--olive-bright)", cursor: isClosed ? "default" : "pointer" }}>
+                    {money(job.deposit_amount)}
+                    <span className="mono" style={{ fontSize:12, color:"var(--muted)", fontWeight:400, marginLeft:8 }}>
+                      {job.deposit_method === 'check' ? `CHECK #${job.deposit_check_number || '—'}` : 'CASH'}
+                    </span>
+                    {!isClosed && ' ✎'}
+                  </span>
+                ) : (
+                  isClosed
+                    ? <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>None</span>
+                    : (
+                      <button onClick={openDepositEdit} className="head"
+                        style={{ fontSize:12, fontWeight:700, padding:"6px 12px", borderRadius:5,
+                          background:"var(--panel)", border:"1px solid var(--line)", color:"var(--muted)" }}>
+                        + ADD DEPOSIT
+                      </button>
+                    )
+                )}
+              </div>
             )}
           </div>
         )}
