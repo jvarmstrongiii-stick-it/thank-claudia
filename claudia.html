@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 227;
+const APP_REV = 228;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -3842,24 +3842,30 @@ Command: "${transcript}"`
               </div>
               <div style={{ display:"flex", gap:12 }}>
                 <button onClick={async () => {
-                  const { newJobId, oldJobId } = leavingCrewCheck;
-                  const at = new Date().toISOString();
-                  await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
-                  if (newJobId) {
-                    await upsertJobCrewStatus(newJobId, person.id, 'In Route');
-                    const newJob = jobs.find(j => j.id === newJobId);
-                    await sb.from('job_notes').insert({
-                      job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
-                      source: 'system', created_at: at, user_id: currentUser.id,
-                    });
-                    await sb.from('notifications').insert({
-                      user_id: person.id,
-                      message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
-                      read: false, created_at: at,
-                    });
+                  if (clockActionInFlight.current) return;
+                  clockActionInFlight.current = true;
+                  try {
+                    const { newJobId, oldJobId } = leavingCrewCheck;
+                    const at = new Date().toISOString();
+                    await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
+                    if (newJobId) {
+                      await upsertJobCrewStatus(newJobId, person.id, 'In Route');
+                      const newJob = jobs.find(j => j.id === newJobId);
+                      await sb.from('job_notes').insert({
+                        job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+                        source: 'system', created_at: at, user_id: currentUser.id,
+                      });
+                      await sb.from('notifications').insert({
+                        user_id: person.id,
+                        message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
+                        read: false, created_at: at,
+                      });
+                    }
+                    advance(false);
+                    refresh();
+                  } finally {
+                    clockActionInFlight.current = false;
                   }
-                  advance(false);
-                  refresh();
                 }} className="head"
                   style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                     background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
@@ -4145,24 +4151,30 @@ Command: "${transcript}"`
             </div>
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
-                const { newJobId, oldJobId } = leavingCrewCheck;
-                const at = new Date().toISOString();
-                await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
-                if (newJobId) {
-                  await upsertJobCrewStatus(newJobId, person.id, 'In Route');
-                  const newJob = jobs.find(j => j.id === newJobId);
-                  await sb.from('job_notes').insert({
-                    job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
-                    source: 'system', created_at: at, user_id: currentUser.id,
-                  });
-                  await sb.from('notifications').insert({
-                    user_id: person.id,
-                    message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
-                    read: false, created_at: at,
-                  });
+                if (clockActionInFlight.current) return;
+                clockActionInFlight.current = true;
+                try {
+                  const { newJobId, oldJobId } = leavingCrewCheck;
+                  const at = new Date().toISOString();
+                  await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
+                  if (newJobId) {
+                    await upsertJobCrewStatus(newJobId, person.id, 'In Route');
+                    const newJob = jobs.find(j => j.id === newJobId);
+                    await sb.from('job_notes').insert({
+                      job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+                      source: 'system', created_at: at, user_id: currentUser.id,
+                    });
+                    await sb.from('notifications').insert({
+                      user_id: person.id,
+                      message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
+                      read: false, created_at: at,
+                    });
+                  }
+                  advance(false);
+                  refresh();
+                } finally {
+                  clockActionInFlight.current = false;
                 }
-                advance(false);
-                refresh();
               }} className="head"
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
@@ -4878,24 +4890,30 @@ Command: "${transcript}"`
             </div>
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={async () => {
-                const { newJobId, oldJobId } = leavingCrewCheck;
-                const at = new Date().toISOString();
-                await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
-                if (newJobId) {
-                  await upsertJobCrewStatus(newJobId, person.id, 'In Route');
-                  const newJob = jobs.find(j => j.id === newJobId);
-                  await sb.from('job_notes').insert({
-                    job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
-                    source: 'system', created_at: at, user_id: currentUser.id,
-                  });
-                  await sb.from('notifications').insert({
-                    user_id: person.id,
-                    message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
-                    read: false, created_at: at,
-                  });
+                if (clockActionInFlight.current) return;
+                clockActionInFlight.current = true;
+                try {
+                  const { newJobId, oldJobId } = leavingCrewCheck;
+                  const at = new Date().toISOString();
+                  await clearCrewWithNote(oldJobId, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser.id);
+                  if (newJobId) {
+                    await upsertJobCrewStatus(newJobId, person.id, 'In Route');
+                    const newJob = jobs.find(j => j.id === newJobId);
+                    await sb.from('job_notes').insert({
+                      job_id: newJobId, content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+                      source: 'system', created_at: at, user_id: currentUser.id,
+                    });
+                    await sb.from('notifications').insert({
+                      user_id: person.id,
+                      message: `${currentUser.name} marked you In Route to ${newJob?.customer || 'a job'}`,
+                      read: false, created_at: at,
+                    });
+                  }
+                  advance(false);
+                  refresh();
+                } finally {
+                  clockActionInFlight.current = false;
                 }
-                advance(false);
-                refresh();
               }} className="head"
                 style={{ flex:1, padding:14, fontSize:15, fontWeight:700, borderRadius:10,
                   background:"var(--olive-bright)", color:"var(--bg)", border:"none" }}>
@@ -5970,6 +5988,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const otherScanRef = useRef();
   const otherScanGalleryRef = useRef();
   const timeLogRef = useRef();
+  const travelCheckInFlight = useRef(false); // guards answerTravelCheck against a double-tap firing the same crew move twice
   // Deep-link from Hours' BY DAY tab: jump straight to this job's Time Log, on the day that was clicked.
   useEffect(() => {
     if (!focusTimeLog || focusTimeLog.jobId !== job.id) return;
@@ -6131,27 +6150,33 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   }
 
   async function answerTravelCheck(comingAlong) {
-    if (!travelCheck || travelCheck.queue.length === 0) { setTravelCheck(null); return; }
-    const [person, ...rest] = travelCheck.queue;
-    if (comingAlong) {
-      const at = new Date().toISOString();
-      const targetJob = (jobs||[]).find(j => j.id === travelCheck.targetJobId);
-      const { note: leaveNote } = await clearCrewWithNote(job.id, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser?.id || null);
-      if (leaveNote) setCrewLog(prev => [...prev, { id: leaveNote.id, content: leaveNote.content, at }]);
-      await upsertJobCrewStatus(travelCheck.targetJobId, person.id, 'In Route');
-      await sb.from('job_notes').insert({
-        job_id: travelCheck.targetJobId,
-        content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
-        source: 'system', created_at: at, user_id: currentUser?.id || null,
-      });
-      await sb.from('notifications').insert({
-        user_id: person.id,
-        message: `${currentUser.name} has marked you In Route to ${targetJob?.customer || 'a job'}${targetJob?.site_address ? ' — ' + targetJob.site_address : ''}`,
-        read: false, created_at: at,
-      });
-      setCrew(prev => prev.filter(c => c.user_id !== person.id));
+    if (travelCheckInFlight.current) return;
+    travelCheckInFlight.current = true;
+    try {
+      if (!travelCheck || travelCheck.queue.length === 0) { setTravelCheck(null); return; }
+      const [person, ...rest] = travelCheck.queue;
+      if (comingAlong) {
+        const at = new Date().toISOString();
+        const targetJob = (jobs||[]).find(j => j.id === travelCheck.targetJobId);
+        const { note: leaveNote } = await clearCrewWithNote(job.id, person.id, person.name, at, ` — with ${currentUser.name}`, currentUser?.id || null);
+        if (leaveNote) setCrewLog(prev => [...prev, { id: leaveNote.id, content: leaveNote.content, at }]);
+        await upsertJobCrewStatus(travelCheck.targetJobId, person.id, 'In Route');
+        await sb.from('job_notes').insert({
+          job_id: travelCheck.targetJobId,
+          content: `Status → In Route (${person.name}) — with ${currentUser.name}`,
+          source: 'system', created_at: at, user_id: currentUser?.id || null,
+        });
+        await sb.from('notifications').insert({
+          user_id: person.id,
+          message: `${currentUser.name} has marked you In Route to ${targetJob?.customer || 'a job'}${targetJob?.site_address ? ' — ' + targetJob.site_address : ''}`,
+          read: false, created_at: at,
+        });
+        setCrew(prev => prev.filter(c => c.user_id !== person.id));
+      }
+      setTravelCheck(rest.length > 0 ? { ...travelCheck, queue: rest } : null);
+    } finally {
+      travelCheckInFlight.current = false;
     }
-    setTravelCheck(rest.length > 0 ? { ...travelCheck, queue: rest } : null);
   }
 
   async function routeCrewMember(u, targetJob) {
