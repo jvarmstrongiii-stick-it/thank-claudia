@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 222;
+const APP_REV = 223;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -468,6 +468,14 @@ function fromRow(row, notes=[]) {
     notes: row.notes || '',
     materials_needed: Array.isArray(row.materials_needed) ? row.materials_needed : [],
     created_at: row.created_at || '',
+    updated_at: row.updated_at || '',
+    // Most recent "Job status → Closed" system note — used to sort the dashboard's Closed
+    // tab by when a job was actually closed, not by its (frozen, no-longer-meaningful) schedule.
+    // notes is created_at-ascending from fetchJobs, so the last match is the most recent close.
+    closed_at: (() => {
+      const closes = notes.filter(n => n.source === 'system' && /^Job status → Closed\b/.test(n.content));
+      return closes.length ? closes[closes.length - 1].created_at : null;
+    })(),
     history: notes.filter(n => n.source !== 'system').map(n => ({
       id: n.id,
       date: n.created_at ? dateISOInTZ(new Date(n.created_at), getAppTZ()) : '',
@@ -4302,6 +4310,11 @@ Command: "${transcript}"`
   }
 
   const shown = q ? jobs.filter(matchesSearch) : jobs.filter(j => effectiveFilter === "All" ? j.status !== "Closed" : j.status === effectiveFilter);
+  // Closed tab: most-recently-closed first, not the default scheduled_at order — closed jobs'
+  // schedules are frozen/irrelevant, what matters is when they were actually closed.
+  if (!q && effectiveFilter === "Closed") {
+    shown.sort((a, b) => (b.closed_at || b.updated_at || '').localeCompare(a.closed_at || a.updated_at || ''));
+  }
   const outstanding = jobs.filter(j => isActive(j.status)).reduce((s,j) => s + Number(j.value||0), 0);
 
   return (
