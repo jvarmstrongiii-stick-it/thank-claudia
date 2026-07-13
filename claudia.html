@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 224;
+const APP_REV = 225;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -293,6 +293,21 @@ function fmtTimestamp(iso) {
   const dayISO = dateISOInTZ(d, getAppTZ());
   if (dayISO === todayLocalISO()) return time;
   const [, mm, dd] = dayISO.split("-");
+  return `${mm}/${dd} ${time}`;
+}
+// A period's end must show its date whenever it differs from the START's calendar day —
+// fmtTimestamp alone compares each side independently to the real today, which silently
+// drops the date when the end happens to land on today even though the start didn't
+// (e.g. a period spanning multiple days reads as a same-day range).
+function fmtPeriodEnd(startIso, endIso) {
+  if (!endIso) return "—";
+  const d = new Date(endIso);
+  if (isNaN(d)) return "—";
+  const time = tzClock(d);
+  const endDay = dateISOInTZ(d, getAppTZ());
+  const startDay = startIso ? dateISOInTZ(new Date(startIso), getAppTZ()) : null;
+  if (endDay === startDay) return time;
+  const [, mm, dd] = endDay.split("-");
   return `${mm}/${dd} ${time}`;
 }
 function fmtElapsed(ms) {
@@ -2490,7 +2505,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                           <div style={{ marginTop: 6 }}>
                             {ud.periods.slice().sort((a, b) => new Date(a.start) - new Date(b.start)).map((p, pi) => (
                               <div key={pi} className="mono" style={{ fontSize: 11, color: p.dangling ? 'var(--danger)' : 'var(--muted)', marginTop: 2 }}>
-                                {p.jobLabel} — {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtTimestamp(p.end) : '⚠️ NO CLOCK-OUT')}
+                                {p.jobLabel} — {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtPeriodEnd(p.start, p.end) : '⚠️ NO CLOCK-OUT')}
                                 {(p.end || p.ongoing) && ` (${fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})`}
                                 {p.billTo && ` — billed to ${p.billTo === 'shop' ? 'shop' : 'this job'}`}
                               </div>
@@ -7687,7 +7702,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                       <div key={i} style={{ marginTop:4 }}>
                         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                           <div className="mono" style={{ fontSize:12, color: p.dangling ? "var(--danger)" : "var(--muted)" }}>
-                            {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtTimestamp(p.end) : '⚠️ NO CLOCK-OUT')}
+                            {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtPeriodEnd(p.start, p.end) : '⚠️ NO CLOCK-OUT')}
                             {(p.end || p.ongoing) && <React.Fragment>{' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})</React.Fragment>}
                             {p.billTo && <span style={{ color:"var(--gold)" }}>{' '}— billed to {p.billTo === 'shop' ? 'shop' : 'this job'}</span>}
                           </div>
