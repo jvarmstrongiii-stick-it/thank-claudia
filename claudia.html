@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 221;
+const APP_REV = 222;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -7663,7 +7663,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                             {(p.end || p.ongoing) && <React.Fragment>{' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})</React.Fragment>}
                             {p.billTo && <span style={{ color:"var(--gold)" }}>{' '}— billed to {p.billTo === 'shop' ? 'shop' : 'this job'}</span>}
                           </div>
-                          {!isClosed && (
+                          {(!isClosed || p.dangling) && (
                             <div style={{ display:"flex", gap:4 }}>
                               {!p.ongoing && (
                                 <button onClick={() => isEditing ? setEditingLogPeriod(null) : openLogEdit(name, i, p)} className="mono"
