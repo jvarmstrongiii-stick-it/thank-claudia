@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 230;
+const APP_REV = 231;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -716,11 +716,12 @@ async function updateEquipment(id, fields) {
   if ('source_photo_url' in fields) row.source_photo_url = fields.source_photo_url || null;
   if ('filter_size' in fields) row.filter_size = fields.filter_size || null;
   if ('filter_last_replaced' in fields) row.filter_last_replaced = fields.filter_last_replaced || null;
+  if ('filter_qty' in fields) row.filter_qty = fields.filter_qty ? Number(fields.filter_qty) : null;
   EQUIP_KEYS.forEach(k => { if (k in fields) row[k] = fields[k]||null; });
   let { error } = await sb.from('equipment').update(row).eq('id', id);
   // Filter columns may not be migrated yet — retry without them so other edits still save.
-  if (error && error.code === 'PGRST204' && ('filter_size' in row || 'filter_last_replaced' in row)) {
-    delete row.filter_size; delete row.filter_last_replaced;
+  if (error && error.code === 'PGRST204' && ('filter_size' in row || 'filter_last_replaced' in row || 'filter_qty' in row)) {
+    delete row.filter_size; delete row.filter_last_replaced; delete row.filter_qty;
     ({ error } = await sb.from('equipment').update(row).eq('id', id));
   }
   return error;
@@ -6620,9 +6621,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             {eq.serial_number && (
               <div className="mono" style={{ fontSize:13, color:"var(--brass)", marginTop:1 }}>S/N {eq.serial_number}</div>
             )}
-            {(eq.filter_size || eq.filter_last_replaced) && (
+            {(eq.filter_size || eq.filter_qty || eq.filter_last_replaced) && (
               <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:3 }}>
-                FILTER{eq.filter_size ? ` ${eq.filter_size}` : ''}{eq.filter_last_replaced ? ` · replaced ${fmtDate(eq.filter_last_replaced)}` : ''}
+                FILTER{eq.filter_size ? ` ${eq.filter_size}` : ''}{eq.filter_qty ? ` ×${eq.filter_qty}` : ''}{eq.filter_last_replaced ? ` · replaced ${fmtDate(eq.filter_last_replaced)}` : ''}
               </div>
             )}
             {ws.type === 'registered' && (
@@ -8759,6 +8760,7 @@ function EquipEditSheet({ eq, onSave, onClose }) {
   const [installDate, setInstallDate] = useState(eq.install_date || '');
   const [warrantyReg, setWarrantyReg] = useState(!!eq.warranty_registered);
   const [filterSize, setFilterSize] = useState(eq.filter_size || '');
+  const [filterQty, setFilterQty] = useState(eq.filter_qty ?? '');
   const [filterDate, setFilterDate] = useState(eq.filter_last_replaced || '');
   const [saving, setSaving] = useState(false);
 
@@ -8768,6 +8770,7 @@ function EquipEditSheet({ eq, onSave, onClose }) {
     const updates = { label: label.trim(), install_date: installDate || null, warranty_registered: warrantyReg };
     if (!warrantyReg) updates.warranty_registered_date = null;
     updates.filter_size = filterSize.trim() || null;
+    updates.filter_qty = filterQty ? Number(filterQty) : null;
     updates.filter_last_replaced = filterDate || null;
     EQUIP_KEYS.forEach(k => { updates[k] = fields[k] || null; });
     const error = await updateEquipment(eq.id, updates);
@@ -8790,6 +8793,8 @@ function EquipEditSheet({ eq, onSave, onClose }) {
       <input type="date" value={installDate} onChange={e => setInstallDate(e.target.value)} />
       <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"12px 0 6px" }}>FILTER SIZE</div>
       <input value={filterSize} onChange={e => setFilterSize(e.target.value)} placeholder="e.g. 16x25x1" />
+      <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"12px 0 6px" }}>FILTER QUANTITY (this unit)</div>
+      <input type="number" inputMode="numeric" min="1" value={filterQty} onChange={e => setFilterQty(e.target.value)} placeholder="e.g. 2" />
       <div style={{ display:"flex", alignItems:"center", gap:12, marginTop:12, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
         <input type="checkbox" id="edit-filt" checked={!!filterDate}
           onChange={e => setFilterDate(e.target.checked ? todayLocalISO() : '')}
