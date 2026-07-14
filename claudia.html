@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 233;
+const APP_REV = 234;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -254,6 +254,12 @@ function nowTimeRounded15() {
   return `${pad(hours)}:${pad(mins)}`;
 }
 function nowTimeHHMM() { return tzTimeHHMM(new Date()); }
+function nowTimeRoundedNextHour() {
+  const [h, m] = tzTimeHHMM().split(':').map(Number);
+  const hours = m === 0 ? h : (h + 1) % 24;
+  const pad = n => String(n).padStart(2,"0");
+  return `${pad(hours)}:00`;
+}
 function siteAddr(j) { return j.site_address || j.address || ""; }
 function openMapsNav(job) {
   if (!job) return;
@@ -2843,8 +2849,9 @@ function App() {
   const [orphanCrewEntry, setOrphanCrewEntry] = useState(null); // { job_id, status, status_at } — lost session to recover
   const [closeJobPromptId, setCloseJobPromptId] = useState(null); // job id to prompt closing after Completed/Paid
   const [billingPaidPromptId, setBillingPaidPromptId] = useState(null); // job id to ask "is this paid?" after billing chore
-  const [fieldTimeConfirm, setFieldTimeConfirm] = useState(null); // { type:'clockIn'|'moveJob'|'flipOnSite', jobId?, status? }
+  const [fieldTimeConfirm, setFieldTimeConfirm] = useState(null); // { type:'clockIn'|'moveJob'|'flipOnSite'|'clockOut'|'pause'|'resume', jobId?, status?, showDate? }
   const [fieldConfirmTime, setFieldConfirmTime] = useState(() => nowTimeHHMM());
+  const [fieldConfirmDate, setFieldConfirmDate] = useState(() => todayLocalISO()); // only shown/used for a clockOut whose leg started on an earlier day
   const [pendingMapsJob, setPendingMapsJob] = useState(null); // job object awaiting "Want directions?" prompt
   const [pendingShopActivity, setPendingShopActivity] = useState(null); // { shopJobId, startedAt, mapsJobId } — fires after leaving shop
   const [showMenu, setShowMenu] = useState(false);
@@ -3135,7 +3142,12 @@ Command: "${transcript}"`
   function handleClockOut(jobStatus) {
     setShowClockOut(false);
     setFieldConfirmTime(nowTimeHHMM());
-    setFieldTimeConfirm({ type: 'clockOut', jobStatus });
+    // If the current leg started on an earlier day (forgot to clock out overnight), default
+    // the date field to that day and show it — otherwise it's today's date, hidden as usual.
+    const legStart = clockSession?.legStartedAt || clockSession?.startedAt;
+    const legDay = legStart ? dateISOInTZ(new Date(legStart), getAppTZ()) : todayLocalISO();
+    setFieldConfirmDate(legDay);
+    setFieldTimeConfirm({ type: 'clockOut', jobStatus, showDate: legDay !== todayLocalISO() });
   }
   function handlePause(reason, billTo) {
     setShowPause(false);
@@ -3166,8 +3178,12 @@ Command: "${transcript}"`
         job_id: jobId, content: `Status → ${status} (${currentUser.name}) — ${reason}${billTag}`,
         source: 'system', created_at: at, user_id: currentUser.id,
       });
-      // Bank the worked leg BEFORE the pause anchor moves (leg-banking invariant).
-      addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
+      // Bank the worked leg BEFORE the pause anchor moves (leg-banking invariant). Only bank
+      // into today's bucket if `at` actually falls today — a backdated pause (rare, but possible
+      // via the same rewind mechanism as clockOut) must not inflate today's live total.
+      if (dateISOInTZ(new Date(at), getAppTZ()) === todayLocalISO()) {
+        addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
+      }
       const session = { ...clockSession, status, prevStatus: clockSession.status,
         pausedReason: reason, pausedAt: at, billTo, legStartedAt: at };
       saveClockSession(currentUser.id, session);
@@ -3186,7 +3202,8 @@ Command: "${transcript}"`
       const back = clockSession.prevStatus === 'In Route' ? 'In Route' : 'On Site';
       // Materials Run/Shop Run are real, counted legs — bank this leg like any other transition.
       // Plain Paused already contributed nothing (never a field status), so nothing to bank there.
-      if (clockSession.status !== 'Paused') {
+      // Only bank into today's bucket if `at` actually falls today (see pauseClock's same guard).
+      if (clockSession.status !== 'Paused' && dateISOInTZ(new Date(at), getAppTZ()) === todayLocalISO()) {
         addTodayMs(currentUser.id, new Date(at).getTime() - new Date(clockSession.legStartedAt).getTime());
       }
       const ok = await upsertJobCrewStatus(clockSession.jobId, currentUser.id, back, at);
@@ -3276,7 +3293,10 @@ Command: "${transcript}"`
         }
       }
       // From Paused the leg was already banked at pause time — banking again would count the break.
-      if (clockSession.status !== 'Paused') {
+      // Only bank into today's bucket if `at` actually falls today — a clock-out backdated to a
+      // prior day (the CONFIRM TIME date field, shown when a leg crossed midnight) must not
+      // inflate today's live total; that day's real hours already live in job_notes.
+      if (clockSession.status !== 'Paused' && dateISOInTZ(new Date(at), getAppTZ()) === todayLocalISO()) {
         addTodayMs(currentUser.id, new Date(at).getTime() - new Date(legStartedAt || startedAt).getTime());
       }
       saveClockSession(currentUser.id, null);
@@ -3997,6 +4017,17 @@ Command: "${transcript}"`
                 : fieldTimeConfirm.type === 'resume' ? 'RESUMING WORK'
                 : 'MARKING ON SITE'}
             </div>
+            {fieldTimeConfirm.type === 'clockOut' && fieldTimeConfirm.showDate && (
+              <>
+                <div className="mono" style={{ fontSize:11, color:"var(--muted)", textAlign:"center", marginBottom:4 }}>
+                  WHAT DAY WAS THIS?
+                </div>
+                <input type="date" value={fieldConfirmDate} max={todayISO()} onChange={e => setFieldConfirmDate(e.target.value)}
+                  style={{ width:"100%", fontSize:18, padding:"8px 0", marginBottom:12, background:"transparent",
+                    border:"none", borderBottom:"1px solid var(--line)", color:"var(--text)",
+                    textAlign:"center", outline:"none" }} />
+              </>
+            )}
             <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
               style={{ width:"100%", fontSize:36, fontWeight:700, padding:"12px 0", background:"transparent",
                 border:"none", borderBottom:"2px solid var(--olive-bright)", color:"var(--text)",
@@ -4007,7 +4038,8 @@ Command: "${transcript}"`
             <div style={{ display:"flex", gap:12 }}>
               <button onClick={() => {
                 const [hh, mm] = fieldConfirmTime.split(':');
-                const at = zonedWallToISO(todayLocalISO(), `${hh}:${mm}`); // picked time = app TZ today
+                const dateForAt = (fieldTimeConfirm.type === 'clockOut' && fieldTimeConfirm.showDate) ? fieldConfirmDate : todayLocalISO();
+                const at = zonedWallToISO(dateForAt, `${hh}:${mm}`); // picked time, app TZ; date only changes for a backdated clock-out
                 const fc = fieldTimeConfirm;
                 setFieldTimeConfirm(null);
                 if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
@@ -4299,6 +4331,17 @@ Command: "${transcript}"`
               : fieldTimeConfirm.type === 'resume' ? 'RESUMING WORK'
               : 'MARKING ON SITE'}
           </div>
+          {fieldTimeConfirm.type === 'clockOut' && fieldTimeConfirm.showDate && (
+            <>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)", textAlign:"center", marginBottom:4 }}>
+                WHAT DAY WAS THIS?
+              </div>
+              <input type="date" value={fieldConfirmDate} max={todayISO()} onChange={e => setFieldConfirmDate(e.target.value)}
+                style={{ width:"100%", fontSize:18, padding:"8px 0", marginBottom:12, background:"transparent",
+                  border:"none", borderBottom:"1px solid var(--line)", color:"var(--text)",
+                  textAlign:"center", outline:"none" }} />
+            </>
+          )}
           <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
             style={{ width:"100%", fontSize:36, fontWeight:700, padding:"12px 0", background:"transparent",
               border:"none", borderBottom:"2px solid var(--olive-bright)", color:"var(--text)",
@@ -4309,7 +4352,8 @@ Command: "${transcript}"`
           <div style={{ display:"flex", gap:12 }}>
             <button onClick={() => {
               const [hh, mm] = fieldConfirmTime.split(':');
-              const at = zonedWallToISO(todayLocalISO(), `${hh}:${mm}`); // picked time = app TZ today
+              const dateForAt = (fieldTimeConfirm.type === 'clockOut' && fieldTimeConfirm.showDate) ? fieldConfirmDate : todayLocalISO();
+              const at = zonedWallToISO(dateForAt, `${hh}:${mm}`); // picked time, app TZ; date only changes for a backdated clock-out
               const fc = fieldTimeConfirm;
               setFieldTimeConfirm(null);
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
@@ -5040,6 +5084,17 @@ Command: "${transcript}"`
               : fieldTimeConfirm.type === 'resume' ? 'RESUMING WORK'
               : 'MARKING ON SITE'}
           </div>
+          {fieldTimeConfirm.type === 'clockOut' && fieldTimeConfirm.showDate && (
+            <>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)", textAlign:"center", marginBottom:4 }}>
+                WHAT DAY WAS THIS?
+              </div>
+              <input type="date" value={fieldConfirmDate} max={todayISO()} onChange={e => setFieldConfirmDate(e.target.value)}
+                style={{ width:"100%", fontSize:18, padding:"8px 0", marginBottom:12, background:"transparent",
+                  border:"none", borderBottom:"1px solid var(--line)", color:"var(--text)",
+                  textAlign:"center", outline:"none" }} />
+            </>
+          )}
           <input type="time" value={fieldConfirmTime} onChange={e => setFieldConfirmTime(e.target.value)}
             style={{ width:"100%", fontSize:36, fontWeight:700, padding:"12px 0", background:"transparent",
               border:"none", borderBottom:"2px solid var(--olive-bright)", color:"var(--text)",
@@ -5050,7 +5105,8 @@ Command: "${transcript}"`
           <div style={{ display:"flex", gap:12 }}>
             <button onClick={() => {
               const [hh, mm] = fieldConfirmTime.split(':');
-              const at = zonedWallToISO(todayLocalISO(), `${hh}:${mm}`); // picked time = app TZ today
+              const dateForAt = (fieldTimeConfirm.type === 'clockOut' && fieldTimeConfirm.showDate) ? fieldConfirmDate : todayLocalISO();
+              const at = zonedWallToISO(dateForAt, `${hh}:${mm}`); // picked time, app TZ; date only changes for a backdated clock-out
               const fc = fieldTimeConfirm;
               setFieldTimeConfirm(null);
               if (fc.type === 'clockIn') clockIn(fc.jobId, fc.status, at);
@@ -7136,7 +7192,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               </span>
             </div>
           ) : (
-            <button onClick={() => setShowResched(true)} style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+            <button onClick={() => { setDate(todayISO()); setTime(nowTimeRoundedNextHour()); setShowResched(true); }} style={{ width:"100%", textAlign:"left", marginTop:10, padding:14, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:10, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
               <span className="mono" style={{ fontSize:13, color:"var(--muted)" }}>SCHEDULED</span>
               <span className="head" style={{ fontSize:17, fontWeight:600, color:"var(--brass-bright)" }}>
                 {fmtDate(job.scheduled_date)} · {fmtTime(job.scheduled_time)} ✎
