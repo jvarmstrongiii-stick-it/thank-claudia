@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 229;
+const APP_REV = 230;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2773,7 +2773,7 @@ function App() {
     if (id) {
       sessionStorage.setItem('tmc_selected_job', id);
       const job = jobs.find(j => j.id === id);
-      if (job) { saveRecentJob(job); setRecentJobs(getRecentJobs()); }
+      if (job && job.status !== 'Closed') { saveRecentJob(job); setRecentJobs(getRecentJobs()); }
     } else {
       sessionStorage.removeItem('tmc_selected_job');
       setRecentJobs(getRecentJobs());
@@ -4372,6 +4372,7 @@ Command: "${transcript}"`
   const FILTERS = [...usedStatuses, "All", ...(hasClosed ? ["Closed"] : [])];
   const effectiveFilter = filter ?? usedStatuses[0] ?? "All";
   const q = search.trim().toLowerCase();
+  const visibleRecentJobs = recentJobs.filter(r => (jobs.find(j => j.id === r.id) || r).status !== 'Closed');
   const upcomingJobs = getCalendarJobs(jobs)
     .filter(j => j.scheduled_date >= todayISO())
     .sort((a,b) => (a.scheduled_date + a.scheduled_time).localeCompare(b.scheduled_date + b.scheduled_time))
@@ -4534,11 +4535,12 @@ Command: "${transcript}"`
             )}
           </div>
 
-          {/* Recently viewed — always-visible horizontal chip strip */}
-          {!q && recentJobs.length > 0 && (
+          {/* Recently viewed — always-visible horizontal chip strip. Excludes Closed jobs (checked
+              against the live job, not the stored snapshot, so one closed after being saved still drops off). */}
+          {!q && visibleRecentJobs.length > 0 && (
             <div style={{ display:"flex", gap:8, padding:"10px 16px 0", overflowX:"auto",
               WebkitOverflowScrolling:"touch", scrollbarWidth:"none" }}>
-              {recentJobs.map(r => {
+              {visibleRecentJobs.map(r => {
                 const live = jobs.find(j => j.id === r.id);
                 const display = live || r;
                 return (
