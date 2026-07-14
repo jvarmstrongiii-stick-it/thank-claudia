@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 232;
+const APP_REV = 233;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -693,7 +693,7 @@ async function deletePhoto(photoId, storagePath) {
 async function fetchEquipment(jobId) {
   if (!jobId) return [];
   const { data, error } = await sb.from('equipment').select('*').eq('job_id', jobId).order('created_at');
-  if (error) { console.warn('fetchEquipment', error); return []; }
+  if (error) { console.warn('fetchEquipment', error); return null; } // null (not []) signals a failed fetch, distinct from genuinely no equipment
   return data || [];
 }
 
@@ -816,6 +816,13 @@ function finalizeScanResult(result) {
   const derived = deriveTonnageFromModel(result.model_number);
   if (derived) result.tonnage = derived;
   return result;
+}
+
+// Trims a raw scan error (an API error body can be a large JSON blob) down to something
+// short enough to show inline in the RETRY SCAN button.
+function scanErrorMessage(err) {
+  const msg = (err?.message || 'scan failed').replace(/\s+/g, ' ').trim();
+  return msg.length > 100 ? msg.slice(0, 100) + '…' : msg;
 }
 
 async function readFileForScan(file) {
@@ -6072,15 +6079,24 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   useEffect(() => {
     async function loadEquipment() {
       const mine = await fetchEquipment(job.id);
+      if (mine === null) return; // fetch failed — keep whatever equipmentList already had rather than wiping it
       if (job._customer_id) {
-        // Join jobs to get each equipment item's source site_address for address-scoped filtering
-        const { data } = await sb.from('equipment')
+        // Join jobs to get each equipment item's source site_address for address-scoped filtering.
+        // .or() is required (not .neq()) because "OTHER AT THIS ADDRESS" scans are saved with
+        // job_id: null (saveOtherEquipment) — SQL's `job_id <> job.id` is NULL/unknown for a null
+        // job_id, so a plain .neq() silently excludes those rows from every future fetch, forever
+        // (they only ever appeared via the local setEquipmentList right after saving them).
+        const { data, error } = await sb.from('equipment')
           .select('*, jobs(site_address)')
           .eq('customer_id', job._customer_id)
-          .neq('job_id', job.id)
+          .or(`job_id.is.null,job_id.neq.${job.id}`)
           .order('created_at', { ascending: false });
+        if (error) { console.warn('loadEquipment (other)', error); return; } // keep prior list, don't wipe it on a fetch error
         const rawSite = job._site_address_raw;
         const other = (data || []).filter(eq => {
+          // A null job_id has no linked job to join a site_address through — it was scoped to
+          // "this address" at save time via the button itself, so trust that instead of excluding it.
+          if (eq.job_id == null) return true;
           const eqSite = eq.jobs?.site_address ?? null;
           return eqSite === rawSite;
         });
@@ -6494,10 +6510,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             isOther ? setPendingOtherScanRetry(null) : setPendingScanRetry(null);
           });
         }
-      }).catch(() => {
-        // No signal — save b64 + storage_path for retry button
+      }).catch(err => {
+        // Scan failed — save b64 + storage_path for retry button, and the real reason
+        // (could be a dead connection, but just as often an actual API/parse error —
+        // don't assume "no signal" and hide what actually went wrong).
         uploadP.then(photo => {
-          const retry = { b64, mediaType, _photoUrl: photo?.storage_path || null };
+          const retry = { b64, mediaType, _photoUrl: photo?.storage_path || null, error: scanErrorMessage(err) };
           isOther ? setPendingOtherScanRetry(retry) : setPendingScanRetry(retry);
         });
       })
@@ -6577,7 +6595,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       const result = await scanNameplateFromB64(pendingScanRetry.b64, pendingScanRetry.mediaType);
       const hasData = Object.values(result).some(v => v != null);
       if (hasData) { setScanQueue(q => [...q, { ...result, _photoUrl: pendingScanRetry._photoUrl || null }]); setPendingScanRetry(null); }
-    } catch (_) { /* still offline — keep retry button */ }
+      else setPendingScanRetry(r => r ? { ...r, error: 'no equipment data found in photo' } : r);
+    } catch (err) { setPendingScanRetry(r => r ? { ...r, error: scanErrorMessage(err) } : r); }
     setScanningCount(n => n - 1);
   }
 
@@ -6588,7 +6607,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       const result = await scanNameplateFromB64(pendingOtherScanRetry.b64, pendingOtherScanRetry.mediaType);
       const hasData = Object.values(result).some(v => v != null);
       if (hasData) { setOtherScanQueue(q => [...q, { ...result, _photoUrl: pendingOtherScanRetry._photoUrl || null }]); setPendingOtherScanRetry(null); }
-    } catch (_) { /* still offline */ }
+      else setPendingOtherScanRetry(r => r ? { ...r, error: 'no equipment data found in photo' } : r);
+    } catch (err) { setPendingOtherScanRetry(r => r ? { ...r, error: scanErrorMessage(err) } : r); }
     setOtherScanningCount(n => n - 1);
   }
 
@@ -7441,7 +7461,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 <button onClick={retryScan} className="head"
                   style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
                     background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
-                  ↺ RETRY SCAN (no signal when scanned — tap to extract data)
+                  ↺ RETRY SCAN ({pendingScanRetry.error || 'no signal when scanned'} — tap to extract data)
                 </button>
               )}
               {jobEquip.length === 0 && scanningCount === 0 && !pendingScanRetry && (
@@ -7484,7 +7504,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 <button onClick={retryOtherScan} className="head"
                   style={{ fontSize:13, fontWeight:700, padding:"6px 12px", borderRadius:6, marginBottom:8,
                     background:"rgba(181,67,47,0.12)", border:"1px solid #b5432f", color:"#b5432f" }}>
-                  ↺ RETRY SCAN (no signal when scanned — tap to extract data)
+                  ↺ RETRY SCAN ({pendingOtherScanRetry.error || 'no signal when scanned'} — tap to extract data)
                 </button>
               )}
               {otherEquip.length === 0 && otherScanningCount === 0 && !pendingOtherScanRetry && (
