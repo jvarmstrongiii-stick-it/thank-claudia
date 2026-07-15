@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 238;
+const APP_REV = 239;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -339,9 +339,17 @@ function parseCrewLogEntry(n) {
   const billMatch = (n.content||'').match(/· bill:(job|shop)/);
   return { id: n.id, status: m[1], userName: m[2], at: n.at, billTo: billMatch ? billMatch[1] : null };
 }
+// The only way to switch from a paid pause (Materials/Shop Run) to an unpaid one (lunch, etc.)
+// is to flip On Site first, then immediately Pause — both confirmed via the same rewind-time
+// picker, so they can land on the exact same minute. When two of one person's notes tie on
+// timestamp, a field-status arrival must sort before a Paused/Cleared note (you can't pause or
+// clear from nothing) — otherwise the tie is unresolved and the real (unpaid) gap between them
+// gets misread as billable time under whichever status happened to sort first.
+const CREW_TIEBREAK_RANK = { 'Paused': 1, 'Cleared': 2 };
+function crewTieRank(status) { return CREW_TIEBREAK_RANK[status] ?? 0; }
 function buildCrewTimeline(crewLog, crew, users) {
   const entries = (crewLog||[]).map(parseCrewLogEntry).filter(Boolean)
-    .sort((a,b) => new Date(a.at) - new Date(b.at));
+    .sort((a,b) => new Date(a.at) - new Date(b.at) || crewTieRank(a.status) - crewTieRank(b.status));
   const byUser = {};
   entries.forEach(e => { (byUser[e.userName] = byUser[e.userName] || []).push(e); });
   const result = {};
