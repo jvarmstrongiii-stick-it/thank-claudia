@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 234;
+const APP_REV = 235;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2038,7 +2038,7 @@ function CalendarDayCell({ dateISO, dimmed, dayJobs, maxShown, minHeight, onOpen
   const overflow = dayJobs.length - shown.length;
   return (
     <div data-cal-date={dateISO} onClick={() => onExpand(dateISO)}
-      style={{ minHeight, border: isToday ? "1px solid var(--olive-bright)" : "1px solid var(--line)",
+      style={{ minHeight, minWidth:0, overflow:"hidden", border: isToday ? "1px solid var(--olive-bright)" : "1px solid var(--line)",
         borderRadius:6, padding:4, background:"var(--panel)", opacity: dimmed ? 0.4 : 1, cursor:"pointer" }}>
       <div className="mono" style={{ fontSize:11, marginBottom:2,
         color: isToday ? "var(--olive-bright)" : "var(--muted)", fontWeight: isToday ? 700 : 400 }}>
