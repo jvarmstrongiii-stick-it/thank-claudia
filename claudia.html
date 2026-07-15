@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 237;
+const APP_REV = 238;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2397,15 +2397,17 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
             danglingCount++;
             const dayKey = dateISOInTZ(new Date(p.start), getAppTZ());
             if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
-            if (!byUser[userName].jobs[jobId]) byUser[userName].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+            if (!byUser[userName].jobs[jobId]) byUser[userName].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0, periods: [] };
             if (!byJob[jobId]) byJob[jobId] = { label, totalMs: 0, users: {} };
-            if (!byJob[jobId].users[userName]) byJob[jobId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+            if (!byJob[jobId].users[userName]) byJob[jobId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0, periods: [] };
             if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {}, jobs: {} };
             if (!byDay[dayKey].users[userName]) byDay[dayKey].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0, periods: [] };
             if (!byDay[dayKey].jobs[jobId]) byDay[dayKey].jobs[jobId] = { label, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0, periods: [] };
             byUser[userName].dangling = byUser[userName].jobs[jobId].dangling = true;
             byJob[jobId].dangling = byJob[jobId].users[userName].dangling = true;
             byDay[dayKey].dangling = byDay[dayKey].users[userName].dangling = byDay[dayKey].jobs[jobId].dangling = true;
+            byUser[userName].jobs[jobId].periods.push({ ...p });
+            byJob[jobId].users[userName].periods.push({ ...p });
             byDay[dayKey].users[userName].periods.push({ ...p, jobLabel: label });
             byDay[dayKey].jobs[jobId].periods.push({ ...p, userName });
             return;
@@ -2420,14 +2422,16 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
           const bucket = p.status === 'In Route' ? 'driveMs' : isRun ? 'runMs' : 'onSiteMs';
           if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
           byUser[userName].totalMs += ms;
-          if (!byUser[userName].jobs[jId]) byUser[userName].jobs[jId] = { label: jLabel, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+          if (!byUser[userName].jobs[jId]) byUser[userName].jobs[jId] = { label: jLabel, totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0, periods: [] };
           byUser[userName].jobs[jId].totalMs += ms;
           byUser[userName].jobs[jId][bucket] += ms;
+          byUser[userName].jobs[jId].periods.push({ ...p });
           if (!byJob[jId]) byJob[jId] = { label: jLabel, totalMs: 0, users: {} };
           byJob[jId].totalMs += ms;
-          if (!byJob[jId].users[userName]) byJob[jId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0 };
+          if (!byJob[jId].users[userName]) byJob[jId].users[userName] = { totalMs: 0, driveMs: 0, onSiteMs: 0, runMs: 0, periods: [] };
           byJob[jId].users[userName].totalMs += ms;
           byJob[jId].users[userName][bucket] += ms;
+          byJob[jId].users[userName].periods.push({ ...p });
           const dayKey = dateISOInTZ(new Date(p.start), getAppTZ());
           if (!byDay[dayKey]) byDay[dayKey] = { totalMs: 0, users: {}, jobs: {} };
           byDay[dayKey].totalMs += ms;
@@ -2544,11 +2548,24 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                 {expandedKeys.has(userName) && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
                     {Object.entries(data.jobs).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([jobId, jd], i) => (
-                      <button key={jobId} onClick={() => onOpenJob && onOpenJob(jobId)}
-                        style={{ ...subRowStyle(i === 0), width: '100%', textAlign: 'left' }}>
-                        <div className="head" style={{ fontSize: 13, color: 'var(--text)', flex: 1, paddingRight: 10 }}>{jd.label}</div>
-                        <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} dangling={jd.dangling} onExplain={setFlagExplain} />
-                      </button>
+                      <div key={jobId} style={{ ...subRowStyle(i === 0), flexDirection: 'column', alignItems: 'stretch' }}>
+                        <button onClick={() => onOpenJob && onOpenJob(jobId)}
+                          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
+                          <div className="head" style={{ fontSize: 13, color: 'var(--text)', flex: 1, paddingRight: 10 }}>{jd.label}</div>
+                          <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} dangling={jd.dangling} onExplain={setFlagExplain} />
+                        </button>
+                        {(jd.periods || []).length > 0 && (
+                          <div style={{ marginTop: 6 }}>
+                            {jd.periods.slice().sort((a, b) => new Date(a.start) - new Date(b.start)).map((p, pi) => (
+                              <div key={pi} className="mono" style={{ fontSize: 11, color: p.dangling ? 'var(--danger)' : 'var(--muted)', marginTop: 2 }}>
+                                {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtPeriodEnd(p.start, p.end) : '⚠️ NO CLOCK-OUT')}
+                                {(p.end || p.ongoing) && ` (${fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})`}
+                                {p.billTo && ` — billed to ${p.billTo === 'shop' ? 'shop' : 'this job'}`}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     ))}
                   </div>
                 )}
@@ -2582,9 +2599,22 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                 {expandedKeys.has(jobId) && (
                   <div style={{ borderTop: '1px solid var(--line)', padding: '6px 14px 12px' }}>
                     {Object.entries(data.users).sort((a, b) => b[1].totalMs - a[1].totalMs).map(([uName, ud], i) => (
-                      <div key={uName} style={subRowStyle(i === 0)}>
-                        <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
-                        <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} dangling={ud.dangling} onExplain={setFlagExplain} />
+                      <div key={uName} style={{ ...subRowStyle(i === 0), flexDirection: 'column', alignItems: 'stretch' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{uName}</div>
+                          <SubBreakdown driveMs={ud.driveMs} onSiteMs={ud.onSiteMs} runMs={ud.runMs} totalMs={ud.totalMs} dangling={ud.dangling} onExplain={setFlagExplain} />
+                        </div>
+                        {(ud.periods || []).length > 0 && (
+                          <div style={{ marginTop: 6 }}>
+                            {ud.periods.slice().sort((a, b) => new Date(a.start) - new Date(b.start)).map((p, pi) => (
+                              <div key={pi} className="mono" style={{ fontSize: 11, color: p.dangling ? 'var(--danger)' : 'var(--muted)', marginTop: 2 }}>
+                                {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtPeriodEnd(p.start, p.end) : '⚠️ NO CLOCK-OUT')}
+                                {(p.end || p.ongoing) && ` (${fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})`}
+                                {p.billTo && ` — billed to ${p.billTo === 'shop' ? 'shop' : 'this job'}`}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
