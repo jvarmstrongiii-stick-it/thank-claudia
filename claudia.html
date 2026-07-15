@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 241;
+const APP_REV = 242;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -886,6 +886,24 @@ async function scanNameplate(file) {
 }
 
 // OCR a purchase/parts receipt → { vendor, amount, date }
+// Vendor names haiku is prone to confusing with a visually/product-similar competitor
+// (e.g. Home Depot read as Lowe's) — verified against the literal transcribed header text
+// rather than trusting the model's own categorical guess. See CLAUDE.md r216 (tonnage) for
+// the same underlying lesson applied to a different field.
+const VENDOR_SIGNATURES = [
+  { match: /how doers get more done|home depot|pro ?xtra/i, vendor: 'Home Depot' },
+  { match: /lowe'?s/i, vendor: "Lowe's" },
+];
+function finalizeReceiptResult(result) {
+  const hay = `${result.raw_header || ''} ${result.vendor || ''}`;
+  const hit = VENDOR_SIGNATURES.find(v => v.match.test(hay));
+  if (hit) result.vendor = hit.vendor;
+  delete result.raw_header; // internal verification field only — never shown or saved
+  return result;
+}
+
+const RECEIPT_SCAN_PROMPT = 'You are reading a photo of a purchase/parts receipt (e.g. a supply house, hardware store, or gas station). For the vendor, transcribe the exact store name as printed in the header/logo area character-by-character — do NOT infer or guess the store from the type of items purchased or the receipt\'s visual layout/style, since similar-looking hardware stores (e.g. Home Depot vs Lowe\'s) sell overlapping products and are easy to confuse if you are not reading the actual printed name. Also extract the GRAND TOTAL actually paid (the final total including tax, not a subtotal or any single line item). Reply with ONLY a JSON object using these exact keys (null if not clearly visible): {"vendor":null,"amount":null,"date":null,"raw_header":null}. "amount" must be a number with no currency symbol or commas (e.g. 142.87). "date" as YYYY-MM-DD if a purchase date is printed, else null. "raw_header" is the literal first 1-2 printed lines of the receipt (store name plus any slogan/tagline), verbatim, for verification.';
+
 async function scanReceiptFromB64(b64, mediaType) {
   const res = await fetch(CLAUDE_PROXY, {
     method: 'POST',
@@ -897,7 +915,7 @@ async function scanReceiptFromB64(b64, mediaType) {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
-          { type: 'text', text: 'You are reading a photo of a purchase/parts receipt (e.g. a supply house, hardware store, or gas station). Extract the store/vendor name and the GRAND TOTAL actually paid (the final total including tax, not a subtotal or any single line item). Reply with ONLY a JSON object using these exact keys (null if not clearly visible): {"vendor":null,"amount":null,"date":null}. "amount" must be a number with no currency symbol or commas (e.g. 142.87). "date" as YYYY-MM-DD if a purchase date is printed, else null.' },
+          { type: 'text', text: RECEIPT_SCAN_PROMPT },
         ],
       }],
     }),
@@ -907,7 +925,7 @@ async function scanReceiptFromB64(b64, mediaType) {
   const text = (data.content[0].text || '').trim();
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('No JSON in response');
-  return JSON.parse(m[0]);
+  return finalizeReceiptResult(JSON.parse(m[0]));
 }
 
 // URL variant of scanReceiptFromB64 — used by Lightbox to re-scan a photo that's already
@@ -923,7 +941,7 @@ async function scanReceiptFromUrl(url) {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'url', url } },
-          { type: 'text', text: 'You are reading a photo of a purchase/parts receipt (e.g. a supply house, hardware store, or gas station). Extract the store/vendor name and the GRAND TOTAL actually paid (the final total including tax, not a subtotal or any single line item). Reply with ONLY a JSON object using these exact keys (null if not clearly visible): {"vendor":null,"amount":null,"date":null}. "amount" must be a number with no currency symbol or commas (e.g. 142.87). "date" as YYYY-MM-DD if a purchase date is printed, else null.' },
+          { type: 'text', text: RECEIPT_SCAN_PROMPT },
         ],
       }],
     }),
@@ -933,7 +951,7 @@ async function scanReceiptFromUrl(url) {
   const text = (data.content[0].text || '').trim();
   const m = text.match(/\{[\s\S]*\}/);
   if (!m) throw new Error('No JSON in response');
-  return JSON.parse(m[0]);
+  return finalizeReceiptResult(JSON.parse(m[0]));
 }
 
 async function scanNameplateFromUrl(url) {
