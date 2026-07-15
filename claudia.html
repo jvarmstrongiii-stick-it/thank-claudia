@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 240;
+const APP_REV = 241;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -6170,7 +6170,6 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [uploading, setUploading] = useState(false);
   const [lightbox, setLightbox] = useState(null);
   const [equipmentList, setEquipmentList] = useState([]);
-  const [pendingScan, setPendingScan] = useState(null);
   const [expandedEquipId, setExpandedEquipId] = useState(null);
   const [showWarrantySheet, setShowWarrantySheet] = useState(null);
   const [editEquipItem, setEditEquipItem] = useState(null);
@@ -7622,7 +7621,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
 
         {lightbox && (
           <Lightbox photo={lightbox} onClose={() => setLightbox(null)}
-            onScanResult={(result) => { setPendingScan(result); }}
+            onScanResult={(result) => { setScanQueue(q => [...q, { ...result, _photoUrl: lightbox?.storage_path || null }]); }}
             onScanned={(photoId, data) => {
               updatePhotoOcrData(photoId, data);
               setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, ocr_data: data } : p));
@@ -8081,7 +8080,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
                 {photos.map((p,i) => (
                   <div key={p.id} style={{ position:"relative" }}>
-                    <img src={p.url} alt="" onClick={() => setLightbox({ url: p.url, id: p.id, photo_type: p.photo_type, ocr_data: p.ocr_data })}
+                    <img src={p.url} alt="" onClick={() => setLightbox({ url: p.url, id: p.id, photo_type: p.photo_type, ocr_data: p.ocr_data, storage_path: p.storage_path })}
                       style={{ width:90, height:90, objectFit:"cover", borderRadius:8, border:"1px solid var(--line)", cursor:"pointer" }} />
                     <button onClick={() => setDeletingPhoto({ photo: p, idx: i })}
                       style={{ position:"absolute", top:2, right:2, width:24, height:24, borderRadius:"50%",
