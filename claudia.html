@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 242;
+const APP_REV = 243;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2067,21 +2067,26 @@ function CalendarChip({ job, dateISO, onPeek, onDragEnd, onLongPressRelease }) {
   }
   function onPointerDown(e) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
-    dragRef.current = { startX: e.clientX, startY: e.clientY, pointerId: e.pointerId };
+    dragRef.current = { startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, isMouse: e.pointerType === 'mouse' };
     cancelledRef.current = false;
     armedRef.current = false;
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
-    holdTimerRef.current = setTimeout(() => {
-      armedRef.current = true;
-      setArmed(true);
-      if (navigator.vibrate) navigator.vibrate(25);
-    }, CAL_LONGPRESS_MS);
+    // Mouse click-and-drag is already unambiguous — no long-press needed, arm on first real move instead (below).
+    if (e.pointerType !== 'mouse') {
+      holdTimerRef.current = setTimeout(() => {
+        armedRef.current = true;
+        setArmed(true);
+        if (navigator.vibrate) navigator.vibrate(25);
+      }, CAL_LONGPRESS_MS);
+    }
   }
   function onPointerMove(e) {
     const d = dragRef.current;
     if (!d || d.pointerId !== e.pointerId) return;
     if (armedRef.current) return;
-    if (Math.abs(e.clientX - d.startX) > CAL_MOVE_CANCEL_PX || Math.abs(e.clientY - d.startY) > CAL_MOVE_CANCEL_PX) {
+    const past = Math.abs(e.clientX - d.startX) > CAL_MOVE_CANCEL_PX || Math.abs(e.clientY - d.startY) > CAL_MOVE_CANCEL_PX;
+    if (d.isMouse) { if (past) { armedRef.current = true; setArmed(true); } return; }
+    if (past) {
       cancelledRef.current = true;
       clearTimeout(holdTimerRef.current);
     }
@@ -2144,12 +2149,13 @@ function CalendarDayCell({ dateISO, dimmed, dayJobs, maxShown, minHeight, onPeek
   );
 }
 
-function CalendarView({ jobs, onClose, onOpenJob, onReschedule }) {
+function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, onUnschedule }) {
   const [viewMode, setViewMode] = useState(() => getCalendarViewMode());
   const [expandedDay, setExpandedDay] = useState(null);
   const [periodAnchor, setPeriodAnchor] = useState(() => todayLocalISO());
   const [peekJob, setPeekJob] = useState(null);
   const [movePrompt, setMovePrompt] = useState(null);
+  const [schedulingDay, setSchedulingDay] = useState(null);
 
   function changeMode(mode) { setViewMode(mode); setCalendarViewMode(mode); }
 
@@ -2314,7 +2320,17 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule }) {
               </button>
             );
           })}
+          <button onClick={() => { setExpandedDay(null); setSchedulingDay(expandedDay); }} className="head"
+            style={{ width:'100%', padding:'12px', marginTop: (jobsByDate[expandedDay]||[]).length ? 4 : 0,
+              borderRadius:8, fontSize:14, fontWeight:700, background:'var(--olive-bright)', color:'var(--bg)', border:'none', cursor:'pointer' }}>
+            + SCHEDULE JOB
+          </button>
         </Sheet>
+      )}
+
+      {schedulingDay && (
+        <ScheduleJobSheet day={schedulingDay} jobs={jobs} onClose={() => setSchedulingDay(null)}
+          onSchedule={(jobId, dateISO, time) => { onScheduleJob(jobId, dateISO, time); setSchedulingDay(null); }} />
       )}
 
       {peekJob && (() => {
@@ -2334,6 +2350,10 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule }) {
             <button onClick={() => { const id = peekJob.id; setPeekJob(null); onOpenJob(id); }} className="head"
               style={{ width:'100%', padding:'12px', background:'var(--olive-bright)', color:'var(--bg)', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer' }}>
               VIEW FULL JOB
+            </button>
+            <button onClick={() => { const id = peekJob.id; setPeekJob(null); onUnschedule(id); onOpenJob(id); }} className="head"
+              style={{ width:'100%', padding:'12px', marginTop:8, background:'transparent', color:'var(--danger)', border:'1px solid var(--danger)', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer' }}>
+              REMOVE FROM SCHEDULE
             </button>
           </Sheet>
         );
@@ -2358,6 +2378,65 @@ function MoveJobPrompt({ job, onClose, onReschedule }) {
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={onClose} className="head" style={{ flex:1, padding:'12px', background:'var(--panel)', border:'1px solid var(--line)', borderRadius:8, color:'var(--text)', fontSize:14, cursor:'pointer' }}>CANCEL</button>
         <button onClick={() => { onReschedule(job.id, date); onClose(); }} className="head" style={{ flex:1, padding:'12px', background:'var(--olive-bright)', border:'none', borderRadius:8, color:'var(--bg)', fontWeight:700, fontSize:14, cursor:'pointer' }}>MOVE</button>
+      </div>
+    </Sheet>
+  );
+}
+
+// Picker used by CalendarView's "+ SCHEDULE JOB" — defaults to Ready to Schedule jobs, with a
+// toggle to widen to all non-terminal jobs. Time is entered right here (not deferred to Job
+// Detail) since scheduling is meant to happen primarily from the Calendar going forward.
+const SCHEDULABLE_EXCLUDE_STATUSES = ['Closed', 'Completed/Paid', 'Completed/Needs Billing', 'Billed/Waiting for Payment'];
+function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
+  const [showAll, setShowAll] = useState(false);
+  const [q, setQ] = useState('');
+  const [time, setTime] = useState(() => nowTimeRounded15());
+  const candidates = (jobs || [])
+    .filter(j => j.customer?.toUpperCase() !== TMC_SHOP_NAME &&
+      (showAll ? !SCHEDULABLE_EXCLUDE_STATUSES.includes(j.status) : j.status === 'Ready to Schedule'))
+    .slice().sort((a, b) => (a.customer || '').localeCompare(b.customer || ''));
+  const filtered = q
+    ? candidates.filter(j => (j.customer||'').toLowerCase().includes(q.toLowerCase()) || (siteAddr(j)||'').toLowerCase().includes(q.toLowerCase()))
+    : candidates;
+  return (
+    <Sheet title={`SCHEDULE FOR ${CAL_DAY_LABEL(day).toUpperCase()}`} onClose={onClose}>
+      <div className="mono" style={{ fontSize:11, color:'var(--muted)', marginBottom:6 }}>TIME</div>
+      <input type="time" value={time} onChange={e => setTime(e.target.value)}
+        style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', marginBottom:12,
+          borderRadius:8, border:'1px solid var(--line)', background:'var(--bg)', color:'var(--text)', fontSize:14, fontFamily:'inherit' }} />
+      <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+        <button onClick={() => setShowAll(false)} className="head"
+          style={{ flex:1, padding:10, borderRadius:8, fontSize:13, fontWeight:700,
+            background: !showAll ? 'var(--olive-bright)' : 'var(--panel)',
+            color: !showAll ? 'var(--bg)' : 'var(--text)',
+            border: !showAll ? 'none' : '1px solid var(--line)', cursor:'pointer' }}>
+          READY TO SCHEDULE
+        </button>
+        <button onClick={() => setShowAll(true)} className="head"
+          style={{ flex:1, padding:10, borderRadius:8, fontSize:13, fontWeight:700,
+            background: showAll ? 'var(--olive-bright)' : 'var(--panel)',
+            color: showAll ? 'var(--bg)' : 'var(--text)',
+            border: showAll ? 'none' : '1px solid var(--line)', cursor:'pointer' }}>
+          ALL JOBS
+        </button>
+      </div>
+      <input value={q} onChange={e => setQ(e.target.value)} placeholder="Search jobs…"
+        style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', marginBottom:8,
+          borderRadius:8, border:'1px solid var(--line)', background:'var(--bg)', color:'var(--text)', fontSize:14, fontFamily:'inherit' }} />
+      <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:360, overflowY:'auto' }}>
+        {filtered.map(j => (
+          <button key={j.id} onClick={() => onSchedule(j.id, day, time)} className="head"
+            style={{ padding:'12px 14px', borderRadius:8, fontSize:14, fontWeight:700, textAlign:'left',
+              background:'var(--panel)', border:'1px solid var(--line)', color:'var(--text)', cursor:'pointer' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <span>{j.site_name || j.customer}</span>
+              <span className="mono" style={{ fontSize:10, color:'var(--muted)' }}>{j.status}</span>
+            </div>
+            {siteAddr(j) && <div className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:2 }}>{siteAddr(j)}</div>}
+            {j.original_ask && <div className="mono" style={{ fontSize:11, color:'var(--gold)', marginTop:2, fontWeight:400, whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{j.original_ask}</div>}
+          </button>
+        ))}
+        {filtered.length === 0 && <div className="mono" style={{ fontSize:13, color:'var(--muted)', padding:'12px 0' }}>No jobs match</div>}
       </div>
     </Sheet>
   );
@@ -3665,7 +3744,7 @@ Command: "${transcript}"`
     if ('scheduled_date' in patch || 'scheduled_time' in patch) {
       const d = ('scheduled_date' in patch ? patch.scheduled_date : job.scheduled_date);
       const t = ('scheduled_time' in patch ? patch.scheduled_time : job.scheduled_time);
-      if (d && t) { updateData.scheduled_at = zonedWallToISO(d, t); }
+      updateData.scheduled_at = (d && t) ? zonedWallToISO(d, t) : null;
     }
     const { error } = await sb.from('jobs').update(updateData).eq('id', id);
     if (error) { showToast("Error updating job", true); console.error(error); return; }
@@ -4274,7 +4353,14 @@ Command: "${transcript}"`
     onUpdateMaterials={updateJobMaterials} onOpenJob={(id) => { setShowMaterials(false); setSelectedId(id); }} />;
   if (showCalendar) return <CalendarView jobs={jobs} onClose={() => setShowCalendar(false)}
     onOpenJob={(id) => { setShowCalendar(false); setSelectedId(id); }}
-    onReschedule={(id, dateISO) => { const j = jobs.find(x => x.id === id); updateJob(id, { scheduled_date: dateISO, scheduled_time: j?.scheduled_time }); }} />;
+    onReschedule={(id, dateISO) => { const j = jobs.find(x => x.id === id); updateJob(id, { scheduled_date: dateISO, scheduled_time: j?.scheduled_time }); }}
+    onScheduleJob={(jobId, dateISO, time) => {
+      const j = jobs.find(x => x.id === jobId);
+      const patch = { scheduled_date: dateISO, scheduled_time: time };
+      if (j?.status === 'Ready to Schedule') patch.status = 'Scheduled';
+      updateJob(jobId, patch);
+    }}
+    onUnschedule={(jobId) => updateJob(jobId, { status: 'Ready to Schedule', scheduled_date: null, scheduled_time: null })} />;
   if (showChoresGate) return (
     <React.Fragment>
       <ChoresView chores={chores} jobs={jobs} users={users} currentUser={currentUser}
@@ -8314,6 +8400,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               if (s === 'In Route' || s === 'On Site') {
                 setPendingStatus(s);
                 setConfirmTime(nowTimeHHMM());
+              } else if (s === 'Ready to Schedule') {
+                onUpdate({ status: s, scheduled_date: null, scheduled_time: null });
+                onBack();
               } else {
                 onUpdate({ status: s });
                 onBack();
@@ -8381,7 +8470,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       )}
 
       {showResched && (
-        <Sheet onClose={() => setShowResched(false)} title="RESCHEDULE">
+        <Sheet onClose={() => setShowResched(false)} title={job.has_schedule ? "RESCHEDULE" : "SCHEDULE"}>
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6, marginTop:4 }}>DATE</div>
           <input type="date" value={date} min={todayISO()} onChange={e => setDate(e.target.value)} />
           <div className="mono" style={{ fontSize:11, color:"var(--muted)", margin:"14px 0 6px" }}>TIME</div>
@@ -8390,7 +8479,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               const iso = zonedWallToISO(date, time);
               const dt = iso ? new Date(iso) : NaN;
               if (isNaN(dt) || dt < new Date()) { alert('Please choose a date and time that is not in the past.'); return; }
-              onUpdate({ scheduled_date:date, scheduled_time:time }); setShowResched(false);
+              const patch = { scheduled_date:date, scheduled_time:time };
+              if (job.status === 'Ready to Schedule') patch.status = 'Scheduled';
+              onUpdate(patch); setShowResched(false);
             }} className="head"
             style={{ width:"100%", marginTop:18, padding:15, borderRadius:9, fontSize:16, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>
             SAVE
@@ -8616,13 +8707,13 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
       : ((initial.customer_address||initial.address||"") === (initial.site_address||initial.address||"")),
     value: initial.value===0||initial.value ? String(initial.value) : "",
     site_name: initial.site_name || "",
-    scheduled_date: initial.scheduled_date || todayISO(),
-    scheduled_time: initial.scheduled_time || nowTimeRounded15(),
+    scheduled_date: initial.scheduled_date || '',
+    scheduled_time: initial.scheduled_time || '',
   } : {
     customer:"", location:"", customer_address:"", site_address:"", site_name:"",
     same_address: loadSameAddrPref(),
     phone:"", email:"", type:"Service Call",
-    status:"New", scheduled_date: todayISO(), scheduled_time: nowTimeRounded15(),
+    status:"New", scheduled_date: '', scheduled_time: '',
     value:"", original_ask:"", notes:"", history:[],
     ...(prefill || {}),
   });
