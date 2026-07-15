@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 239;
+const APP_REV = 240;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -897,6 +897,32 @@ async function scanReceiptFromB64(b64, mediaType) {
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+          { type: 'text', text: 'You are reading a photo of a purchase/parts receipt (e.g. a supply house, hardware store, or gas station). Extract the store/vendor name and the GRAND TOTAL actually paid (the final total including tax, not a subtotal or any single line item). Reply with ONLY a JSON object using these exact keys (null if not clearly visible): {"vendor":null,"amount":null,"date":null}. "amount" must be a number with no currency symbol or commas (e.g. 142.87). "date" as YYYY-MM-DD if a purchase date is printed, else null.' },
+        ],
+      }],
+    }),
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error(`API ${res.status}: ${t}`); }
+  const data = await res.json();
+  const text = (data.content[0].text || '').trim();
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) throw new Error('No JSON in response');
+  return JSON.parse(m[0]);
+}
+
+// URL variant of scanReceiptFromB64 — used by Lightbox to re-scan a photo that's already
+// uploaded (e.g. one added via the general ADD PHOTO button that turned out to be a receipt).
+async function scanReceiptFromUrl(url) {
+  const res = await fetch(CLAUDE_PROXY, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}` },
+    body: JSON.stringify({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 256,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'url', url } },
           { type: 'text', text: 'You are reading a photo of a purchase/parts receipt (e.g. a supply house, hardware store, or gas station). Extract the store/vendor name and the GRAND TOTAL actually paid (the final total including tax, not a subtotal or any single line item). Reply with ONLY a JSON object using these exact keys (null if not clearly visible): {"vendor":null,"amount":null,"date":null}. "amount" must be a number with no currency symbol or commas (e.g. 142.87). "date" as YYYY-MM-DD if a purchase date is printed, else null.' },
         ],
       }],
@@ -5797,7 +5823,7 @@ const EQUIP_FIELDS = [
 ];
 
 /* ── Lightbox ──────────────────────────────────────────────────────────────── */
-function Lightbox({ photo, onClose, onScanResult, onScanned }) {
+function Lightbox({ photo, onClose, onScanResult, onScanned, onReceiptImport }) {
   const url = photo.url;
   const [scale, setScale] = useState(1);
   const [offset, setOffset] = useState({ x:0, y:0 });
@@ -5808,6 +5834,9 @@ function Lightbox({ photo, onClose, onScanResult, onScanned }) {
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
   const [scanError, setScanError] = useState(null);
+  const [scanningReceipt, setScanningReceipt] = useState(false);
+  const [receiptResult, setReceiptResult] = useState(null);
+  const [receiptError, setReceiptError] = useState(null);
 
   function onTouchStart(e) {
     if (e.touches.length === 2) {
@@ -5848,7 +5877,7 @@ function Lightbox({ photo, onClose, onScanResult, onScanned }) {
   }
 
   function handleTap(e) {
-    if (scanResult) return;
+    if (scanResult || receiptResult) return;
     if (scale === 1) onClose();
     else { setScale(1); setOffset({ x:0, y:0 }); lastOffset.current = { x:0, y:0 }; }
   }
@@ -5866,6 +5895,24 @@ function Lightbox({ photo, onClose, onScanResult, onScanned }) {
       setScanError(err.message);
     } finally {
       setScanning(false);
+    }
+  }
+
+  async function doScanReceipt(e) {
+    e.stopPropagation();
+    setScanningReceipt(true); setReceiptResult(null); setReceiptError(null);
+    try {
+      const result = await scanReceiptFromUrl(url);
+      if (result.vendor == null && result.amount == null && result.date == null) {
+        setReceiptError('No receipt data found in this photo.');
+      } else {
+        setReceiptResult(result);
+      }
+      if (photo.id && onScanned) onScanned(photo.id, result);
+    } catch(err) {
+      setReceiptError(err.message);
+    } finally {
+      setScanningReceipt(false);
     }
   }
 
@@ -5926,7 +5973,7 @@ function Lightbox({ photo, onClose, onScanResult, onScanned }) {
       <div onClick={e => e.stopPropagation()}
         style={{ position:"absolute", bottom:0, left:0, right:0, padding:"12px 16px 28px",
           background:"linear-gradient(transparent, rgba(0,0,0,0.85))" }}>
-        {!scanResult && (
+        {!scanResult && !receiptResult && (
           <div style={{ display:"flex", gap:8, marginBottom:8 }}>
             <button onClick={doDownload} className="head"
               style={{ flex:1, padding:"12px", borderRadius:9, fontSize:14, fontWeight:700,
@@ -5942,19 +5989,31 @@ function Lightbox({ photo, onClose, onScanResult, onScanned }) {
             )}
           </div>
         )}
-        {!scanResult && !scanError
+        {!scanResult && !receiptResult && !scanError && !receiptError
           && photo.kind !== 'receipt' && photo.kind !== 'scanned'
           && photo.photo_type !== 'equipment' && !photo.ocr_data && (
-          <button onClick={doScan} disabled={scanning} className="head"
-            style={{ display:"block", width:"100%", padding:"12px", borderRadius:9, fontSize:14, fontWeight:700,
-              background: scanning ? "rgba(255,255,255,0.1)" : "rgba(180,150,60,0.85)",
-              color: scanning ? "rgba(255,255,255,0.5)" : "#000",
-              border:"none", marginBottom:8 }}>
-            {scanning ? '🔍 SCANNING…' : '🔍 SCAN FOR EQUIPMENT'}
-          </button>
+          <div style={{ display:"flex", gap:8, marginBottom:8 }}>
+            <button onClick={doScan} disabled={scanning || scanningReceipt} className="head"
+              style={{ flex:1, padding:"12px", borderRadius:9, fontSize:13, fontWeight:700,
+                background: scanning ? "rgba(255,255,255,0.1)" : "rgba(180,150,60,0.85)",
+                color: scanning ? "rgba(255,255,255,0.5)" : "#000",
+                border:"none" }}>
+              {scanning ? '🔍 SCANNING…' : '🔍 SCAN FOR EQUIPMENT'}
+            </button>
+            <button onClick={doScanReceipt} disabled={scanning || scanningReceipt} className="head"
+              style={{ flex:1, padding:"12px", borderRadius:9, fontSize:13, fontWeight:700,
+                background: scanningReceipt ? "rgba(255,255,255,0.1)" : "rgba(180,150,60,0.85)",
+                color: scanningReceipt ? "rgba(255,255,255,0.5)" : "#000",
+                border:"none" }}>
+              {scanningReceipt ? '🧾 SCANNING…' : '🧾 SCAN AS RECEIPT'}
+            </button>
+          </div>
         )}
         {scanError && (
           <div className="mono" style={{ fontSize:12, color:"#f87171", textAlign:"center", marginBottom:8 }}>{scanError}</div>
+        )}
+        {receiptError && (
+          <div className="mono" style={{ fontSize:12, color:"#f87171", textAlign:"center", marginBottom:8 }}>{receiptError}</div>
         )}
         {scanResult && (
           <div style={{ background:"rgba(0,0,0,0.8)", border:"1px solid rgba(180,150,60,0.5)", borderRadius:10, padding:12, marginBottom:8 }}>
@@ -5979,7 +6038,30 @@ function Lightbox({ photo, onClose, onScanResult, onScanned }) {
             </div>
           </div>
         )}
-        {!scanResult && scale === 1 && (
+        {receiptResult && (
+          <div style={{ background:"rgba(0,0,0,0.8)", border:"1px solid rgba(180,150,60,0.5)", borderRadius:10, padding:12, marginBottom:8 }}>
+            <div className="mono" style={{ fontSize:11, color:"rgba(180,150,60,0.9)", marginBottom:8 }}>FOUND ON RECEIPT</div>
+            {Object.entries(receiptResult).filter(([,v]) => v != null).map(([k,v]) => (
+              <div key={k} style={{ display:"flex", gap:8, marginBottom:4 }}>
+                <span className="mono" style={{ fontSize:11, color:"rgba(255,255,255,0.5)", minWidth:80 }}>{k.replace(/_/g,' ').toUpperCase()}</span>
+                <span style={{ fontSize:12, color:"#fff" }}>{k === 'amount' ? money(v) : v}</span>
+              </div>
+            ))}
+            <div style={{ display:"flex", gap:8, marginTop:12 }}>
+              <button onClick={() => { onReceiptImport(photo, receiptResult); onClose(); }} className="head"
+                style={{ flex:1, padding:"10px", borderRadius:8, fontSize:13, fontWeight:700,
+                  background:"rgba(180,150,60,0.9)", color:"#000" }}>
+                IMPORT AS RECEIPT
+              </button>
+              <button onClick={() => setReceiptResult(null)} className="head"
+                style={{ padding:"10px 16px", borderRadius:8, fontSize:13,
+                  background:"rgba(255,255,255,0.1)", color:"#fff" }}>
+                DISMISS
+              </button>
+            </div>
+          </div>
+        )}
+        {!scanResult && !receiptResult && scale === 1 && (
           <div className="mono" style={{ textAlign:"center", fontSize:11, color:"rgba(255,255,255,0.3)" }}>
             PINCH TO ZOOM · TAP TO CLOSE
           </div>
@@ -6932,6 +7014,22 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const isShop = job.customer?.toUpperCase() === TMC_SHOP_NAME; // shop job gets a stripped-down layout
   const isClosed = job.status === 'Closed'; // Closed jobs are locked to field edits — see CLAUDE.md
 
+  // A photo added via the general ADD PHOTO button (no photo_type) turned out to be a receipt —
+  // Lightbox's "SCAN AS RECEIPT" already OCR'd it against the existing storage_path (no re-upload).
+  async function importPhotoAsReceipt(photo, result) {
+    const { data, error } = await insertReceiptRow({
+      job_id: job.id,
+      amount: result.amount != null ? Number(result.amount) : null,
+      vendor: result.vendor || null,
+      date: /^\d{4}-\d{2}-\d{2}$/.test(result.date || '') ? result.date : todayISO(),
+      storage_path: photo.storage_path || null,
+      paid_by: currentUser?.name || null,
+      created_at: new Date().toISOString(),
+    });
+    if (error) { showToast?.('Receipt save failed: ' + error.message, true); return; }
+    if (data) setReceipts(r => [...r, data]);
+    showToast?.('Added to Receipts');
+  }
   async function saveJobReceipt(storagePath) {
     if (!rAmount && !rVendor) { setRSaving(false); return; }
     setRSaving(true);
@@ -7528,7 +7626,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             onScanned={(photoId, data) => {
               updatePhotoOcrData(photoId, data);
               setPhotos(prev => prev.map(p => p.id === photoId ? { ...p, ocr_data: data } : p));
-            }} />
+            }}
+            onReceiptImport={importPhotoAsReceipt} />
         )}
 
         {deletingPhoto && (
