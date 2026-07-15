@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 235;
+const APP_REV = 236;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1432,7 +1432,7 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
             editingReceipt?.id === r.id ? (
               <div key={r.id} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
                 <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                  <input list="receipt-vendors-cj" placeholder="Vendor" value={editingReceipt.vendor||''}
+                  <input list="receipt-vendors-cj" autoComplete="off" placeholder="Vendor" value={editingReceipt.vendor||''}
                     onChange={e => setEditingReceipt(x => ({...x, vendor:e.target.value}))} style={{ flex:2 }} />
                   <input placeholder="$ Amount" type="number" inputMode="decimal" value={editingReceipt.amount ?? ''}
                     onChange={e => setEditingReceipt(x => ({...x, amount:e.target.value}))} style={{ flex:1 }} />
@@ -1502,7 +1502,7 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
             <div style={{ marginTop:10, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
               <datalist id="receipt-vendors-cj">{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <input list="receipt-vendors-cj" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)}
+                <input list="receipt-vendors-cj" autoComplete="off" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)}
                   style={{ flex:2 }} />
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
@@ -7268,7 +7268,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             editingReceipt?.id === r.id ? (
               <div key={r.id} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
                 <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                  <input list="receipt-vendors-jd" placeholder="Vendor" value={editingReceipt.vendor||''}
+                  <input list="receipt-vendors-jd" autoComplete="off" placeholder="Vendor" value={editingReceipt.vendor||''}
                     onChange={e => setEditingReceipt(x => ({...x, vendor:e.target.value}))} style={{ flex:2 }} />
                   <input placeholder="$ Amount" type="number" inputMode="decimal" value={editingReceipt.amount ?? ''}
                     onChange={e => setEditingReceipt(x => ({...x, amount:e.target.value}))} style={{ flex:1 }} />
@@ -7350,7 +7350,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             <div style={{ marginTop:8, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
               <datalist id="receipt-vendors-jd">{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <input list="receipt-vendors-jd" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)} style={{ flex:2 }} />
+                <input list="receipt-vendors-jd" autoComplete="off" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)} style={{ flex:2 }} />
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
               </div>
