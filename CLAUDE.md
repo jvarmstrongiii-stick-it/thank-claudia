@@ -451,7 +451,7 @@ The Expo/React Native app (`app/`, `components/`, `lib/`) is **not deployed** an
 
 **claudia.html architecture:**
 - React 18 UMD + Babel Standalone loaded from unpkg/jsDelivr CDN
-- `<script type="text/babel">` block contains the entire app (~3000 lines)
+- `<script type="text/babel">` block contains the entire app (~9,300 lines; check with `wc -l claudia.html` for the current count since this drifts)
 - Supabase JS client loaded from CDN — credentials hardcoded in the file
 - `fromRow(row)` maps DB rows → app job objects; `toRow(job, customerId, userId)` maps back
 - `deriveCustomers(jobs)` builds multi-property customer records client-side from job history
