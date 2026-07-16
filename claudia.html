@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 253;
+const APP_REV = 254;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2060,6 +2060,9 @@ const CAL_DAY_LABEL = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-
 // gesture outright (a scroll/swipe attempt, not a tap or a hold).
 const CAL_LONGPRESS_MS = 450;   // hold duration before drag mode arms (with a haptic buzz)
 const CAL_MOVE_CANCEL_PX = 10;  // movement before arming cancels the gesture entirely
+// True on real mouse/trackpad devices (laptop/desktop), false on touch-only — gates the Month
+// grid's hover peek tile so a touch tap's synthetic mouseenter doesn't leave a stuck tooltip.
+const CAL_HAS_HOVER = typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(hover: hover)').matches;
 
 // Draggable (Pointer Events — no HTML5 dragdrop, which barely works on touch) job chip used
 // in Month/Week grid cells. Three outcomes: a quick tap opens the peek popover (onPeek); a
@@ -2073,6 +2076,8 @@ function CalendarChip({ job, dateISO, onPeek, onDragEnd, onLongPressRelease, sta
   const armedRef = useRef(false);
   const cancelledRef = useRef(false);
   const [armed, setArmed] = useState(false);
+  const chipRef = useRef(null);
+  const [hoverPos, setHoverPos] = useState(null); // fixed-position anchor for the Month grid's hover peek tile, or null when hidden
   function reset() {
     clearTimeout(holdTimerRef.current);
     dragRef.current = null;
@@ -2080,6 +2085,19 @@ function CalendarChip({ job, dateISO, onPeek, onDragEnd, onLongPressRelease, sta
     cancelledRef.current = false;
     setArmed(false);
   }
+  function handleMouseEnter() {
+    if (stacked || !CAL_HAS_HOVER) return; // Week's stacked chips already show full detail inline
+    const rect = chipRef.current && chipRef.current.getBoundingClientRect();
+    if (!rect) return;
+    const width = 220, estHeight = 90;
+    let left = rect.left;
+    if (left + width > window.innerWidth - 8) left = window.innerWidth - width - 8;
+    if (left < 8) left = 8;
+    let top = rect.bottom + 6;
+    if (top + estHeight > window.innerHeight - 8) top = rect.top - estHeight - 6;
+    setHoverPos({ left, top });
+  }
+  function handleMouseLeave() { setHoverPos(null); }
   function onPointerDown(e) {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     dragRef.current = { startX: e.clientX, startY: e.clientY, pointerId: e.pointerId, isMouse: e.pointerType === 'mouse' };
@@ -2151,14 +2169,35 @@ function CalendarChip({ job, dateISO, onPeek, onDragEnd, onLongPressRelease, sta
     );
   }
   return (
-    <div onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onClick={onClick}
-      className="mono" style={{ fontSize:10, padding:"2px 4px", marginBottom:2, borderRadius:4, cursor: armed ? "grabbing" : "grab",
-        background: color+"22", borderLeft:`2px solid ${color}`, color:"var(--text)", touchAction:"none",
-        whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
-        transform: armed ? "scale(1.08)" : "scale(1)", boxShadow: armed ? "0 2px 8px rgba(0,0,0,0.4)" : "none",
-        transition: "transform 0.15s, box-shadow 0.15s" }}>
-      {fmtTime(job.scheduled_time)} {job.customer}
-    </div>
+    <>
+      <div ref={chipRef} onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerCancel} onClick={onClick}
+        onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}
+        className="mono" style={{ fontSize:10, padding:"2px 4px", marginBottom:2, borderRadius:4, cursor: armed ? "grabbing" : "grab",
+          background: color+"22", borderLeft:`2px solid ${color}`, color:"var(--text)", touchAction:"none",
+          whiteSpace:"nowrap", overflow:"hidden", textOverflow:"ellipsis",
+          transform: armed ? "scale(1.08)" : "scale(1)", boxShadow: armed ? "0 2px 8px rgba(0,0,0,0.4)" : "none",
+          transition: "transform 0.15s, box-shadow 0.15s" }}>
+        {fmtTime(job.scheduled_time)} {job.customer}
+      </div>
+      {hoverPos && ReactDOM.createPortal(
+        <div style={{ position:"fixed", left:hoverPos.left, top:hoverPos.top, width:220, zIndex:400, pointerEvents:"none",
+          background:"var(--panel)", border:"1px solid var(--olive-bright)", borderRadius:8, padding:"8px 10px",
+          boxShadow:"0 4px 16px rgba(0,0,0,0.5)" }}>
+          <div className="head" style={{ fontSize:13, color:"var(--text)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+            {job.site_name || job.customer}
+          </div>
+          <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:2 }}>
+            {fmtTime(job.scheduled_time)} · {job.flow_type}
+          </div>
+          {job.next_steps ? (
+            <NextStepsHint text={job.next_steps} style={{ whiteSpace:"normal", marginTop:4 }} />
+          ) : (
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", fontStyle:"italic", marginTop:4 }}>No next steps noted</div>
+          )}
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
 
