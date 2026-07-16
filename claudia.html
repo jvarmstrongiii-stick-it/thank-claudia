@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 252;
+const APP_REV = 253;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2493,7 +2493,8 @@ const SCHEDULABLE_EXCLUDE_STATUSES = ['Closed', 'Completed/Paid', 'Completed/Nee
 function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
   const [showAll, setShowAll] = useState(false);
   const [q, setQ] = useState('');
-  const [time, setTime] = useState(() => nowTimeRounded15());
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [time, setTime] = useState('09:00');
   const candidates = (jobs || [])
     .filter(j => j.customer?.toUpperCase() !== TMC_SHOP_NAME &&
       (showAll ? !SCHEDULABLE_EXCLUDE_STATUSES.includes(j.status) : j.status === 'Ready to Schedule'))
@@ -2501,12 +2502,55 @@ function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
   const filtered = q
     ? candidates.filter(j => (j.customer||'').toLowerCase().includes(q.toLowerCase()) || (siteAddr(j)||'').toLowerCase().includes(q.toLowerCase()))
     : candidates;
+  const dayJobs = (jobs || [])
+    .filter(j => j.scheduled_date === day)
+    .slice().sort((a, b) => (a.scheduled_time || '').localeCompare(b.scheduled_time || ''));
+
+  function pickJob(j) {
+    setSelectedJob(j);
+    setTime(dayJobs.length ? nowTimeRounded15() : '09:00');
+  }
+
+  if (selectedJob) {
+    return (
+      <Sheet title={`SCHEDULE FOR ${CAL_DAY_LABEL(day).toUpperCase()}`} onClose={onClose}>
+        <div className="mono" style={{ fontSize:13, color:'var(--text)', marginBottom:14 }}>
+          Scheduling <strong>{selectedJob.site_name || selectedJob.customer}</strong>
+        </div>
+        <div className="mono" style={{ fontSize:11, color:'var(--muted)', marginBottom:6 }}>
+          {dayJobs.length ? 'ALREADY SCHEDULED THIS DAY' : 'NOTHING ELSE SCHEDULED THIS DAY'}
+        </div>
+        {dayJobs.length > 0 && (
+          <div style={{ display:'flex', flexDirection:'column', gap:4, marginBottom:14 }}>
+            {dayJobs.map(j => (
+              <div key={j.id} className="mono" style={{ fontSize:12, color:'var(--text)', display:'flex', justifyContent:'space-between', gap:8,
+                padding:'6px 8px', background:'var(--panel)', border:'1px solid var(--line)', borderRadius:6 }}>
+                <span style={{ fontWeight:700 }}>{fmtTime(j.scheduled_time)}</span>
+                <span style={{ color:'var(--muted)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{j.site_name || j.customer}</span>
+              </div>
+            ))}
+          </div>
+        )}
+        <div className="mono" style={{ fontSize:11, color:'var(--muted)', marginBottom:6 }}>TIME</div>
+        <input type="time" autoFocus value={time} onChange={e => setTime(e.target.value)}
+          style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', marginBottom:14,
+            borderRadius:8, border:'1px solid var(--line)', background:'var(--bg)', color:'var(--text)', fontSize:14, fontFamily:'inherit' }} />
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={() => setSelectedJob(null)} className="head"
+            style={{ flex:1, padding:'12px', background:'var(--panel)', border:'1px solid var(--line)', borderRadius:8, color:'var(--text)', fontSize:14, cursor:'pointer' }}>
+            BACK
+          </button>
+          <button onClick={() => onSchedule(selectedJob.id, day, time)} className="head"
+            style={{ flex:1, padding:'12px', background:'var(--olive-bright)', border:'none', borderRadius:8, color:'var(--bg)', fontWeight:700, fontSize:14, cursor:'pointer' }}>
+            CONFIRM
+          </button>
+        </div>
+      </Sheet>
+    );
+  }
+
   return (
     <Sheet title={`SCHEDULE FOR ${CAL_DAY_LABEL(day).toUpperCase()}`} onClose={onClose}>
-      <div className="mono" style={{ fontSize:11, color:'var(--muted)', marginBottom:6 }}>TIME</div>
-      <input type="time" value={time} onChange={e => setTime(e.target.value)}
-        style={{ width:'100%', boxSizing:'border-box', padding:'10px 12px', marginBottom:12,
-          borderRadius:8, border:'1px solid var(--line)', background:'var(--bg)', color:'var(--text)', fontSize:14, fontFamily:'inherit' }} />
       <div style={{ display:'flex', gap:8, marginBottom:8 }}>
         <button onClick={() => setShowAll(false)} className="head"
           style={{ flex:1, padding:10, borderRadius:8, fontSize:13, fontWeight:700,
@@ -2528,7 +2572,7 @@ function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
           borderRadius:8, border:'1px solid var(--line)', background:'var(--bg)', color:'var(--text)', fontSize:14, fontFamily:'inherit' }} />
       <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:360, overflowY:'auto' }}>
         {filtered.map(j => (
-          <button key={j.id} onClick={() => onSchedule(j.id, day, time)} className="head"
+          <button key={j.id} onClick={() => pickJob(j)} className="head"
             style={{ padding:'12px 14px', borderRadius:8, fontSize:14, fontWeight:700, textAlign:'left',
               background:'var(--panel)', border:'1px solid var(--line)', color:'var(--text)', cursor:'pointer' }}>
             <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
