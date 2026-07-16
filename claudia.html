@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 250;
+const APP_REV = 251;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -269,6 +269,17 @@ function openMapsNav(job) {
   window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr)}&travelmode=driving`, '_blank');
 }
 function custAddr(j) { return j.customer_address || j.address || ""; }
+// Small "what's next" hint line, shown after a job's displayed name in Calendar View
+// (Agenda row, day-expand Sheet, tap-to-peek popover) — not the compact Month/Week grid chips.
+function NextStepsHint({ text, style }) {
+  if (!text) return null;
+  return (
+    <div className="mono" style={{ fontSize:11, color:"var(--olive-bright)", marginTop:2,
+      overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap", ...style }}>
+      ⏭ {text}
+    </div>
+  );
+}
 function uid() { return "job_" + Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function money(n) { return "$" + Number(n||0).toLocaleString("en-US"); }
 // Job value minus any deposit collected — the actual amount still owed.
@@ -489,6 +500,7 @@ function fromRow(row, notes=[]) {
     customer_address: customerAddr,
     site_address: siteAddr,
     site_name: row.site_name || '',
+    next_steps: row.next_steps || '',
     same_address: !siteAddr || siteAddr === customerAddr,
     phone: c.phone || '',
     email: c.email || '',
@@ -2336,7 +2348,10 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
                           padding:'8px 10px', marginBottom:6, background:'var(--panel)', border:'1px solid var(--line)',
                           borderLeft:`3px solid ${color}`, borderRadius:8, cursor:'pointer' }}>
                         <div className="mono" style={{ fontSize:13, color:'var(--brass-bright)', minWidth:70 }}>{fmtTime(j.scheduled_time)}</div>
-                        <div className="head" style={{ fontSize:14, color:'var(--text)', flex:1 }}>{j.site_name || j.customer}</div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div className="head" style={{ fontSize:14, color:'var(--text)' }}>{j.site_name || j.customer}</div>
+                          <NextStepsHint text={j.next_steps} />
+                        </div>
                       </button>
                     );
                   })}
@@ -2381,6 +2396,7 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
                   <div className="head" style={{ fontSize:14, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
                     {j.site_name || j.customer}
                   </div>
+                  <NextStepsHint text={j.next_steps} />
                 </button>
                 <button onClick={() => setMovePrompt({ job: j, targetDate: null })} title="Move to another day"
                   style={{ background:'none', border:'none', color:'var(--muted)', fontSize:17, cursor:'pointer', padding:'4px 2px' }}>
@@ -2415,6 +2431,7 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
               {fmtDate(peekJob.scheduled_date)} · {fmtTime(peekJob.scheduled_time)}
             </div>
             {siteAddr(peekJob) && <div className="mono" style={{ fontSize:12, color:'var(--muted)', marginBottom:8 }}>{siteAddr(peekJob)}</div>}
+            <NextStepsHint text={peekJob.next_steps} style={{ whiteSpace:'normal', marginBottom:8, fontSize:12 }} />
             {peekJob.original_ask && <div style={{ fontSize:13, color:'var(--text)', marginBottom:14 }}>{peekJob.original_ask}</div>}
             <button onClick={() => { const id = peekJob.id; setPeekJob(null); onOpenJob(id); }} className="head"
               style={{ width:'100%', padding:'12px', background:'var(--olive-bright)', color:'var(--bg)', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer' }}>
@@ -3897,6 +3914,19 @@ Command: "${transcript}"`
       return false;
     }
     setJobs(js => js.map(j => j.id === id ? { ...j, ...patch } : j));
+    return true;
+  }
+
+  // next_steps is written only here (not via toRow) so unmigrated job saves never break.
+  async function updateJobNextSteps(id, nextSteps) {
+    const { error } = await sb.from('jobs')
+      .update({ next_steps: nextSteps || null, updated_at: new Date().toISOString() }).eq('id', id);
+    if (error) {
+      if (error.code === 'PGRST204') showToast("What's Next needs one-time DB setup — ask Jack", true);
+      else { showToast("Error saving what's next", true); console.error(error); }
+      return false;
+    }
+    setJobs(js => js.map(j => j.id === id ? { ...j, next_steps: nextSteps || '' } : j));
     return true;
   }
 
@@ -6352,6 +6382,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [time, setTime] = useState(job.scheduled_time || nowTimeRounded15());
   const [originalAsk, setOriginalAsk] = useState(job.original_ask || '');
   const [notes, setNotes] = useState(job.notes || '');
+  const [nextSteps, setNextSteps] = useState(job.next_steps || '');
   const [editingValue, setEditingValue] = useState(false);
   const [valueDraft, setValueDraft] = useState('');
   const [editingDeposit, setEditingDeposit] = useState(false);
@@ -6494,6 +6525,10 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   useEffect(() => {
     setMaterials(job.materials_needed || []);
   }, [job.materials_needed]);
+
+  useEffect(() => {
+    setNextSteps(job.next_steps || '');
+  }, [job.next_steps]);
 
   async function addMaterial(text) {
     const t = (text || '').trim();
@@ -8165,6 +8200,16 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             onClose={() => setEditEquipItem(null)}
           />
         )}
+
+        <div style={{ marginTop:16 }}>
+          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>WHAT'S NEXT</div>
+          <textarea value={nextSteps} onChange={e => setNextSteps(e.target.value)}
+            onBlur={() => { if (nextSteps !== (job.next_steps||'')) updateJobNextSteps(job.id, nextSteps); }}
+            placeholder="What's next on this job?" readOnly={isClosed}
+            rows={2} style={{ width:"100%", boxSizing:"border-box", resize:"vertical", fontSize:15, lineHeight:1.4,
+              background:"var(--bg)", border:"1px solid var(--line)", borderRadius:8, color:"var(--text)",
+              padding:"10px 12px", fontFamily:"inherit", outline:"none" }} />
+        </div>
 
         <div style={{ marginTop:16 }}>
           <div onClick={() => setRecordLogOpen(o => !o)} className="mono"
