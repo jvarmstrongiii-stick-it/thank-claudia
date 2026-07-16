@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 249;
+const APP_REV = 250;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -4437,8 +4437,8 @@ Command: "${transcript}"`
     onOpenJob={(id) => { setShowBalances(false); setSelectedId(id); }} />;
   if (showMaterials) return <MaterialsScreen jobs={jobs} onClose={() => setShowMaterials(false)}
     onUpdateMaterials={updateJobMaterials} onOpenJob={(id) => { setShowMaterials(false); setSelectedId(id); }} />;
-  if (showCalendar) return <CalendarView jobs={jobs} onClose={() => setShowCalendar(false)}
-    onOpenJob={(id) => { setShowCalendar(false); setSelectedId(id); }}
+  if (showCalendar && !selected) return <CalendarView jobs={jobs} onClose={() => setShowCalendar(false)}
+    onOpenJob={(id) => setSelectedId(id)}
     onReschedule={(id, dateISO, time) => { const j = jobs.find(x => x.id === id); updateJob(id, { scheduled_date: dateISO, scheduled_time: time || j?.scheduled_time }); }}
     onScheduleJob={(jobId, dateISO, time) => {
       const j = jobs.find(x => x.id === jobId);
