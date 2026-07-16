@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 246;
+const APP_REV = 247;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2156,8 +2156,9 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
   const [expandedDay, setExpandedDay] = useState(null);
   const [periodAnchor, setPeriodAnchor] = useState(() => todayLocalISO());
   const [peekJob, setPeekJob] = useState(null);
-  const [movePrompt, setMovePrompt] = useState(null);
+  const [movePrompt, setMovePrompt] = useState(null); // { job, targetDate } | null — targetDate set only when a drag already picked the day
   const [schedulingDay, setSchedulingDay] = useState(null);
+  const [editingTimeId, setEditingTimeId] = useState(null);
 
   function changeMode(mode) { setViewMode(mode); setCalendarViewMode(mode); }
 
@@ -2204,9 +2205,7 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
   }, [viewMode, periodAnchor]);
 
   function handleChipDragEnd(job, targetDate) {
-    if (confirm(`Move ${job.site_name || job.customer || 'this job'} to ${CAL_DAY_LABEL(targetDate)}?`)) {
-      onReschedule(job.id, targetDate);
-    }
+    setMovePrompt({ job, targetDate });
   }
 
   return (
@@ -2248,7 +2247,7 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
               {monthGrid.map(cell => (
                 <CalendarDayCell key={cell.dateISO} dateISO={cell.dateISO} dimmed={!cell.inCurrentMonth}
                   dayJobs={jobsByDate[cell.dateISO] || []} maxShown={3} minHeight={82}
-                  onPeek={setPeekJob} onDragEnd={handleChipDragEnd} onLongPressRelease={setMovePrompt} onExpand={setExpandedDay} />
+                  onPeek={setPeekJob} onDragEnd={handleChipDragEnd} onLongPressRelease={(job) => setMovePrompt({ job, targetDate: null })} onExpand={setExpandedDay} />
               ))}
             </div>
           </div>
@@ -2267,7 +2266,7 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
               {weekDates.map(d => (
                 <CalendarDayCell key={d} dateISO={d} dimmed={false}
                   dayJobs={jobsByDate[d] || []} maxShown={6} minHeight={220}
-                  onPeek={setPeekJob} onDragEnd={handleChipDragEnd} onLongPressRelease={setMovePrompt} onExpand={setExpandedDay} />
+                  onPeek={setPeekJob} onDragEnd={handleChipDragEnd} onLongPressRelease={(job) => setMovePrompt({ job, targetDate: null })} onExpand={setExpandedDay} />
               ))}
             </div>
           </div>
@@ -2317,14 +2316,35 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
             <div className="mono" style={{ fontSize:13, color:'var(--muted)', padding:'12px 0' }}>No jobs</div>
           ) : (jobsByDate[expandedDay] || []).map(j => {
             const color = calJobColor(j);
+            const editingTime = editingTimeId === j.id;
             return (
-              <button key={j.id} onClick={() => { setExpandedDay(null); onOpenJob(j.id); }}
-                style={{ display:'flex', alignItems:'center', gap:10, width:'100%', textAlign:'left',
+              <div key={j.id} style={{ display:'flex', alignItems:'center', gap:8, width:'100%',
                   padding:'10px', marginBottom:8, background:'var(--panel)', border:'1px solid var(--line)',
-                  borderLeft:`3px solid ${color}`, borderRadius:8, cursor:'pointer' }}>
-                <div className="mono" style={{ fontSize:13, color:'var(--brass-bright)', minWidth:70 }}>{fmtTime(j.scheduled_time)}</div>
-                <div className="head" style={{ fontSize:14, color:'var(--text)', flex:1 }}>{j.site_name || j.customer}</div>
-              </button>
+                  borderLeft:`3px solid ${color}`, borderRadius:8 }}>
+                {editingTime ? (
+                  <input type="time" autoFocus value={j.scheduled_time || ''}
+                    onChange={e => onScheduleJob(j.id, expandedDay, e.target.value)}
+                    onBlur={() => setEditingTimeId(null)}
+                    className="mono" style={{ minWidth:96, padding:'4px 6px', borderRadius:6,
+                      border:'1px solid var(--olive-bright)', background:'var(--bg)', color:'var(--text)', fontSize:13 }} />
+                ) : (
+                  <button onClick={() => setEditingTimeId(j.id)} className="mono"
+                    style={{ minWidth:70, textAlign:'left', background:'none', border:'none',
+                      color:'var(--brass-bright)', fontSize:13, cursor:'pointer', padding:0 }}>
+                    {fmtTime(j.scheduled_time)} ✎
+                  </button>
+                )}
+                <button onClick={() => { setExpandedDay(null); onOpenJob(j.id); }}
+                  style={{ flex:1, textAlign:'left', background:'none', border:'none', cursor:'pointer', padding:0, minWidth:0 }}>
+                  <div className="head" style={{ fontSize:14, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                    {j.site_name || j.customer}
+                  </div>
+                </button>
+                <button onClick={() => setMovePrompt({ job: j, targetDate: null })} title="Move to another day"
+                  style={{ background:'none', border:'none', color:'var(--muted)', fontSize:17, cursor:'pointer', padding:'4px 2px' }}>
+                  ⇄
+                </button>
+              </div>
             );
           })}
           <button onClick={() => { setExpandedDay(null); setSchedulingDay(expandedDay); }} className="head"
@@ -2371,24 +2391,37 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
       })()}
 
       {movePrompt && (
-        <MoveJobPrompt job={movePrompt} onClose={() => setMovePrompt(null)} onReschedule={onReschedule} />
+        <MoveJobPrompt job={movePrompt.job} targetDate={movePrompt.targetDate} onClose={() => setMovePrompt(null)} onReschedule={onReschedule} />
       )}
     </div>
   );
 }
 
-function MoveJobPrompt({ job, onClose, onReschedule }) {
-  const [date, setDate] = useState(job.scheduled_date || todayISO());
+// Used both when a drag already picked the target day (targetDate set — date is fixed, only
+// TIME is asked) and when initiated without one (long-press-release in place, or the day list's
+// ⇄ button — DATE is editable too). Either way this always ends with a time to confirm, never
+// silently keeps the job's old time.
+function MoveJobPrompt({ job, targetDate, onClose, onReschedule }) {
+  const [date, setDate] = useState(targetDate || job.scheduled_date || todayISO());
+  const [time, setTime] = useState(job.scheduled_time || nowTimeRounded15());
   return (
-    <Sheet title="MOVE JOB?" onClose={onClose}>
+    <Sheet title={targetDate ? `MOVE TO ${CAL_DAY_LABEL(targetDate).toUpperCase()}?` : "MOVE JOB?"} onClose={onClose}>
       <div style={{ fontSize:14, color:'var(--text)', marginBottom:12 }}>
-        Move <strong>{job.site_name || job.customer}</strong> to a different date?
+        Move <strong>{job.site_name || job.customer}</strong>{targetDate ? '' : ' to a different date?'}
       </div>
-      <input type="date" value={date} min={todayISO()} onChange={e => setDate(e.target.value)}
+      {!targetDate && (
+        <>
+          <div className="mono" style={{ fontSize:11, color:'var(--muted)', marginBottom:6 }}>DATE</div>
+          <input type="date" value={date} min={todayISO()} onChange={e => setDate(e.target.value)}
+            className="mono" style={{ width:'100%', padding:'10px', marginBottom:14, background:'var(--panel)', border:'1px solid var(--line)', borderRadius:8, color:'var(--text)', fontSize:14 }} />
+        </>
+      )}
+      <div className="mono" style={{ fontSize:11, color:'var(--muted)', marginBottom:6 }}>TIME</div>
+      <input type="time" value={time} onChange={e => setTime(e.target.value)}
         className="mono" style={{ width:'100%', padding:'10px', marginBottom:14, background:'var(--panel)', border:'1px solid var(--line)', borderRadius:8, color:'var(--text)', fontSize:14 }} />
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={onClose} className="head" style={{ flex:1, padding:'12px', background:'var(--panel)', border:'1px solid var(--line)', borderRadius:8, color:'var(--text)', fontSize:14, cursor:'pointer' }}>CANCEL</button>
-        <button onClick={() => { onReschedule(job.id, date); onClose(); }} className="head" style={{ flex:1, padding:'12px', background:'var(--olive-bright)', border:'none', borderRadius:8, color:'var(--bg)', fontWeight:700, fontSize:14, cursor:'pointer' }}>MOVE</button>
+        <button onClick={() => { onReschedule(job.id, date, time); onClose(); }} className="head" style={{ flex:1, padding:'12px', background:'var(--olive-bright)', border:'none', borderRadius:8, color:'var(--bg)', fontWeight:700, fontSize:14, cursor:'pointer' }}>MOVE</button>
       </div>
     </Sheet>
   );
@@ -4364,7 +4397,7 @@ Command: "${transcript}"`
     onUpdateMaterials={updateJobMaterials} onOpenJob={(id) => { setShowMaterials(false); setSelectedId(id); }} />;
   if (showCalendar) return <CalendarView jobs={jobs} onClose={() => setShowCalendar(false)}
     onOpenJob={(id) => { setShowCalendar(false); setSelectedId(id); }}
-    onReschedule={(id, dateISO) => { const j = jobs.find(x => x.id === id); updateJob(id, { scheduled_date: dateISO, scheduled_time: j?.scheduled_time }); }}
+    onReschedule={(id, dateISO, time) => { const j = jobs.find(x => x.id === id); updateJob(id, { scheduled_date: dateISO, scheduled_time: time || j?.scheduled_time }); }}
     onScheduleJob={(jobId, dateISO, time) => {
       const j = jobs.find(x => x.id === jobId);
       const patch = { scheduled_date: dateISO, scheduled_time: time };
