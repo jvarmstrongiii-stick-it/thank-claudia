@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 244;
+const APP_REV = 245;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -283,7 +283,8 @@ function sortChoresForUser(list, userId) {
 }
 function fmtDate(iso) {
   if (!iso) return "—";
-  const [, m, d] = iso.split("-");
+  const [y, m, d] = iso.split("-");
+  if (iso < todayLocalISO()) return `${m}/${d}/${y.slice(2)}`;
   const wd = new Date(iso + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
   return `${wd} ${m}/${d}`;
 }
