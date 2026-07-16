@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 247;
+const APP_REV = 248;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -141,17 +141,18 @@ const STATUS_COLOR = {
   "On Site":"#6fa33d","In Progress":"#93a046","On Hold":"#b5432f",
   "Completed/Needs Billing":"#d9af52","Billed/Waiting for Payment":"#c98a3f","Completed/Paid":"#6fa33d","Closed":"#b8baa8",
 };
-const JOB_TYPES = ["Service Call","New Install","Maintenance","Replacement","Warranty","Estimate"];
+const JOB_TYPES = ["Service Call","New Install","Maintenance","Building Maintenance","Replacement","Warranty","Estimate"];
 // The per-job log/record stream (non-system job_notes) is labeled by job type.
 function logTitleForType(type) {
   switch (type) {
-    case 'Estimate':    return 'NOTES';
-    case 'Maintenance': return 'MAINTENANCE RECORD';
+    case 'Estimate':            return 'NOTES';
+    case 'Maintenance':         return 'MAINTENANCE RECORD';
+    case 'Building Maintenance': return 'WORK PERFORMED';
     case 'New Install':
-    case 'Replacement': return 'DAILY LOG';
+    case 'Replacement':         return 'DAILY LOG';
     case 'Service Call':
-    case 'Warranty':    return 'SERVICE RECORD';
-    default:            return 'LOG';
+    case 'Warranty':            return 'SERVICE RECORD';
+    default:                    return 'LOG';
   }
 }
 
