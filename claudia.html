@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 245;
+const APP_REV = 246;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2299,6 +2299,11 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
                       </button>
                     );
                   })}
+                  <button onClick={() => setSchedulingDay(d)} className="mono"
+                    style={{ width:'100%', textAlign:'left', padding:'6px 2px', marginTop:2,
+                      background:'none', border:'none', color:'var(--olive-bright)', fontSize:12, fontWeight:700, cursor:'pointer' }}>
+                    + SCHEDULE JOB
+                  </button>
                 </div>
               );
             })}
@@ -2352,6 +2357,10 @@ function CalendarView({ jobs, onClose, onOpenJob, onReschedule, onScheduleJob, o
             <button onClick={() => { const id = peekJob.id; setPeekJob(null); onOpenJob(id); }} className="head"
               style={{ width:'100%', padding:'12px', background:'var(--olive-bright)', color:'var(--bg)', border:'none', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer' }}>
               VIEW FULL JOB
+            </button>
+            <button onClick={() => { const day = peekJob.scheduled_date; setPeekJob(null); setSchedulingDay(day); }} className="head"
+              style={{ width:'100%', padding:'12px', marginTop:8, background:'var(--panel)', color:'var(--text)', border:'1px solid var(--line)', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer' }}>
+              + SCHEDULE JOB FOR THIS DAY
             </button>
             <button onClick={() => { const id = peekJob.id; setPeekJob(null); onUnschedule(id); onOpenJob(id); }} className="head"
               style={{ width:'100%', padding:'12px', marginTop:8, background:'transparent', color:'var(--danger)', border:'1px solid var(--danger)', borderRadius:8, fontSize:14, fontWeight:700, cursor:'pointer' }}>
