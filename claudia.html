@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 260;
+const APP_REV = 261;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1591,7 +1591,7 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
                     alt="receipt" style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
                 )}
                 <div style={{ flex:1 }}>
-                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}{receiptPages(r).length > 1 ? ` 📷×${receiptPages(r).length}` : ''}</div>
+                  <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>{r.vendor || '—'}{receiptPages(r).length > 1 ? ` 📷×${receiptPages(r).length}` : ''}</div>
                   <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
                     {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}{r.paid_by ? ` · paid by ${r.paid_by}` : ''}
                   </div>
@@ -7520,7 +7520,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
 
   const materialsSection = (
     <div style={{ marginTop:16 }}>
-      <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:8 }}>MATERIALS NEEDED</div>
+      <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)", marginBottom:8 }}>MATERIALS NEEDED</div>
       {!isClosed && (
         <div style={{ display:"flex", gap:8 }}>
           <input value={matText} onChange={e => setMatText(e.target.value)}
@@ -7832,7 +7832,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
 
         {!isShop && (
           <div style={{ marginTop:10 }}>
-            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>ORIGINAL ASK</div>
+            <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)", marginBottom:6 }}>ORIGINAL ASK</div>
             <textarea value={originalAsk} onChange={e => setOriginalAsk(e.target.value)}
               onBlur={() => { if (originalAsk !== (job.original_ask||'')) onUpdate({ original_ask: originalAsk }); }}
               placeholder="What did the customer ask for?" readOnly={isClosed}
@@ -7842,7 +7842,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
 
         {!isShop && (
           <div style={{ marginTop:10 }}>
-            <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>NOTES</div>
+            <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)", marginBottom:6 }}>NOTES</div>
             <textarea value={notes} onChange={e => setNotes(e.target.value)}
               onBlur={() => { if (notes !== (job.notes||'')) onUpdate({ notes }); }}
               readOnly={isClosed}
@@ -7853,7 +7853,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         {/* Receipts */}
         <div style={{ marginTop:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-            <div className="mono" style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6 }}>
+            <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)", display:"flex", alignItems:"center", gap:6 }}>
               RECEIPTS{receipts.length > 0 ? ` (${receipts.length})` : ''}
               {receipts.length > 0 && (
                 <span style={{ color:"var(--olive-bright)", marginLeft:4 }}>
@@ -7908,7 +7908,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                     style={{ width:36, height:36, objectFit:"cover", borderRadius:4, flexShrink:0 }} />
                 ))}
                 <div style={{ flex:1 }}>
-                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{r.vendor || '—'}{receiptPages(r).length > 1 ? ` 📷×${receiptPages(r).length}` : (r.storage_path ? ' 📷' : '')}</div>
+                  <div className="mono" style={{ fontSize:13, color:"var(--muted)" }}>{r.vendor || '—'}{receiptPages(r).length > 1 ? ` 📷×${receiptPages(r).length}` : (r.storage_path ? ' 📷' : '')}</div>
                   <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>
                     {r.amount ? money(r.amount) : '—'}{r.date ? ` · ${r.date}` : ''}{r.paid_by ? ` · paid by ${r.paid_by}` : ''}
                   </div>
@@ -8041,8 +8041,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         <div style={{ marginTop:20 }}>
           {/* THIS JOB section */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:10 }}>
-            <div onClick={() => setThisJobEquipOpen(o => !o)} className="mono"
-              style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+            <div onClick={() => setThisJobEquipOpen(o => !o)} className="head"
+              style={{ fontSize:15, fontWeight:700, color:"var(--text)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
               <span style={{ display:"inline-block", transition:"transform 0.15s", transform: thisJobEquipOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
               THIS JOB{jobEquip.length > 0 ? ` (${jobEquip.length})` : ''}
               {scanningCount > 0 && (
@@ -8134,8 +8134,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
 
           {/* OTHER AT THIS ADDRESS section */}
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginTop:14, marginBottom:10, borderTop:"1px solid var(--line)", paddingTop:14 }}>
-            <div onClick={() => setOtherEquipOpen(o => !o)} className="mono"
-              style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+            <div onClick={() => setOtherEquipOpen(o => !o)} className="head"
+              style={{ fontSize:15, fontWeight:700, color:"var(--text)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
               <span style={{ display:"inline-block", transition:"transform 0.15s", transform: otherEquipOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
               OTHER AT THIS ADDRESS{otherEquip.length > 0 ? ` (${otherEquip.length})` : ''}
               {otherScanningCount > 0 && (
@@ -8347,7 +8347,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         )}
 
         <div style={{ marginTop:16 }}>
-          <div className="mono" style={{ fontSize:13, color:"var(--muted)", marginBottom:6 }}>WHAT'S NEXT</div>
+          <div className="head" style={{ fontSize:15, fontWeight:700, color:"var(--text)", marginBottom:6 }}>WHAT'S NEXT</div>
           <textarea value={nextSteps} onChange={e => setNextSteps(e.target.value)}
             onBlur={() => { if (nextSteps !== (job.next_steps||'')) updateJobNextSteps(job.id, nextSteps); }}
             placeholder="What's next on this job?" readOnly={isClosed}
@@ -8357,8 +8357,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         </div>
 
         <div style={{ marginTop:16 }}>
-          <div onClick={() => setRecordLogOpen(o => !o)} className="mono"
-            style={{ fontSize:13, color:"var(--muted)", marginBottom:8, display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+          <div onClick={() => setRecordLogOpen(o => !o)} className="head"
+            style={{ fontSize:15, fontWeight:700, color:"var(--text)", marginBottom:8, display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
             <span style={{ display:"inline-block", transition:"transform 0.15s", transform: recordLogOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
             {logTitleForType(job.type)}{history.length > 0 ? ` (${history.length})` : ''}
           </div>
@@ -8412,8 +8412,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         {/* Photo strip */}
         <div style={{ marginTop:16 }}>
           <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-            <div onClick={() => setPhotosOpen(o => !o)} className="mono"
-              style={{ fontSize:13, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+            <div onClick={() => setPhotosOpen(o => !o)} className="head"
+              style={{ fontSize:15, fontWeight:700, color:"var(--text)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
               <span style={{ display:"inline-block", transition:"transform 0.15s", transform: photosOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
               PHOTOS{photos.length > 0 ? ` (${photos.length})` : ''}
             </div>
@@ -8474,8 +8474,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
 
         {users.length > 0 && (
           <div style={{ marginTop:20 }}>
-            <div onClick={() => setCrewStatusOpen(o => !o)} className="mono"
-              style={{ fontSize:12, color:"var(--muted)", marginBottom:8, display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+            <div onClick={() => setCrewStatusOpen(o => !o)} className="head"
+              style={{ fontSize:15, fontWeight:700, color:"var(--text)", marginBottom:8, display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
               <span style={{ display:"inline-block", transition:"transform 0.15s", transform: crewStatusOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
               CREW STATUS
             </div>
@@ -8520,8 +8520,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         {users.length > 0 && (
           <div ref={timeLogRef} style={{ marginTop:20 }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:8 }}>
-              <div onClick={() => setTimeLogOpen(o => !o)} className="mono"
-                style={{ fontSize:12, color:"var(--muted)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
+              <div onClick={() => setTimeLogOpen(o => !o)} className="head"
+                style={{ fontSize:15, fontWeight:700, color:"var(--text)", display:"flex", alignItems:"center", gap:6, cursor:"pointer", padding:"4px 0" }}>
                 <span style={{ display:"inline-block", transition:"transform 0.15s", transform: timeLogOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
                 TIME LOG
               </div>
