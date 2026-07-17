@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 256;
+const APP_REV = 257;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1116,6 +1116,43 @@ function StatusPill({ status, overdue, scheduled }) {
   );
 }
 
+// Custom vendor autocomplete — replaces native <input list>/<datalist>. Android Chrome never
+// renders datalist as an in-page dropdown; it funnels suggestions into its own keyboard-top
+// autofill strip instead, which mixes in stale browser-cached values ahead of real vendor names
+// and ignores autoComplete="off". This renders and filters the list ourselves so it actually drops down.
+function VendorInput({ value, onChange, options, style }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDown = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+  const q = (value||'').trim().toLowerCase();
+  const matches = (options||[]).filter(v => !q || v.toLowerCase().includes(q)).slice(0, 6);
+  return (
+    <div ref={wrapRef} style={{ position:"relative", ...style }}>
+      <input placeholder="Vendor" autoComplete="off" value={value||''}
+        onChange={e => { onChange(e.target.value); setOpen(true); }}
+        onFocus={() => setOpen(true)}
+        style={{ width:"100%" }} />
+      {open && matches.length > 0 && (
+        <div style={{ position:"absolute", top:"calc(100% + 2px)", left:0, right:0, zIndex:50,
+          background:"var(--panel)", border:"1px solid var(--line)", borderRadius:6,
+          maxHeight:160, overflowY:"auto", boxShadow:"0 4px 12px rgba(0,0,0,0.4)" }}>
+          {matches.map(v => (
+            <div key={v} onPointerDown={e => { e.preventDefault(); onChange(v); setOpen(false); }}
+              className="mono" style={{ padding:"8px 10px", fontSize:13, cursor:"pointer", borderBottom:"1px solid var(--line)" }}>
+              {v}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Toast({ msg, isError }) {
   return (
     <div style={{
@@ -1499,8 +1536,8 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
             editingReceipt?.id === r.id ? (
               <div key={r.id} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
                 <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                  <input list="receipt-vendors-cj" autoComplete="off" placeholder="Vendor" value={editingReceipt.vendor||''}
-                    onChange={e => setEditingReceipt(x => ({...x, vendor:e.target.value}))} style={{ flex:2 }} />
+                  <VendorInput value={editingReceipt.vendor} options={vendorOptions}
+                    onChange={v => setEditingReceipt(x => ({...x, vendor:v}))} style={{ flex:2 }} />
                   <input placeholder="$ Amount" type="number" inputMode="decimal" value={editingReceipt.amount ?? ''}
                     onChange={e => setEditingReceipt(x => ({...x, amount:e.target.value}))} style={{ flex:1 }} />
                 </div>
@@ -1567,10 +1604,8 @@ function CloseJobSheet({ jobId, jobs, users, onConfirm, onClose, showToast, curr
 
           {addingReceipt ? (
             <div style={{ marginTop:10, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
-              <datalist id="receipt-vendors-cj">{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <input list="receipt-vendors-cj" autoComplete="off" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)}
-                  style={{ flex:2 }} />
+                <VendorInput value={rVendor} options={vendorOptions} onChange={setRVendor} style={{ flex:2 }} />
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
               </div>
@@ -7811,8 +7846,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
             editingReceipt?.id === r.id ? (
               <div key={r.id} style={{ padding:"8px 0", borderBottom:"1px solid var(--line)" }}>
                 <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                  <input list="receipt-vendors-jd" autoComplete="off" placeholder="Vendor" value={editingReceipt.vendor||''}
-                    onChange={e => setEditingReceipt(x => ({...x, vendor:e.target.value}))} style={{ flex:2 }} />
+                  <VendorInput value={editingReceipt.vendor} options={vendorOptions}
+                    onChange={v => setEditingReceipt(x => ({...x, vendor:v}))} style={{ flex:2 }} />
                   <input placeholder="$ Amount" type="number" inputMode="decimal" value={editingReceipt.amount ?? ''}
                     onChange={e => setEditingReceipt(x => ({...x, amount:e.target.value}))} style={{ flex:1 }} />
                 </div>
@@ -7891,9 +7926,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
           )}
           {addingReceipt && (
             <div style={{ marginTop:8, padding:12, background:"var(--panel)", borderRadius:8, border:"1px solid var(--line)" }}>
-              <datalist id="receipt-vendors-jd">{vendorOptions.map(v => <option key={v} value={v} />)}</datalist>
               <div style={{ display:"flex", gap:8, marginBottom:8 }}>
-                <input list="receipt-vendors-jd" autoComplete="off" placeholder="Vendor" value={rVendor} onChange={e => setRVendor(e.target.value)} style={{ flex:2 }} />
+                <VendorInput value={rVendor} options={vendorOptions} onChange={setRVendor} style={{ flex:2 }} />
                 <input placeholder="$ Amount" type="number" inputMode="decimal" value={rAmount}
                   onChange={e => setRAmount(e.target.value)} style={{ flex:1 }} />
               </div>
