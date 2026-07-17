@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 258;
+const APP_REV = 259;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1153,13 +1153,17 @@ function VendorInput({ value, onChange, options, style }) {
           const canonical = (options||[]).find(v => v.toLowerCase() === typed.toLowerCase());
           if (canonical && canonical !== value) onChange(canonical);
         }}
-        style={{ width:"100%" }} />
+        style={{ width:"100%", paddingRight:24 }} />
+      {(options||[]).length > 0 && (
+        <span style={{ position:"absolute", top:"50%", right:8, transform:"translateY(-50%)",
+          pointerEvents:"none", color:"var(--muted)", fontSize:11 }}>▼</span>
+      )}
       {open && matches.length > 0 && (
         <div style={{ position:"absolute", top:"calc(100% + 2px)", left:0, right:0, zIndex:50,
           background:"var(--panel)", border:"1px solid var(--line)", borderRadius:6,
           maxHeight:160, overflowY:"auto", boxShadow:"0 4px 12px rgba(0,0,0,0.4)" }}>
           {matches.map(v => (
-            <div key={v} onPointerDown={e => { e.preventDefault(); onChange(v); setOpen(false); }}
+            <div key={v} onClick={() => { onChange(v); setOpen(false); }}
               className="mono" style={{ padding:"8px 10px", fontSize:13, cursor:"pointer", borderBottom:"1px solid var(--line)" }}>
               {v}
             </div>
