@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 254;
+const APP_REV = 255;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2526,8 +2526,9 @@ function MoveJobPrompt({ job, targetDate, onClose, onReschedule }) {
 }
 
 // Picker used by CalendarView's "+ SCHEDULE JOB" — defaults to Ready to Schedule jobs, with a
-// toggle to widen to all non-terminal jobs. Time is entered right here (not deferred to Job
-// Detail) since scheduling is meant to happen primarily from the Calendar going forward.
+// toggle to widen to all non-terminal jobs. Picking a job hands off to a confirm step (time is
+// entered there, not deferred to Job Detail) since scheduling is meant to happen primarily from
+// the Calendar going forward.
 const SCHEDULABLE_EXCLUDE_STATUSES = ['Closed', 'Completed/Paid', 'Completed/Needs Billing', 'Billed/Waiting for Payment'];
 function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
   const [showAll, setShowAll] = useState(false);
@@ -2541,7 +2542,7 @@ function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
   const filtered = q
     ? candidates.filter(j => (j.customer||'').toLowerCase().includes(q.toLowerCase()) || (siteAddr(j)||'').toLowerCase().includes(q.toLowerCase()))
     : candidates;
-  const dayJobs = (jobs || [])
+  const dayJobs = getCalendarJobs(jobs)
     .filter(j => j.scheduled_date === day)
     .slice().sort((a, b) => (a.scheduled_time || '').localeCompare(b.scheduled_time || ''));
 
