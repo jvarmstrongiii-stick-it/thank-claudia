@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 257;
+const APP_REV = 258;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -637,10 +637,22 @@ async function fetchJobs() {
   return rows.map(r => fromRow(r, notesByJob[r.id]||[]));
 }
 
+// Groups vendors case-insensitively so "Home Depot"/"home depot" show as one suggestion,
+// not two — picks whichever casing variant was actually saved most often as the canonical one.
 async function fetchReceiptVendors() {
   const { data, error } = await sb.from('receipts').select('vendor');
   if (error) { console.warn('fetchReceiptVendors', error); return []; }
-  return [...new Set((data||[]).map(r => (r.vendor||'').trim()).filter(Boolean))].sort((a,b) => a.localeCompare(b));
+  const byKey = {};
+  (data||[]).forEach(r => {
+    const v = (r.vendor||'').trim();
+    if (!v) return;
+    const key = v.toLowerCase();
+    byKey[key] = byKey[key] || {};
+    byKey[key][v] = (byKey[key][v]||0) + 1;
+  });
+  return Object.values(byKey)
+    .map(variants => Object.entries(variants).sort((a,b) => b[1]-a[1])[0][0])
+    .sort((a,b) => a.localeCompare(b));
 }
 
 // Insert a receipt, retrying without paid_by if that column isn't migrated yet (money path must not break).
@@ -1136,6 +1148,11 @@ function VendorInput({ value, onChange, options, style }) {
       <input placeholder="Vendor" autoComplete="off" value={value||''}
         onChange={e => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
+        onBlur={() => {
+          const typed = (value||'').trim();
+          const canonical = (options||[]).find(v => v.toLowerCase() === typed.toLowerCase());
+          if (canonical && canonical !== value) onChange(canonical);
+        }}
         style={{ width:"100%" }} />
       {open && matches.length > 0 && (
         <div style={{ position:"absolute", top:"calc(100% + 2px)", left:0, right:0, zIndex:50,
