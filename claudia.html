@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 259;
+const APP_REV = 260;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -1135,6 +1135,7 @@ function StatusPill({ status, overdue, scheduled }) {
 function VendorInput({ value, onChange, options, style }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
+  const inputRef = useRef(null);
   useEffect(() => {
     if (!open) return;
     const onDown = e => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
@@ -1145,7 +1146,7 @@ function VendorInput({ value, onChange, options, style }) {
   const matches = (options||[]).filter(v => !q || v.toLowerCase().includes(q)).slice(0, 6);
   return (
     <div ref={wrapRef} style={{ position:"relative", ...style }}>
-      <input placeholder="Vendor" autoComplete="off" value={value||''}
+      <input ref={inputRef} placeholder="Vendor" autoComplete="off" value={value||''}
         onChange={e => { onChange(e.target.value); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => {
@@ -1155,8 +1156,13 @@ function VendorInput({ value, onChange, options, style }) {
         }}
         style={{ width:"100%", paddingRight:24 }} />
       {(options||[]).length > 0 && (
-        <span style={{ position:"absolute", top:"50%", right:8, transform:"translateY(-50%)",
-          pointerEvents:"none", color:"var(--muted)", fontSize:11 }}>▼</span>
+        // Tapping the arrow browses vendors without opening the keyboard (blurs if focused);
+        // tapping the text itself still focuses normally. Separate hit target, not pass-through.
+        <span
+          onClick={e => { e.preventDefault(); e.stopPropagation(); if (inputRef.current) inputRef.current.blur(); setOpen(true); }}
+          style={{ position:"absolute", top:0, right:0, bottom:0, width:32,
+            display:"flex", alignItems:"center", justifyContent:"center",
+            color:"var(--muted)", fontSize:11, cursor:"pointer" }}>▼</span>
       )}
       {open && matches.length > 0 && (
         <div style={{ position:"absolute", top:"calc(100% + 2px)", left:0, right:0, zIndex:50,
