@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 255;
+const APP_REV = 256;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -2987,7 +2987,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
                         <button onClick={() => onOpenJobDay && onOpenJobDay(jobId, dayKey)}
                           style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}>
                           <div className="head" style={{ fontSize: 13, color: 'var(--text)' }}>{jd.label}</div>
-                          <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} dangling={jd.dangling} implausible={jd.totalMs > IMPLAUSIBLE_DAY_MS} dayKey={dayKey} onExplain={setFlagExplain} />
+                          <SubBreakdown driveMs={jd.driveMs} onSiteMs={jd.onSiteMs} runMs={jd.runMs} totalMs={jd.totalMs} dangling={jd.dangling} dayKey={dayKey} onExplain={setFlagExplain} />
                         </button>
                         {(jd.periods || []).length > 0 && (
                           <div style={{ marginTop: 6 }}>
