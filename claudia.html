@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 261;
+const APP_REV = 262;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -6560,8 +6560,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   useEffect(() => () => { Object.values(shopHideTimers.current).forEach(clearTimeout); }, []);
   const [crew, setCrew] = useState([]);
   const [crewLog, setCrewLog] = useState(job.crewLog || []);
-  const [crewLogDate, setCrewLogDate] = useState(todayISO());
-  const [editingLogPeriod, setEditingLogPeriod] = useState(null); // { name, idx } or null
+  const [expandedLogDays, setExpandedLogDays] = useState(() => new Set()); // day keys with their TIME LOG frame open
+  const [editingLogPeriod, setEditingLogPeriod] = useState(null); // { name, day, idx } or null
   const [editLogStart, setEditLogStart] = useState('');
   const [editLogEnd, setEditLogEnd] = useState('');
   const [editLogJobId, setEditLogJobId] = useState(null);
@@ -6655,7 +6655,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   // Deep-link from Hours' BY DAY tab: jump straight to this job's Time Log, on the day that was clicked.
   useEffect(() => {
     if (!focusTimeLog || focusTimeLog.jobId !== job.id) return;
-    if (focusTimeLog.date) setCrewLogDate(focusTimeLog.date);
+    if (focusTimeLog.date) setExpandedLogDays(prev => new Set(prev).add(focusTimeLog.date));
     setTimeLogOpen(true);
     setTimeout(() => timeLogRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6924,8 +6924,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     setEditingCrew(null);
   }
 
-  function openLogEdit(name, idx, period) {
-    setEditingLogPeriod({ name, idx });
+  function openLogEdit(name, day, idx, period) {
+    setEditingLogPeriod({ name, day, idx });
     setEditLogStart(toLocalDateTimeInput(period.start));
     setEditLogEnd(period.end ? toLocalDateTimeInput(period.end) : '');
     setEditLogJobId(job.id);
@@ -6999,10 +6999,11 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   }
 
   function openAddLog(name) {
-    setAddingLogFor(name);
+    const d = todayISO();
+    setAddingLogFor(name || currentUser?.name || users[0]?.name || '');
     setAddLogStatus('In Route');
-    setAddLogStart(`${crewLogDate}T08:00`);
-    setAddLogEnd(`${crewLogDate}T09:00`);
+    setAddLogStart(`${d}T08:00`);
+    setAddLogEnd(`${d}T09:00`);
   }
 
   async function saveAddLog(name) {
@@ -7029,6 +7030,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       { id: startRow?.id, content: startContent, at: startIso },
       { id: endRow?.id, content: endContent, at: endIso },
     ]);
+    setExpandedLogDays(prev => new Set(prev).add(dateISOInTZ(new Date(startIso), getAppTZ())));
     setAddingLogFor(null);
   }
 
@@ -7381,6 +7383,26 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const jobEquip = equipmentList.filter(eq => eq.job_id === job.id);
   const otherEquip = equipmentList.filter(eq => eq.job_id !== job.id);
   const crewTimeline = buildCrewTimeline(crewLog, crew, users);
+  // Group every period into the day it started on, across all techs — the TIME LOG only
+  // shows days that actually have activity, each as its own collapsible frame, instead of
+  // navigating day-by-day and hitting "no activity this day" on most days.
+  const logDayMap = {}; // { dayISO: { userName: periods[] } }
+  users.forEach(u => {
+    (crewTimeline[u.name] || []).forEach(p => {
+      const day = dateISOInTZ(new Date(p.start), getAppTZ());
+      if (!logDayMap[day]) logDayMap[day] = {};
+      if (!logDayMap[day][u.name]) logDayMap[day][u.name] = [];
+      logDayMap[day][u.name].push(p);
+    });
+  });
+  const logDayKeys = Object.keys(logDayMap).sort((a, b) => b.localeCompare(a)); // most recent day first
+  function toggleLogDay(day) {
+    setExpandedLogDays(prev => {
+      const next = new Set(prev);
+      next.has(day) ? next.delete(day) : next.add(day);
+      return next;
+    });
+  }
   const isShop = job.customer?.toUpperCase() === TMC_SHOP_NAME; // shop job gets a stripped-down layout
   const isClosed = job.status === 'Closed'; // Closed jobs are locked to field edits — see CLAUDE.md
 
@@ -8525,125 +8547,144 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 <span style={{ display:"inline-block", transition:"transform 0.15s", transform: timeLogOpen ? "rotate(90deg)" : "rotate(0deg)" }}>▶</span>
                 TIME LOG
               </div>
-              {timeLogOpen && (
-                <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                  <button onClick={() => setCrewLogDate(d => shiftDateISO(d, -1))} className="mono"
-                    style={{ fontSize:16, color:"var(--muted)", padding:"2px 8px" }}>‹</button>
-                  <input type="date" value={crewLogDate} onChange={e => setCrewLogDate(e.target.value)}
-                    className="mono" style={{ fontSize:12, padding:"4px 6px" }} />
-                  <button onClick={() => setCrewLogDate(d => shiftDateISO(d, 1))} className="mono"
-                    style={{ fontSize:16, color:"var(--muted)", padding:"2px 8px" }}>›</button>
-                  {crewLogDate !== todayISO() && (
-                    <button onClick={() => setCrewLogDate(todayISO())} className="mono"
-                      style={{ fontSize:11, color:"var(--olive-bright)", padding:"2px 6px" }}>TODAY</button>
-                  )}
-                </div>
+              {timeLogOpen && !isClosed && !addingLogFor && (
+                <button onClick={() => openAddLog(null)} className="mono"
+                  style={{ fontSize:12, color:"var(--olive-bright)", padding:"4px 6px" }}>+ ADD ENTRY</button>
               )}
             </div>
-            {timeLogOpen && users.filter(u => crewTimeline[u.name]).map(u => {
-              const name = u.name;
-              const periods = (crewTimeline[name] || []).filter(p => dateISOInTZ(new Date(p.start), getAppTZ()) === crewLogDate);
-              // dangling periods (no clock-out recorded) contribute 0 — see buildCrewTimeline
-              const driveMs = periods.filter(p => p.status === 'In Route' && !p.dangling)
-                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
-              const onSiteMs = periods.filter(p => p.status === 'On Site' && !p.dangling)
-                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
-              const runMs = periods.filter(p => (p.status === 'Materials Run' || p.status === 'Shop Run') && !p.dangling)
-                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
-              return (
-                <div key={u.id} style={{ padding:"10px 0", borderBottom:"1px solid var(--line)" }}>
-                  <div className="head" style={{ fontSize:14, fontWeight:700, color:"var(--text)", marginBottom:4 }}>{name}</div>
-                  {periods.length === 0 && (
-                    <div className="mono" style={{ fontSize:12, color:"var(--muted)" }}>No activity this day</div>
-                  )}
-                  {periods.map((p,i) => {
-                    const isEditing = editingLogPeriod?.name === name && editingLogPeriod.idx === i;
-                    return (
-                      <div key={i} style={{ marginTop:4 }}>
-                        <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                          <div className="mono" style={{ fontSize:12, color: p.dangling ? "var(--danger)" : "var(--muted)" }}>
-                            {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtPeriodEnd(p.start, p.end) : '⚠️ NO CLOCK-OUT')}
-                            {(p.end || p.ongoing) && <React.Fragment>{' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})</React.Fragment>}
-                            {p.billTo && <span style={{ color:"var(--gold)" }}>{' '}— billed to {p.billTo === 'shop' ? 'shop' : 'this job'}</span>}
-                          </div>
-                          {(!isClosed || p.dangling) && (
-                            <div style={{ display:"flex", gap:4 }}>
-                              {!p.ongoing && (
-                                <button onClick={() => isEditing ? setEditingLogPeriod(null) : openLogEdit(name, i, p)} className="mono"
-                                  style={{ fontSize:14, color:"var(--muted)", padding:"4px 6px" }}>{isEditing ? '✕' : '✎'}</button>
-                              )}
-                              {!isEditing && (
-                                <button onClick={() => deleteLogPeriod(p, name)} className="mono"
-                                  style={{ fontSize:14, color:"var(--danger)", padding:"4px 6px" }}>🗑</button>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                        {isEditing && (
-                          <div style={{ marginTop:6 }}>
-                            <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end", marginBottom:8 }}>
-                              <div style={{ flex:1, minWidth:140 }}>
-                                <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>START</div>
-                                <input type="datetime-local" value={editLogStart} onChange={e => setEditLogStart(e.target.value)} />
-                              </div>
-                              <div style={{ flex:1, minWidth:140 }}>
-                                <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
-                                <input type="datetime-local" value={editLogEnd} onChange={e => setEditLogEnd(e.target.value)} />
-                              </div>
-                            </div>
-                            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:4 }}>JOB</div>
-                            <select value={editLogJobId || job.id} onChange={e => setEditLogJobId(e.target.value)}
-                              style={{ width:"100%", marginBottom:8 }}>
-                              {(jobs||[]).filter(j => j.status !== 'Closed' || j.id === job.id)
-                                .slice().sort((a,b) => (a.customer||'').localeCompare(b.customer||''))
-                                .map(j => (
-                                  <option key={j.id} value={j.id}>
-                                    {j.customer}{j.site_address ? ` — ${j.site_address}` : ''}
-                                  </option>
-                                ))}
-                            </select>
-                            <button onClick={() => saveLogEdit(p)} className="head"
-                              style={{ width:"100%", padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                  <div className="mono" style={{ fontSize:12, color:"var(--olive-bright)", marginTop:6 }}>
-                    Drive: {fmtElapsed(driveMs)} · On Site: {fmtElapsed(onSiteMs)}{runMs > 0 ? ` · Run: ${fmtElapsed(runMs)}` : ''}
-                  </div>
-                  {!isClosed && (addingLogFor === name ? (
-                    <div style={{ marginTop:8, padding:10, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8 }}>
-                      <div style={{ display:"flex", gap:6, marginBottom:8 }}>
-                        {['In Route','On Site'].map(s => (
-                          <button key={s} onClick={() => setAddLogStatus(s)} className="head"
-                            style={{ flex:1, fontSize:12, fontWeight:700, padding:"8px 6px", borderRadius:6,
-                              background: addLogStatus === s ? "var(--olive-bright)" : "var(--bg)",
-                              color: addLogStatus === s ? "var(--bg)" : "var(--text)",
-                              border:"1px solid var(--line)" }}>{s.toUpperCase()}</button>
-                        ))}
-                      </div>
-                      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-                        <div style={{ flex:1, minWidth:140 }}>
-                          <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>START</div>
-                          <input type="datetime-local" value={addLogStart} onChange={e => setAddLogStart(e.target.value)} />
-                        </div>
-                        <div style={{ flex:1, minWidth:140 }}>
-                          <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
-                          <input type="datetime-local" value={addLogEnd} onChange={e => setAddLogEnd(e.target.value)} />
-                        </div>
-                      </div>
-                      <div style={{ display:"flex", gap:8, marginTop:10 }}>
-                        <button onClick={() => saveAddLog(name)} className="head"
-                          style={{ flex:1, padding:"10px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
-                        <button onClick={() => setAddingLogFor(null)} className="head"
-                          style={{ padding:"10px 14px", borderRadius:8, fontSize:13, fontWeight:600, background:"transparent", border:"1px solid var(--line)", color:"var(--text)" }}>CANCEL</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button onClick={() => openAddLog(name)} className="mono"
-                      style={{ fontSize:12, color:"var(--muted)", marginTop:8, padding:"4px 0" }}>+ ADD ENTRY</button>
+
+            {timeLogOpen && addingLogFor && (
+              <div style={{ marginBottom:12, padding:10, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8 }}>
+                <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:4 }}>TECH</div>
+                <select value={addingLogFor} onChange={e => setAddingLogFor(e.target.value)} style={{ width:"100%", marginBottom:8 }}>
+                  {users.map(u => <option key={u.id} value={u.name}>{u.name}</option>)}
+                </select>
+                <div style={{ display:"flex", gap:6, marginBottom:8 }}>
+                  {['In Route','On Site'].map(s => (
+                    <button key={s} onClick={() => setAddLogStatus(s)} className="head"
+                      style={{ flex:1, fontSize:12, fontWeight:700, padding:"8px 6px", borderRadius:6,
+                        background: addLogStatus === s ? "var(--olive-bright)" : "var(--bg)",
+                        color: addLogStatus === s ? "var(--bg)" : "var(--text)",
+                        border:"1px solid var(--line)" }}>{s.toUpperCase()}</button>
                   ))}
+                </div>
+                <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
+                  <div style={{ flex:1, minWidth:140 }}>
+                    <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>START</div>
+                    <input type="datetime-local" value={addLogStart} onChange={e => setAddLogStart(e.target.value)} />
+                  </div>
+                  <div style={{ flex:1, minWidth:140 }}>
+                    <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
+                    <input type="datetime-local" value={addLogEnd} onChange={e => setAddLogEnd(e.target.value)} />
+                  </div>
+                </div>
+                <div style={{ display:"flex", gap:8, marginTop:10 }}>
+                  <button onClick={() => saveAddLog(addingLogFor)} className="head"
+                    style={{ flex:1, padding:"10px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
+                  <button onClick={() => setAddingLogFor(null)} className="head"
+                    style={{ padding:"10px 14px", borderRadius:8, fontSize:13, fontWeight:600, background:"transparent", border:"1px solid var(--line)", color:"var(--text)" }}>CANCEL</button>
+                </div>
+              </div>
+            )}
+
+            {timeLogOpen && logDayKeys.length === 0 && (
+              <div className="mono" style={{ fontSize:12, color:"var(--muted)", padding:"6px 0" }}>No time logged on this job yet.</div>
+            )}
+
+            {timeLogOpen && logDayKeys.map(day => {
+              const dayUsers = logDayMap[day];
+              const dayNames = Object.keys(dayUsers).sort();
+              const allDayPeriods = dayNames.flatMap(n => dayUsers[n]);
+              const dayDangling = allDayPeriods.some(p => p.dangling);
+              const dayTotalMs = allDayPeriods.filter(p => !p.dangling)
+                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+              const isDayOpen = expandedLogDays.has(day);
+              return (
+                <div key={day} style={{ marginBottom:8, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8, overflow:"hidden" }}>
+                  <button onClick={() => toggleLogDay(day)}
+                    style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 12px", background:"none", border:"none", cursor:"pointer" }}>
+                    <div className="head" style={{ fontSize:13, fontWeight:700, color:"var(--text)" }}>{fmtDate(day)}</div>
+                    <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                      <div className="mono" style={{ fontSize:12, fontWeight:700, color: dayDangling ? "var(--danger)" : "var(--olive-bright)" }}>
+                        {dayDangling && '⚠️ '}{fmtElapsed(dayTotalMs)}
+                      </div>
+                      <span className="mono" style={{ fontSize:11, color:"var(--muted)" }}>{isDayOpen ? '▲' : '▼'}</span>
+                    </div>
+                  </button>
+                  {isDayOpen && (
+                    <div style={{ borderTop:"1px solid var(--line)", padding:"6px 12px 12px" }}>
+                      {dayNames.map(name => {
+                        const periods = dayUsers[name];
+                        const driveMs = periods.filter(p => p.status === 'In Route' && !p.dangling)
+                          .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+                        const onSiteMs = periods.filter(p => p.status === 'On Site' && !p.dangling)
+                          .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+                        const runMs = periods.filter(p => (p.status === 'Materials Run' || p.status === 'Shop Run') && !p.dangling)
+                          .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+                        return (
+                          <div key={name} style={{ padding:"8px 0", borderTop:"1px solid var(--line)" }}>
+                            <div className="head" style={{ fontSize:13, fontWeight:700, color:"var(--text)", marginBottom:4 }}>{name}</div>
+                            {periods.map((p,i) => {
+                              const isEditing = editingLogPeriod?.name === name && editingLogPeriod.day === day && editingLogPeriod.idx === i;
+                              return (
+                                <div key={i} style={{ marginTop:4 }}>
+                                  <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
+                                    <div className="mono" style={{ fontSize:12, color: p.dangling ? "var(--danger)" : "var(--muted)" }}>
+                                      {p.status}: {fmtTimestamp(p.start)} – {p.ongoing ? 'ongoing' : (p.end ? fmtPeriodEnd(p.start, p.end) : '⚠️ NO CLOCK-OUT')}
+                                      {(p.end || p.ongoing) && <React.Fragment>{' '}({fmtElapsed((p.end ? new Date(p.end) : new Date()) - new Date(p.start))})</React.Fragment>}
+                                      {p.billTo && <span style={{ color:"var(--gold)" }}>{' '}— billed to {p.billTo === 'shop' ? 'shop' : 'this job'}</span>}
+                                    </div>
+                                    {(!isClosed || p.dangling) && (
+                                      <div style={{ display:"flex", gap:4 }}>
+                                        {!p.ongoing && (
+                                          <button onClick={() => isEditing ? setEditingLogPeriod(null) : openLogEdit(name, day, i, p)} className="mono"
+                                            style={{ fontSize:14, color:"var(--muted)", padding:"4px 6px" }}>{isEditing ? '✕' : '✎'}</button>
+                                        )}
+                                        {!isEditing && (
+                                          <button onClick={() => deleteLogPeriod(p, name)} className="mono"
+                                            style={{ fontSize:14, color:"var(--danger)", padding:"4px 6px" }}>🗑</button>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+                                  {isEditing && (
+                                    <div style={{ marginTop:6 }}>
+                                      <div style={{ display:"flex", gap:8, flexWrap:"wrap", alignItems:"flex-end", marginBottom:8 }}>
+                                        <div style={{ flex:1, minWidth:140 }}>
+                                          <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>START</div>
+                                          <input type="datetime-local" value={editLogStart} onChange={e => setEditLogStart(e.target.value)} />
+                                        </div>
+                                        <div style={{ flex:1, minWidth:140 }}>
+                                          <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>END</div>
+                                          <input type="datetime-local" value={editLogEnd} onChange={e => setEditLogEnd(e.target.value)} />
+                                        </div>
+                                      </div>
+                                      <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:4 }}>JOB</div>
+                                      <select value={editLogJobId || job.id} onChange={e => setEditLogJobId(e.target.value)}
+                                        style={{ width:"100%", marginBottom:8 }}>
+                                        {(jobs||[]).filter(j => j.status !== 'Closed' || j.id === job.id)
+                                          .slice().sort((a,b) => (a.customer||'').localeCompare(b.customer||''))
+                                          .map(j => (
+                                            <option key={j.id} value={j.id}>
+                                              {j.customer}{j.site_address ? ` — ${j.site_address}` : ''}
+                                            </option>
+                                          ))}
+                                      </select>
+                                      <button onClick={() => saveLogEdit(p)} className="head"
+                                        style={{ width:"100%", padding:"9px 0", borderRadius:8, fontSize:13, fontWeight:700, background:"var(--olive-bright)", color:"var(--bg)" }}>SAVE</button>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                            <div className="mono" style={{ fontSize:12, color:"var(--olive-bright)", marginTop:6 }}>
+                              Drive: {fmtElapsed(driveMs)} · On Site: {fmtElapsed(onSiteMs)}{runMs > 0 ? ` · Run: ${fmtElapsed(runMs)}` : ''}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               );
             })}
