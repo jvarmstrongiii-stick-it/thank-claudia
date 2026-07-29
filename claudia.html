@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 262;
+const APP_REV = 263;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -6949,7 +6949,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     if (period.startId) {
       const update = { created_at: startIso };
       if (jobChanged) update.job_id = targetJobId;
-      await sb.from('job_notes').update(update).eq('id', period.startId);
+      const { error } = await sb.from('job_notes').update(update).eq('id', period.startId);
+      if (error) { alert(`Couldn't save the start time: ${error.message}`); return; }
       if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.startId));
       else setCrewLog(prev => prev.map(n => n.id === period.startId ? { ...n, at: startIso } : n));
     }
@@ -6957,15 +6958,17 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       if (period.endId) {
         const update = { created_at: endIso };
         if (jobChanged) update.job_id = targetJobId;
-        await sb.from('job_notes').update(update).eq('id', period.endId);
+        const { error } = await sb.from('job_notes').update(update).eq('id', period.endId);
+        if (error) { alert(`Couldn't save the end time: ${error.message}`); return; }
         if (jobChanged) setCrewLog(prev => prev.filter(n => n.id !== period.endId));
         else setCrewLog(prev => prev.map(n => n.id === period.endId ? { ...n, at: endIso } : n));
       } else {
         // No closing note existed yet (e.g. an office-triggered crew move that never wrote one) — add it.
         const content = `Status → Cleared (${editingLogPeriod.name}) (edited)`;
-        const { data: noteRow } = await sb.from('job_notes').insert({
+        const { data: noteRow, error } = await sb.from('job_notes').insert({
           job_id: targetJobId, content, source: 'system', created_at: endIso, user_id: currentUser?.id || null,
         }).select().single();
+        if (error) { alert(`Couldn't save the end time: ${error.message}`); return; }
         if (!jobChanged) setCrewLog(prev => [...prev, { id: noteRow?.id, content, at: endIso }]);
       }
     }
