@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 263;
+const APP_REV = 264;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -361,6 +361,11 @@ function parseCrewLogEntry(n) {
 // gets misread as billable time under whichever status happened to sort first.
 const CREW_TIEBREAK_RANK = { 'Paused': 1, 'Cleared': 2 };
 function crewTieRank(status) { return CREW_TIEBREAK_RANK[status] ?? 0; }
+// One person can't plausibly log more than this in a single day — flags dangling/never-closed
+// sessions. Shared by HoursReport and JobDetail's TIME LOG; never compare against a total summed
+// across multiple people (a job/day combining two or three normal days easily passes this with
+// nothing wrong) — only ever against one person's own day total.
+const IMPLAUSIBLE_DAY_MS = 16 * 3600 * 1000;
 function buildCrewTimeline(crewLog, crew, users) {
   const entries = (crewLog||[]).map(parseCrewLogEntry).filter(Boolean)
     .sort((a,b) => new Date(a.at) - new Date(b.at) || crewTieRank(a.status) - crewTieRank(b.status));
@@ -2831,7 +2836,6 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
 
   const rowStyle = { marginBottom: 8, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' };
   const subRowStyle = (first) => ({ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 0', borderTop: first ? 'none' : '1px solid var(--line)' });
-  const IMPLAUSIBLE_DAY_MS = 16 * 3600 * 1000; // one person can't plausibly log more than this in a single day — flags dangling/never-closed sessions
   // Never compare against data.totalMs (a day's combined total across everyone) — two or
   // three techs each having a normal day easily sums past 16h with nothing wrong. Flag only
   // when a SINGLE person's day (or an actual dangling period) crosses the threshold.
@@ -8601,6 +8605,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
               const dayDangling = allDayPeriods.some(p => p.dangling);
               const dayTotalMs = allDayPeriods.filter(p => !p.dangling)
                 .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0);
+              // Never flag on dayTotalMs (combined across everyone that day) — two or three techs
+              // each having a normal day easily passes 16h with nothing wrong. Only flag when a
+              // SINGLE person's own total on this job that day crosses the threshold.
+              const dayImplausible = dayNames.some(n => dayUsers[n].filter(p => !p.dangling)
+                .reduce((sum,p) => sum + (new Date(p.end || Date.now()) - new Date(p.start)), 0) > IMPLAUSIBLE_DAY_MS);
+              const dayFlagged = dayDangling || dayImplausible;
               const isDayOpen = expandedLogDays.has(day);
               return (
                 <div key={day} style={{ marginBottom:8, background:"var(--panel)", border:"1px solid var(--line)", borderRadius:8, overflow:"hidden" }}>
@@ -8608,8 +8618,8 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                     style={{ width:"100%", display:"flex", alignItems:"center", justifyContent:"space-between", padding:"10px 12px", background:"none", border:"none", cursor:"pointer" }}>
                     <div className="head" style={{ fontSize:13, fontWeight:700, color:"var(--text)" }}>{fmtDate(day)}</div>
                     <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                      <div className="mono" style={{ fontSize:12, fontWeight:700, color: dayDangling ? "var(--danger)" : "var(--olive-bright)" }}>
-                        {dayDangling && '⚠️ '}{fmtElapsed(dayTotalMs)}
+                      <div className="mono" style={{ fontSize:12, fontWeight:700, color: dayFlagged ? "var(--danger)" : "var(--olive-bright)" }}>
+                        {dayFlagged && '⚠️ '}{fmtElapsed(dayTotalMs)}
                       </div>
                       <span className="mono" style={{ fontSize:11, color:"var(--muted)" }}>{isDayOpen ? '▲' : '▼'}</span>
                     </div>
