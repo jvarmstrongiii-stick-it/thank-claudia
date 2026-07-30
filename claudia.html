@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 264;
+const APP_REV = 265;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -6988,8 +6988,20 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
     if (period.endId) {
       const endNote = crewLog.find(n => n.id === period.endId);
       const parsed = endNote ? parseCrewLogEntry(endNote) : null;
-      // Delete end note only if it's a Cleared/non-field marker, not the start of another period
-      if (parsed && !CREW_FIELD_STATUSES.includes(parsed.status)) ids.push(period.endId);
+      if (parsed && !CREW_FIELD_STATUSES.includes(parsed.status)) {
+        // The end note is just a Cleared/non-field marker with no other purpose — delete it too.
+        ids.push(period.endId);
+      } else if (parsed) {
+        // The end note is itself the START of another logged period for this person (possibly on
+        // a different day) — deleting only this period's start note would silently merge the gap
+        // into that next period instead of actually removing it (confirmed live: repeatedly
+        // deleting a "bad tail" entry just walked the chain backward, eating real entries one at
+        // a time, while the real culprit — a stray same-status note starting a period on the NEXT
+        // day — never moved and kept re-anchoring everything). Ask instead of silently preserving it.
+        if (confirm(`This entry's end time (${fmtTimestamp(endNote.at)}) is also logged as the start of another period for ${name} — delete that too so this doesn't just merge into it?`)) {
+          ids.push(period.endId);
+        }
+      }
     }
     if (period.ongoing) {
       const u = users.find(uu => uu.name === name);
@@ -7000,7 +7012,9 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
         setCrew(prev => prev.filter(c => c.user_id !== u.id));
       }
     }
-    await Promise.all(ids.map(id => sb.from('job_notes').delete().eq('id', id)));
+    const results = await Promise.all(ids.map(id => sb.from('job_notes').delete().eq('id', id)));
+    const failed = results.find(r => r.error);
+    if (failed) { alert(`Couldn't delete: ${failed.error.message}`); return; }
     setCrewLog(prev => prev.filter(n => !ids.includes(n.id)));
     setEditingLogPeriod(null);
   }
