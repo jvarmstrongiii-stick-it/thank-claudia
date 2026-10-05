@@ -2,19 +2,19 @@
 -- for why 0002_functions_and_triggers.sql runs BEFORE this file even though
 -- its filename sorts first numerically... it doesn't; read the README).
 --
--- Creates TMC Mechanical's own companies row and backfills company_id onto
+-- Creates ABC Mechanical's own companies row and backfills company_id onto
 -- every existing row in every actively-used table, then makes company_id
 -- required.
 --
 -- MUST run after 0002_functions_and_triggers.sql, not before. set_company_id()
 -- (created in 0002) is what makes it safe to flip company_id to NOT NULL here
 -- — it auto-fills company_id on every insert the still-unauthenticated,
--- pre-Phase-B claudia.html makes (falling back to TMC's company row by name
+-- pre-Phase-B claudia.html makes (falling back to ABC's company row by name
 -- since there's no auth.uid() yet). Setting NOT NULL before that trigger
 -- exists would make every insert from the live app start failing the moment
 -- this file runs.
 --
--- Idempotent: re-running this after TMC's companies row already exists is
+-- Idempotent: re-running this after ABC's companies row already exists is
 -- safe — the insert is skipped and the backfill/NOT NULL steps are no-ops
 -- on rows that already have company_id set.
 
@@ -22,10 +22,10 @@ do $$
 declare
   v_company_id uuid;
 begin
-  select id into v_company_id from public.companies where name = 'TMC Mechanical';
+  select id into v_company_id from public.companies where name = 'ABC Mechanical';
 
   if v_company_id is null then
-    insert into public.companies (name) values ('TMC Mechanical')
+    insert into public.companies (name) values ('ABC Mechanical')
     returning id into v_company_id;
   end if;
 
@@ -40,13 +40,13 @@ begin
   update public.notifications set company_id = v_company_id where company_id is null;
   update public.job_crew      set company_id = v_company_id where company_id is null;
 
-  raise notice 'TMC Mechanical companies.id = %', v_company_id;
+  raise notice 'ABC Mechanical companies.id = %', v_company_id;
 end $$;
 
 -- Verify the backfill actually caught everything before running the
 -- statements below — each of these should return 0 rows. If any live
 -- traffic landed rows between 0001 and here, set_company_id() (0002)
--- should already have filled them in via the TMC-name fallback, but check:
+-- should already have filled them in via the ABC-name fallback, but check:
 --   select count(*) from jobs where company_id is null;
 --   select count(*) from customers where company_id is null;
 --   select count(*) from users where company_id is null;

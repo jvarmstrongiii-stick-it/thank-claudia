@@ -1,5 +1,5 @@
 # PROJECT_SPEC.md
-## TMC Mechanical — Claudia (Field Job Tracker)
+## ABC Mechanical — Claudia (Field Job Tracker)
 **Last Updated:** 2026-06-05  
 **Stack:** Single-file HTML/React (CDN + Babel) · Supabase · Claude API (live)  
 **Platform:** Mobile browser (Chrome/Safari) — installable as PWA via Add to Home Screen  
@@ -11,7 +11,7 @@
 
 ## 1. Overview
 
-Voice-first HVAC field service management app for TMC Mechanical (Tyler's company, Philly/Montco/Delco). Field technicians manage their full day from their phone — jobs, equipment, photos, notes, warranty — hands-free when needed. All data is live and shared across all devices in real time.
+Voice-first HVAC field service management app for ABC Mechanical (Tyler's company, Philly/Montco/Delco). Field technicians manage their full day from their phone — jobs, equipment, photos, notes, warranty — hands-free when needed. All data is live and shared across all devices in real time.
 
 ---
 
@@ -19,8 +19,8 @@ Voice-first HVAC field service management app for TMC Mechanical (Tyler's compan
 
 ### Device passphrase gate
 - All visits to the URL require a passphrase before anything loads
-- Passphrase entered once per device → stored in `localStorage` as `tmc_device_auth`
-- **Default passphrase:** `TMCmech` — change via `DEVICE_PASSPHRASE` constant at top of `claudia.html`
+- Passphrase entered once per device → stored in `localStorage` as `abc_device_auth`
+- **Default passphrase:** `ABCmech` — change via `DEVICE_PASSPHRASE` constant at top of `claudia.html`
 - Changing the constant invalidates all existing devices (they re-prompt on next visit)
 - 🔒 button in header bar + Settings modal → "LOCK THIS DEVICE" — clears auth, returns to gate immediately
 

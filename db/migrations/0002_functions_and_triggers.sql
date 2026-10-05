@@ -11,7 +11,7 @@
 --     current_company_id() resolves to their real company.
 --   - Until then (the still-unauthenticated, pre-Phase-B claudia.html,
 --     using only the anon key), current_company_id() is null, so this
---     falls back to the company named 'TMC Mechanical' — the only company
+--     falls back to the company named 'ABC Mechanical' — the only company
 --     that exists until Phase C ships. Once a second company exists this
 --     fallback becomes ambiguous by name; that's fine, by the time a
 --     second company can exist (Phase C), Phase B is long since deployed
@@ -50,7 +50,7 @@ begin
   if new.company_id is null then
     new.company_id := coalesce(
       public.current_company_id(),
-      (select id from public.companies where name = 'TMC Mechanical' limit 1)
+      (select id from public.companies where name = 'ABC Mechanical' limit 1)
     );
   end if;
   return new;

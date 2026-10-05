@@ -110,7 +110,7 @@ export default function JobDetail() {
     try {
       const resp = await fetch(
         `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=5&countrycodes=us&addressdetails=1&viewbox=-76.5,40.6,-74.5,39.5&bounded=1`,
-        { headers: { 'User-Agent': 'TMC-Mechanical-App/1.0' } }
+        { headers: { 'User-Agent': 'ABC-Mechanical-App/1.0' } }
       );
       setSearchResults(await resp.json());
     } catch {
@@ -140,7 +140,7 @@ export default function JobDetail() {
       const { latitude, longitude } = pos.coords;
       const resp = await fetch(
         `https://nominatim.openstreetmap.org/reverse?lat=${latitude}&lon=${longitude}&format=json`,
-        { headers: { 'User-Agent': 'TMC-Mechanical-App/1.0' } }
+        { headers: { 'User-Agent': 'ABC-Mechanical-App/1.0' } }
       );
       const json = await resp.json();
       const a = json.address ?? {};

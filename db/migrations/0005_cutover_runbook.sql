@@ -81,7 +81,7 @@ update public.users set is_admin = true where name = 'Jack';
 -- PassphraseGate/Splash/FALLBACK_USERS removed — see CLAUDE.md). Bump
 -- APP_REV, push to main per the repo's standing rules. Confirm Tyler,
 -- Jack, and Brett can each log in with their new email+password and see
--- all of TMC's existing data untouched (their full job/time history).
+-- all of ABC's existing data untouched (their full job/time history).
 --
 -- Do not run step 6 until this is confirmed working for everyone — the
 -- pre-Phase-B app can still write correctly via 0002's fallback for as
@@ -109,13 +109,13 @@ alter table public.job_crew      enable row level security;
 alter table public.companies     enable row level security;
 
 -- Immediately verify: log into claudia.html as Jack, confirm every screen
--- still shows TMC's data normally. Then, separately, confirm the anon key
+-- still shows ABC's data normally. Then, separately, confirm the anon key
 -- alone (no session — e.g. curl with just apikey/Authorization: Bearer
 -- <anon key>) can no longer read rows from any of the tables above.
 
 
 -- ── Step 7 (SQL, cleanup — do this last, once step 6 has been stable) ───
--- Removes the TMC-name fallback in set_company_id() now that every write
+-- Removes the ABC-name fallback in set_company_id() now that every write
 -- goes through a real authenticated session. Optional/low-risk, can wait.
 create or replace function public.set_company_id()
 returns trigger

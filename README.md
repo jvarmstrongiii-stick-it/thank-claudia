@@ -1,6 +1,6 @@
 # thank-claudia
 
-Voice-first field service management app for Tyler's HVAC.
+Voice-first field service management app for ABC Mechanical.
 
 Built for technicians in the field and admins in the office.
 

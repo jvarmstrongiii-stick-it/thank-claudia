@@ -1,22 +1,22 @@
 {
   "expo": {
-    "name": "TMC Mechanical",
-    "slug": "tmc-mechanical",
+    "name": "ABC Mechanical",
+    "slug": "abc-mechanical",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "tmc",
+    "scheme": "abc",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.tmc.mechanical",
+      "bundleIdentifier": "com.abc.mechanical",
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "TMC Mechanical uses speech recognition to log jobs hands-free.",
-        "NSMicrophoneUsageDescription": "TMC Mechanical needs the microphone to take voice job orders."
+        "NSSpeechRecognitionUsageDescription": "ABC Mechanical uses speech recognition to log jobs hands-free.",
+        "NSMicrophoneUsageDescription": "ABC Mechanical needs the microphone to take voice job orders."
       }
     },
     "android": {
-      "package": "com.tmc.mechanical",
+      "package": "com.abc.mechanical",
       "adaptiveIcon": {
         "backgroundColor": "#0b0c08",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -41,20 +41,20 @@
       [
         "expo-speech-recognition",
         {
-          "microphonePermission": "TMC Mechanical needs the microphone to take voice job orders.",
-          "speechRecognitionPermission": "TMC Mechanical uses speech recognition to log jobs hands-free."
+          "microphonePermission": "ABC Mechanical needs the microphone to take voice job orders.",
+          "speechRecognitionPermission": "ABC Mechanical uses speech recognition to log jobs hands-free."
         }
       ],
       [
         "expo-camera",
         {
-          "cameraPermission": "TMC Mechanical needs the camera to photograph equipment nameplates and documents."
+          "cameraPermission": "ABC Mechanical needs the camera to photograph equipment nameplates and documents."
         }
       ],
       [
         "expo-image-picker",
         {
-          "photosPermission": "TMC Mechanical needs photo library access to attach equipment photos to jobs."
+          "photosPermission": "ABC Mechanical needs photo library access to attach equipment photos to jobs."
         }
       ]
     ],

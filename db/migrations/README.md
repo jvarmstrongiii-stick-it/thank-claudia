@@ -19,17 +19,17 @@ editor**, in filename order, one at a time — nothing here executes itself.
    FK from `users.id` to `auth.users.id`. Safe any time — nothing enforces
    anything yet.
 2. **`0002_functions_and_triggers.sql`** — `current_company_id()`,
-   `set_company_id()` (with a fallback to TMC's company by name, so the
+   `set_company_id()` (with a fallback to ABC's company by name, so the
    still-unauthenticated pre-Phase-B app keeps writing correctly-scoped
    rows), `handle_new_user()`. Must run **before** step 3, not after — the
    fallback trigger is what makes it safe to set `company_id NOT NULL`.
-3. **`0003_backfill_tmc_company.sql`** — creates TMC's own `companies` row,
+3. **`0003_backfill_tmc_company.sql`** — creates ABC's own `companies` row,
    backfills `company_id` onto every existing row, sets it `NOT NULL`.
 4. **`0004_rls_policies.sql`** — defines every RLS policy but does **not**
    enable RLS on any table. A policy with RLS disabled is inert, so this is
    safe to run any time after step 1 too.
 5. **`0005_cutover_runbook.sql`** — not a script, a step-by-step runbook:
-   invite real accounts, re-key the 4 existing TMC `users` rows to match
+   invite real accounts, re-key the 4 existing ABC `users` rows to match
    them (the one genuinely risky step — confirm before running), deploy
    the auth-retrofitted `claudia.html`, *then* enable RLS. Read the whole
    file before starting; some steps are dashboard actions, not SQL.

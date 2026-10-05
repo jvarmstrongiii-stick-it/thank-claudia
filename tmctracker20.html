@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>TMC Mechanical — Job Tracker</title>
+<title>ABC Mechanical — Job Tracker</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
@@ -61,10 +61,10 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* ── Storage keys ──────────────────────────────────────────────────────────── */
-const STORAGE_KEY      = "tmc_jobs_v1";
-const CHORES_KEY       = "tmc_chores_v1";
-const SAMEADDR_PREF_KEY = "tmc_sameaddr_pref";
-const CURRENT_USER_KEY = "tmc_current_user";
+const STORAGE_KEY      = "abc_jobs_v1";
+const CHORES_KEY       = "abc_chores_v1";
+const SAMEADDR_PREF_KEY = "abc_sameaddr_pref";
+const CURRENT_USER_KEY = "abc_current_user";
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
@@ -294,7 +294,7 @@ function Splash({ onSelect }) {
       alignItems:"center", justifyContent:"center", padding:32,
     }}>
       <div className="head" style={{ fontSize:28, fontWeight:700, lineHeight:1 }}>
-        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+        ABC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
       </div>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:8, letterSpacing:"0.1em" }}>
         FIELD JOB TRACKER
@@ -576,7 +576,7 @@ function App() {
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div>
             <div className="head" style={{ fontSize:22, fontWeight:700, lineHeight:1 }}>
-              TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+              ABC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
             </div>
             <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:4, letterSpacing:"0.1em" }}>
               FIELD JOB TRACKER

@@ -53,7 +53,7 @@ export default function Dashboard() {
       <View style={isWeb ? styles.webContainer : styles.nativeContainer}>
         <View style={styles.header}>
           <Text style={styles.logo}>
-            TMC <Text style={styles.accent}>MECH</Text>
+            ABC <Text style={styles.accent}>MECH</Text>
           </Text>
           <View style={styles.headerRight}>
             <Text style={styles.date}>{formatDate(new Date().toISOString())}</Text>

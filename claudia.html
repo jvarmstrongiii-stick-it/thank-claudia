@@ -3,16 +3,16 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-<title>TMC Mechanical</title>
+<title>ABC Mechanical</title>
 <meta name="mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-<meta name="apple-mobile-web-app-title" content="TMC" />
+<meta name="apple-mobile-web-app-title" content="ABC" />
 <meta name="theme-color" content="#0e0f0c" />
 <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
 <meta http-equiv="Pragma" content="no-cache" />
 <meta http-equiv="Expires" content="0" />
-<link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;TMC Mechanical&quot;,&quot;short_name&quot;:&quot;TMC&quot;,&quot;start_url&quot;:&quot;.&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%230e0f0c&quot;,&quot;theme_color&quot;:&quot;%230e0f0c&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230e0f0c'/%3E%3Ctext y='.9em' font-size='80' x='10' fill='%2393a046'%3ET%3C/text%3E%3C/svg%3E&quot;,&quot;sizes&quot;:&quot;any&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}" />
+<link rel="manifest" href="data:application/json,{&quot;name&quot;:&quot;ABC Mechanical&quot;,&quot;short_name&quot;:&quot;ABC&quot;,&quot;start_url&quot;:&quot;.&quot;,&quot;display&quot;:&quot;standalone&quot;,&quot;background_color&quot;:&quot;%230e0f0c&quot;,&quot;theme_color&quot;:&quot;%230e0f0c&quot;,&quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' fill='%230e0f0c'/%3E%3Ctext y='.9em' font-size='80' x='10' fill='%2393a046'%3ET%3C/text%3E%3C/svg%3E&quot;,&quot;sizes&quot;:&quot;any&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]}" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Barlow+Semi+Condensed:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
@@ -86,7 +86,7 @@ setTimeout(function() {
   if (missing.length) el.innerHTML = '<div style="color:#f87171;padding:20px;font-family:monospace;font-size:13px"><b>STUCK LOADING — missing: ' + missing.join(', ') + '</b><br><br>Screenshot and send to Jack</div>';
 }, 10000);
 </script>
-<div id="root"><div id="pre-react" style="padding:20px;color:#93a046;font-family:monospace;font-size:14px">TMC Mechanical — Loading…</div></div>
+<div id="root"><div id="pre-react" style="padding:20px;color:#93a046;font-family:monospace;font-size:14px">ABC Mechanical — Loading…</div></div>
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
@@ -101,16 +101,16 @@ function getAnthropicKey() { return ''; } // key lives in Supabase Edge Function
 function setAnthropicKey(k) { localStorage.setItem(ANTHROPIC_KEY_STORAGE, k); }
 
 /* ── Storage keys ──────────────────────────────────────────────────────────── */
-const STORAGE_KEY       = "tmc_jobs_v1";
-const CHORES_KEY        = "tmc_chores_v1";
-const SAMEADDR_PREF_KEY = "tmc_sameaddr_pref";
-const CURRENT_USER_KEY  = "tmc_current_user";
-const DEVICE_AUTH_KEY   = "tmc_device_auth";
+const STORAGE_KEY       = "abc_jobs_v1";
+const CHORES_KEY        = "abc_chores_v1";
+const SAMEADDR_PREF_KEY = "abc_sameaddr_pref";
+const CURRENT_USER_KEY  = "abc_current_user";
+const DEVICE_AUTH_KEY   = "abc_device_auth";
 // ↓ Change this to update the passphrase for all devices (they'll be asked again on next visit)
-const DEVICE_PASSPHRASE = "TMCmech";
+const DEVICE_PASSPHRASE = "ABCmech";
 // per-user clock session keys
-function clockKey(uid) { return `tmc_clock_session_${uid}`; }
-function clockTodayKey(uid) { return `tmc_clock_today_${uid}`; }
+function clockKey(uid) { return `abc_clock_session_${uid}`; }
+function clockTodayKey(uid) { return `abc_clock_today_${uid}`; }
 
 /* ── Status / type lists ───────────────────────────────────────────────────── */
 const STATUSES = [
@@ -157,7 +157,7 @@ function logTitleForType(type) {
 }
 
 /* ── Recently-viewed jobs (per-device, localStorage) ───────────────────────── */
-const RECENT_KEY = 'tmc_recent_jobs';
+const RECENT_KEY = 'abc_recent_jobs';
 function getRecentJobs() {
   try { return JSON.parse(localStorage.getItem(RECENT_KEY) || '[]'); } catch { return []; }
 }
@@ -169,7 +169,7 @@ function saveRecentJob(job) {
 }
 
 /* ── Collapsible section preferences (per-device, localStorage) ───────────── */
-const SECTION_COLLAPSE_KEY = 'tmc_section_collapse';
+const SECTION_COLLAPSE_KEY = 'abc_section_collapse';
 function getSectionCollapse() {
   try { return JSON.parse(localStorage.getItem(SECTION_COLLAPSE_KEY) || '{}'); } catch { return {}; }
 }
@@ -185,7 +185,7 @@ function setSectionCollapsed(key, collapsed) {
 function todayISO() { return todayLocalISO(); }
 
 // Configurable timezone (governs the clock "day" boundary). Default Eastern (Philly).
-const TZ_KEY = 'tmc_timezone';
+const TZ_KEY = 'abc_timezone';
 const DEFAULT_TZ = 'America/New_York';
 const TZ_OPTIONS = [
   { id:'America/New_York',    label:'Eastern (Philadelphia)' },
@@ -592,22 +592,22 @@ async function resolveCustomer(job) {
   return created.id;
 }
 
-const TMC_SHOP_NAME = 'TMC SHOP';
-const TMC_SHOP_ADDR = '423 Davisville Road, Willow Grove, PA';
+const ABC_SHOP_NAME = 'ABC SHOP';
+const ABC_SHOP_ADDR = '423 Davisville Road, Willow Grove, PA';
 
 async function ensureShopSentinel() {
   let customerId, touched = false;
   const { data: existing } = await sb.from('customers')
-    .select('id, address').ilike('name', TMC_SHOP_NAME).limit(1).maybeSingle();
+    .select('id, address').ilike('name', ABC_SHOP_NAME).limit(1).maybeSingle();
   if (existing) {
     customerId = existing.id;
-    if (existing.address !== TMC_SHOP_ADDR) {
-      await sb.from('customers').update({ address: TMC_SHOP_ADDR, updated_at: new Date().toISOString() }).eq('id', customerId);
+    if (existing.address !== ABC_SHOP_ADDR) {
+      await sb.from('customers').update({ address: ABC_SHOP_ADDR, updated_at: new Date().toISOString() }).eq('id', customerId);
       touched = true;
     }
   } else {
     const { data: c } = await sb.from('customers').insert({
-      name: TMC_SHOP_NAME, address: TMC_SHOP_ADDR,
+      name: ABC_SHOP_NAME, address: ABC_SHOP_ADDR,
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     }).select('id').single();
     if (!c) return false;
@@ -620,7 +620,7 @@ async function ensureShopSentinel() {
   if (!openJob) {
     await sb.from('jobs').insert({
       customer_id: customerId, flow_type: 'Maintenance', current_status: 'In Progress',
-      original_ask: 'TMC Shop — internal',
+      original_ask: 'ABC Shop — internal',
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
     });
     touched = true;
@@ -1218,7 +1218,7 @@ function PassphraseGate({ onAuthorize }) {
     <div className="fade-in" style={{ minHeight:"100vh", display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", padding:32, background:"var(--bg)" }}>
       <div className="head" style={{ fontSize:28, fontWeight:700, lineHeight:1 }}>
-        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+        ABC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
       </div>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:8, letterSpacing:"0.1em" }}>
         FIELD JOB TRACKER
@@ -1266,7 +1266,7 @@ function Splash({ onSelect }) {
   return (
     <div className="fade-in" style={{ minHeight:"100vh", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:32 }}>
       <div className="head" style={{ fontSize:28, fontWeight:700, lineHeight:1 }}>
-        TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+        ABC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
       </div>
       <div className="mono" style={{ fontSize:12, color:"var(--muted)", marginTop:8, letterSpacing:"0.1em" }}>FIELD JOB TRACKER</div>
       <div className="head" style={{ fontSize:16, color:"var(--muted)", marginTop:40, marginBottom:20 }}>WHO'S THIS?</div>
@@ -1702,7 +1702,7 @@ function ClockGate({ userName, onClockIn, onBrowse, onUndo, onSwitchUser }) {
     <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", flexDirection:"column",
       alignItems:"center", justifyContent:"center", gap:16, padding:32, background:"var(--bg)" }}>
       <div className="head" style={{ textAlign:"center", lineHeight:1.1 }}>
-        <div style={{ fontSize:52, fontWeight:700 }}>TMC</div>
+        <div style={{ fontSize:52, fontWeight:700 }}>ABC</div>
         <div style={{ fontSize:52, fontWeight:700, color:"var(--brass-bright)" }}>MECHANICAL</div>
       </div>
       <div style={{ textAlign:"center", marginTop:8 }}>
@@ -1740,9 +1740,9 @@ function ClockInSheet({ jobs, onConfirm, onClose, onNewJob }) {
   const [step, setStep] = useState(1);
   const [status, setStatus] = useState(null);
   const FIELD_DONE = ['Completed/Needs Billing','Billed/Waiting for Payment','Completed/Paid','Closed'];
-  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && !FIELD_DONE.includes(j.status));
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === ABC_SHOP_NAME && !FIELD_DONE.includes(j.status));
   const openJobs = (jobs || [])
-    .filter(j => !FIELD_DONE.includes(j.status) && j.customer?.toUpperCase() !== TMC_SHOP_NAME)
+    .filter(j => !FIELD_DONE.includes(j.status) && j.customer?.toUpperCase() !== ABC_SHOP_NAME)
     .slice().sort((a, b) => (a.customer || '').localeCompare(b.customer || ''));
 
   if (step === 1) return (
@@ -1803,7 +1803,7 @@ function ClockInSheet({ jobs, onConfirm, onClose, onNewJob }) {
 function ClockOutSheet({ clockSession, jobs, onClockOut, onClose }) {
   const [jobStatus, setJobStatus] = useState(null);
   const job = clockSession?.jobId ? (jobs || []).find(j => j.id === clockSession.jobId) : null;
-  const isShop = job?.customer?.toUpperCase() === TMC_SHOP_NAME;
+  const isShop = job?.customer?.toUpperCase() === ABC_SHOP_NAME;
   const activeStatuses = ['New','Ready to Schedule','Scheduled','In Route','On Site','In Progress'];
   const needsStatusUpdate = job && !isShop && activeStatuses.includes(job.status);
   return (
@@ -1977,7 +1977,7 @@ function LeavingSheet({ clockSession, jobs, onInRoute, onClockOut, onClose }) {
 // Shop-wide "materials needed" list — aggregated from every job's unacquired items.
 function MaterialsScreen({ jobs, onClose, onUpdateMaterials, onOpenJob }) {
   const [newItem, setNewItem] = useState('');
-  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === ABC_SHOP_NAME && j.status !== 'Closed');
   const groups = (jobs || [])
     .map(j => ({ job: j, items: (j.materials_needed || []).map((m, idx) => ({ ...m, _idx: idx })).filter(m => !m.acquired) }))
     .filter(g => g.items.length > 0);
@@ -2013,7 +2013,7 @@ function MaterialsScreen({ jobs, onClose, onUpdateMaterials, onOpenJob }) {
               color: (newItem.trim() && shopJob) ? 'var(--bg)' : 'var(--muted)' }}>ADD</button>
         </div>
         <div className="mono" style={{ fontSize:10, color:'var(--muted)', margin:'6px 0 14px' }}>
-          {shopJob ? 'Adds to TMC SHOP' : 'TMC SHOP job not found'}
+          {shopJob ? 'Adds to ABC SHOP' : 'ABC SHOP job not found'}
         </div>
         {groups.length === 0 && (
           <div className="mono" style={{ textAlign:'center', color:'var(--muted)', padding:'40px 0', fontSize:13, letterSpacing:'0.08em' }}>NOTHING NEEDED</div>
@@ -2042,10 +2042,10 @@ function MoveJobSheet({ clockSession, jobs, onMove, onClose, onNewJob }) {
   const currentJobId = clockSession?.jobId;
   const [q, setQ] = useState('');
   const FIELD_DONE = ['Completed/Needs Billing','Billed/Waiting for Payment','Completed/Paid','Closed'];
-  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && !FIELD_DONE.includes(j.status));
+  const shopJob = (jobs || []).find(j => j.customer?.toUpperCase() === ABC_SHOP_NAME && !FIELD_DONE.includes(j.status));
   const STATUS_PRIORITY = { 'In Progress': 0, 'On Site': 1, 'In Route': 2, 'Scheduled': 3 };
   const openJobs = (jobs || [])
-    .filter(j => !FIELD_DONE.includes(j.status) && j.id !== currentJobId && j.customer?.toUpperCase() !== TMC_SHOP_NAME)
+    .filter(j => !FIELD_DONE.includes(j.status) && j.id !== currentJobId && j.customer?.toUpperCase() !== ABC_SHOP_NAME)
     .slice().sort((a, b) => {
       const pa = STATUS_PRIORITY[a.status] ?? 99;
       const pb = STATUS_PRIORITY[b.status] ?? 99;
@@ -2603,7 +2603,7 @@ function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
   const [selectedJob, setSelectedJob] = useState(null);
   const [time, setTime] = useState('09:00');
   const candidates = (jobs || [])
-    .filter(j => j.customer?.toUpperCase() !== TMC_SHOP_NAME &&
+    .filter(j => j.customer?.toUpperCase() !== ABC_SHOP_NAME &&
       (showAll ? !SCHEDULABLE_EXCLUDE_STATUSES.includes(j.status) : j.status === 'Ready to Schedule'))
     .slice().sort((a, b) => (a.customer || '').localeCompare(b.customer || ''));
   const filtered = q
@@ -2768,7 +2768,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
     crewRows.forEach(c => { (crewByJobId[c.job_id] = crewByJobId[c.job_id] || []).push(c); });
     // Materials Run/Shop Run periods tagged 'bill:shop' count against the shop job's bucket
     // instead of the job they were physically logged against — see buildCrewTimeline's billTo.
-    const shopJob = jobs.find(j => j.customer?.toUpperCase() === TMC_SHOP_NAME && j.status !== 'Closed');
+    const shopJob = jobs.find(j => j.customer?.toUpperCase() === ABC_SHOP_NAME && j.status !== 'Closed');
     const weMs = weekEnd.getTime();
     Object.entries(notesByJobId).forEach(([jobId, jobNotes]) => {
       const timeline = buildCrewTimeline(jobNotes, crewByJobId[jobId] || [], users);
@@ -2803,7 +2803,7 @@ function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
           const isRun = p.status === 'Materials Run' || p.status === 'Shop Run';
           const billShop = isRun && p.billTo === 'shop';
           const jId = billShop ? (shopJob?.id || jobId) : jobId;
-          const jLabel = billShop ? (shopJob?.customer || 'TMC SHOP') : label;
+          const jLabel = billShop ? (shopJob?.customer || 'ABC SHOP') : label;
           const bucket = p.status === 'In Route' ? 'driveMs' : isRun ? 'runMs' : 'onSiteMs';
           if (!byUser[userName]) byUser[userName] = { totalMs: 0, jobs: {} };
           byUser[userName].totalMs += ms;
@@ -3758,7 +3758,7 @@ Command: "${transcript}"`
         if (!crewResult) { showToast('Could not save crew status — ' + (lastJobCrewError?.message || 'check connection'), true); return; }
         const job = jobs.find(j => j.id === jobId);
         const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-        if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
+        if (job && job.customer?.toUpperCase() !== ABC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
           await updateJob(jobId, { status: 'In Progress', _skipNote: true });
         }
         const { data: inNote } = await sb.from('job_notes').insert({
@@ -3793,7 +3793,7 @@ Command: "${transcript}"`
       if (!clockSession) return;
       const { jobId, startedAt, legStartedAt } = clockSession;
       const undo = { prevSession: clockSession, restore: jobId ? [{ jobId, status: clockSession.status }] : [], clear: [], noteIds: [] };
-      const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
+      const wasShop = jobId && jobs.find(j => j.id === jobId)?.customer?.toUpperCase() === ABC_SHOP_NAME;
       if (jobId) {
         const { note: outNote } = await clearCrewWithNote(jobId, currentUser.id, currentUser.name, at, '', currentUser.id);
         if (outNote?.id) undo.noteIds.push(outNote.id);
@@ -3859,7 +3859,7 @@ Command: "${transcript}"`
       await upsertJobCrewStatus(clockSession.jobId, currentUser.id, 'On Site', at);
       const job = jobs.find(j => j.id === clockSession.jobId);
       const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-      if (job && job.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
+      if (job && job.customer?.toUpperCase() !== ABC_SHOP_NAME && wIdx(job.status) < wIdx('In Progress')) {
         await updateJob(clockSession.jobId, { status: 'In Progress', _skipNote: true });
       }
       const { data: onSiteNote } = await sb.from('job_notes').insert({
@@ -3897,7 +3897,7 @@ Command: "${transcript}"`
         };
         let isLastOut = false;
         let hasCrew = false;
-        const wasShop = oldJobId && jobs.find(j => j.id === oldJobId)?.customer?.toUpperCase() === TMC_SHOP_NAME;
+        const wasShop = oldJobId && jobs.find(j => j.id === oldJobId)?.customer?.toUpperCase() === ABC_SHOP_NAME;
         const shopLegStart = clockSession.legStartedAt || startedAt;
         // bank the leg we're leaving into today's running total before the new leg starts
         // (skip from Paused — that leg was already banked when the pause started)
@@ -3922,7 +3922,7 @@ Command: "${transcript}"`
         if (!ok) { showToast('Could not update crew status — ' + (lastJobCrewError?.message || 'check connection'), true); return; }
         const newJob = jobs.find(j => j.id === newJobId);
         const wIdx = s => WORKFLOW_STATUSES.indexOf(s);
-        if (newJob && newJob.customer?.toUpperCase() !== TMC_SHOP_NAME && wIdx(newJob.status) < wIdx('In Progress')) {
+        if (newJob && newJob.customer?.toUpperCase() !== ABC_SHOP_NAME && wIdx(newJob.status) < wIdx('In Progress')) {
           await updateJob(newJobId, { status: 'In Progress', _skipNote: true });
         }
         const { data: routeNote } = await sb.from('job_notes').insert({
@@ -3944,7 +3944,7 @@ Command: "${transcript}"`
             // No crew on the old job ⇒ last one out. Ask "is this job done?" first,
             // then fire navigation when that prompt resolves (navigation is always last).
             const oldJob = (isLastOut && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
-            if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+            if (oldJob && oldJob.customer?.toUpperCase() !== ABC_SHOP_NAME) {
               setLastLeaveJob({ job: oldJob, mapsJobId: newJobId });
             } else {
               const addr = (siteAddr(newJob) || custAddr(newJob)).trim();
@@ -4305,7 +4305,7 @@ Command: "${transcript}"`
           <div style={{ position:"fixed", inset:0, zIndex:200, display:"flex", flexDirection:"column",
             alignItems:"center", justifyContent:"center", gap:16, padding:32, background:"var(--bg)" }}>
             <div className="head" style={{ fontSize:24, fontWeight:700 }}>
-              TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+              ABC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
             </div>
             <div className="mono" style={{ fontSize:12, color:"var(--muted)", letterSpacing:"0.1em" }}>{currentUser.name}</div>
             <div style={{ height:16 }} />
@@ -4392,7 +4392,7 @@ Command: "${transcript}"`
                 const oldJob = (!nextSomeoneStayed && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
                 const mj = mapsJobId ? jobs.find(j => j.id === mapsJobId) : null;
                 const mapsOk = mj && (siteAddr(mj) || custAddr(mj)).trim();
-                if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+                if (oldJob && oldJob.customer?.toUpperCase() !== ABC_SHOP_NAME) {
                   // navigation chains after the LAST ONE OUT prompt resolves (stays last)
                   setLastLeaveJob({ job: oldJob, mapsJobId: mapsOk ? mapsJobId : null });
                 } else if (mapsOk) {
@@ -4720,7 +4720,7 @@ Command: "${transcript}"`
               const oldJob = (!nextSomeoneStayed && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
               const mj = mapsJobId ? jobs.find(j => j.id === mapsJobId) : null;
               const mapsOk = mj && (siteAddr(mj) || custAddr(mj)).trim();
-              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+              if (oldJob && oldJob.customer?.toUpperCase() !== ABC_SHOP_NAME) {
                 // navigation chains after the LAST ONE OUT prompt resolves (stays last)
                 setLastLeaveJob({ job: oldJob, mapsJobId: mapsOk ? mapsJobId : null });
               } else if (mapsOk) {
@@ -4998,7 +4998,7 @@ Command: "${transcript}"`
         <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
           <div>
             <div className="head" style={{ fontSize:22, fontWeight:700, lineHeight:1 }}>
-              TMC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
+              ABC <span style={{ color:"var(--brass-bright)" }}>MECHANICAL</span>
             </div>
             <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginTop:3, letterSpacing:"0.1em" }}>FIELD JOB TRACKER</div>
           </div>
@@ -5473,7 +5473,7 @@ Command: "${transcript}"`
               const oldJob = (!nextSomeoneStayed && oldJobId) ? jobs.find(j => j.id === oldJobId) : null;
               const mj = mapsJobId ? jobs.find(j => j.id === mapsJobId) : null;
               const mapsOk = mj && (siteAddr(mj) || custAddr(mj)).trim();
-              if (oldJob && oldJob.customer?.toUpperCase() !== TMC_SHOP_NAME) {
+              if (oldJob && oldJob.customer?.toUpperCase() !== ABC_SHOP_NAME) {
                 // navigation chains after the LAST ONE OUT prompt resolves (stays last)
                 setLastLeaveJob({ job: oldJob, mapsJobId: mapsOk ? mapsJobId : null });
               } else if (mapsOk) {
@@ -6556,7 +6556,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
   const [logText, setLogText] = useState(''); // "what we did today" entry box
   const [materials, setMaterials] = useState(job.materials_needed || []);
   const [matText, setMatText] = useState('');
-  // Shop-only: checking a material off the TMC SHOP list shows it struck-through briefly (with
+  // Shop-only: checking a material off the ABC SHOP list shows it struck-through briefly (with
   // an inline UNDO right on that row) then removes it from view — unlike a regular job, where
   // checked materials stay visible/struck-through indefinitely. Data always keeps acquired:true either way.
   const [shopAcquiredPending, setShopAcquiredPending] = useState(() => new Set());
@@ -7424,7 +7424,7 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
       return next;
     });
   }
-  const isShop = job.customer?.toUpperCase() === TMC_SHOP_NAME; // shop job gets a stripped-down layout
+  const isShop = job.customer?.toUpperCase() === ABC_SHOP_NAME; // shop job gets a stripped-down layout
   const isClosed = job.status === 'Closed'; // Closed jobs are locked to field edits — see CLAUDE.md
 
   // A photo added via the general ADD PHOTO button (no photo_type) turned out to be a receipt —
@@ -9321,7 +9321,7 @@ function JobForm({ onSave, onCancel, initial, prefill, allJobs }) {
 function VoiceButton({ onCommand }) {
   const [state, setState] = useState('idle'); // idle | listening | processing
   const [pos, setPos] = useState(() => {
-    try { const s = localStorage.getItem('tmc_mic_pos'); if (s) return JSON.parse(s); } catch(e){}
+    try { const s = localStorage.getItem('abc_mic_pos'); if (s) return JSON.parse(s); } catch(e){}
     return { x: window.innerWidth - 76, y: window.innerHeight - 180 };
   });
   const drag = useRef(null);
@@ -9406,7 +9406,7 @@ function VoiceButton({ onCommand }) {
   function onTouchEnd() {
     if (!drag.current) return;
     if (!drag.current.moved) toggle();
-    else { try { localStorage.setItem('tmc_mic_pos', JSON.stringify(pos)); } catch(e){} }
+    else { try { localStorage.setItem('abc_mic_pos', JSON.stringify(pos)); } catch(e){} }
     drag.current = null;
   }
 

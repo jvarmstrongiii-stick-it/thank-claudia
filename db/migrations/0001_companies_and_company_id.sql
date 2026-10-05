@@ -18,7 +18,7 @@ create table if not exists public.companies (
 );
 
 -- ── company_id on every actively-used table ─────────────────────────────
--- Nullable for now — backfilled onto TMC's existing rows in 0002, then
+-- Nullable for now — backfilled onto ABC's existing rows in 0002, then
 -- flipped to NOT NULL there once the backfill is verified.
 alter table public.jobs          add column if not exists company_id uuid references public.companies(id);
 alter table public.customers     add column if not exists company_id uuid references public.companies(id);
@@ -60,7 +60,7 @@ alter table public.users add column if not exists is_admin boolean not null defa
 -- column) — see the "Key Architecture Decisions" note in CLAUDE.md for why.
 -- Added as NOT VALID here: this enforces the link on every *new* row
 -- (including every row handle_new_user() creates from here on) without
--- failing on TMC's 4 existing users.id values, which don't match any
+-- failing on ABC's 4 existing users.id values, which don't match any
 -- auth.users row yet. 0005 runs VALIDATE CONSTRAINT after those 4 rows
 -- are re-keyed to match real auth.users ids.
 alter table public.users
