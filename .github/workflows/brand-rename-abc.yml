@@ -1,0 +1,90 @@
+name: One-time ABC Mechanical branding rename
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/brand-rename-abc.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  rename-brand:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Replace portfolio demo branding
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          replacements = [
+              ("TMC MECHANICAL", "ABC MECHANICAL"),
+              ("TMC Mechanical", "ABC Mechanical"),
+              ("TMC MECH", "ABC MECH"),
+              ("TMC Mech", "ABC Mech"),
+              ("TMC", "ABC"),
+              ("tmc-mechanical", "abc-mechanical"),
+              ("com.tmc.mechanical", "com.abc.mechanical"),
+              ('"scheme": "tmc"', '"scheme": "abc"'),
+              ("TMCmech", "ABCmech"),
+              ("tmc_jobs_v1", "abc_jobs_v1"),
+              ("tmc_chores_v1", "abc_chores_v1"),
+              ("tmc_sameaddr_pref", "abc_sameaddr_pref"),
+              ("tmc_current_user", "abc_current_user"),
+              ("tmc_device_auth", "abc_device_auth"),
+              ("tmc_clock_session_", "abc_clock_session_"),
+              ("tmc_clock_today_", "abc_clock_today_"),
+              ("tmc_recent_jobs", "abc_recent_jobs"),
+              ("tmc_section_collapse", "abc_section_collapse"),
+              ("tmc_timezone", "abc_timezone"),
+              ("tmc_mic_pos", "abc_mic_pos"),
+              ("Tyler's HVAC", "ABC Mechanical"),
+          ]
+
+          skip_dirs = {".git", "node_modules", "dist", ".expo"}
+          text_exts = {".html", ".tsx", ".ts", ".js", ".json", ".md", ".yml", ".yaml", ".sql"}
+          changed = []
+
+          for path in Path('.').rglob('*'):
+              if not path.is_file():
+                  continue
+              if any(part in skip_dirs for part in path.parts):
+                  continue
+              if path.as_posix() == '.github/workflows/brand-rename-abc.yml':
+                  continue
+              if path.suffix.lower() not in text_exts:
+                  continue
+              try:
+                  text = path.read_text(encoding='utf-8')
+              except UnicodeDecodeError:
+                  continue
+              new = text
+              for old, replacement in replacements:
+                  new = new.replace(old, replacement)
+              if new != text:
+                  path.write_text(new, encoding='utf-8')
+                  changed.append(path.as_posix())
+
+          Path('.github/workflows/brand-rename-abc.yml').unlink()
+          print('Updated files:')
+          for item in changed:
+              print(item)
+          PY
+
+      - name: Commit rename
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Rename HVAC demo branding to ABC Mechanical"
+            git push
+          fi
