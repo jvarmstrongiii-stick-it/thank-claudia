@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 265;
+const APP_REV = 266;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -831,6 +831,265 @@ function warrantyStatus(eq) {
   if (daysLeft < 0) return { type:'lapsed', deadline: deadline.toISOString().split('T')[0] };
   if (daysLeft <= 14) return { type:'urgent', daysLeft, deadline: deadline.toISOString().split('T')[0] };
   return { type:'pending', daysLeft, deadline: deadline.toISOString().split('T')[0] };
+}
+
+/* ── Warranty registration workflow (r266) ───────────────────────────────────
+   Install completes → a customer email is PREPARED (never auto-sent) with each unit's maker,
+   model, serial and the maker's verified registration link, plus a forwarding address that
+   carries the job's ref code. Customers forward the maker's confirmation there; the
+   `warranty-inbound` Edge Function matches it and only auto-registers confident matches —
+   the rest land in WARRANTY REVIEW (hamburger menu). Tables: db/migrations/0006. */
+
+// WARRANTY-CORE-BEGIN — pure helpers (no sb/React); tests/claudia-warranty.test.mjs extracts
+// and unit-tests exactly this block, so keep it free of anything defined elsewhere in the file.
+// Forwarding inbox for manufacturer confirmations. Must accept plus-addressing
+// (warranty+CODE@…). null = not chosen yet → prepared emails are held for review.
+const WARRANTY_INBOX = null;
+const WARRANTY_COMPANY_NAME = 'ABC Mechanical';
+const WARRANTY_INSTALL_TYPES = ['New Install', 'Replacement'];
+const WARRANTY_TRIGGER_STATUS = 'Completed/Needs Billing';
+const WARRANTY_TOKEN_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'; // no 0/O/1/I/L
+const WARRANTY_STATUS_LABEL = {
+  not_sent: 'NOT SENT', email_prepared: 'EMAIL READY', sent: 'EMAIL SENT',
+  registered: 'REGISTERED', needs_review: 'NEEDS REVIEW',
+};
+const WARRANTY_HOLD_LABEL = {
+  no_customer_email: 'No customer email on file',
+  inbox_not_set: 'Forwarding inbox not set up yet',
+  unknown_manufacturer: 'Manufacturer not recognised',
+  no_registration_url: 'No registration link on file for this maker',
+  unverified_url: "Registration link not verified on the maker's site",
+  missing_serial: 'Serial number missing',
+  missing_model: 'Model number missing',
+};
+
+function isWarrantyInstallJob(job) {
+  return !!job && WARRANTY_INSTALL_TYPES.includes(job.type);
+}
+
+// True when this status change should prepare warranty emails (dedupe happens downstream).
+function shouldPrepareWarranty(job, nextStatus) {
+  return nextStatus === WARRANTY_TRIGGER_STATUS && isWarrantyInstallJob(job);
+}
+
+function normWarrantyBrand(s) {
+  return String(s == null ? '' : s).toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
+}
+
+// Nameplate brand → manufacturers row. Exact key/name/alias first, then the longest alias
+// that appears as whole words inside the brand ("American Standard / Trane" → american standard).
+function resolveWarrantyManufacturer(brand, manufacturers) {
+  const b = normWarrantyBrand(brand);
+  if (!b || !Array.isArray(manufacturers)) return null;
+  let best = null, bestLen = 0;
+  for (const mf of manufacturers) {
+    const names = [mf.brand_key, mf.display_name].concat(mf.aliases || []).map(normWarrantyBrand).filter(Boolean);
+    if (names.includes(b)) return mf;
+    for (const n of names) {
+      if (n.length > bestLen && (' ' + b + ' ').includes(' ' + n + ' ')) { best = mf; bestLen = n.length; }
+    }
+  }
+  return best;
+}
+
+function newWarrantyToken(randomBytes) {
+  const bytes = randomBytes || (typeof crypto !== 'undefined' && crypto.getRandomValues
+    ? crypto.getRandomValues(new Uint8Array(6))
+    : Array.from({ length: 6 }, () => Math.floor(Math.random() * 256)));
+  let t = '';
+  for (let i = 0; i < 6; i++) t += WARRANTY_TOKEN_ALPHABET[bytes[i] % WARRANTY_TOKEN_ALPHABET.length];
+  return t;
+}
+
+// warranty@abc.com + K7M3QX → warranty+K7M3QX@abc.com
+function warrantyInboxAddress(inbox, token) {
+  const m = String(inbox || '').trim().match(/^([^@\s+]+)(?:\+[^@\s]*)?@([^@\s]+\.[^@\s]+)$/);
+  if (!m || !token) return null;
+  return `${m[1]}+${token}@${m[2]}`;
+}
+
+function warrantyFirstName(customer) {
+  const raw = String(customer || '').trim();
+  if (!raw) return '';
+  const part = raw.includes(',') ? raw.split(',')[1] : raw;
+  const first = (part || '').trim().split(/\s+/)[0] || '';
+  return first ? first[0].toUpperCase() + first.slice(1).toLowerCase() : '';
+}
+
+function warrantyFmtDate(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : '';
+}
+
+function looksLikeEmail(s) {
+  return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(s || '').trim());
+}
+
+// Per-unit readiness: which reasons (if any) keep this unit out of the customer email.
+function warrantyUnitHolds(eq, mf) {
+  const holds = [];
+  if (!mf) holds.push('unknown_manufacturer');
+  else if (!mf.registration_url) holds.push('no_registration_url');
+  else if (!mf.url_verified) holds.push('unverified_url');
+  if (!String(eq.serial_number || '').trim()) holds.push('missing_serial');
+  if (!String(eq.model_number || '').trim()) holds.push('missing_model');
+  return holds;
+}
+
+/**
+ * Build the customer email for one job.
+ * units: [{ eq, mf }] — mf from resolveWarrantyManufacturer (may be null).
+ * Returns { to, subject, body, emailHolds, units: [{ equipment_id, brand_key, registration_url, holds, status }] }.
+ * Units with their own holds are left out of the email body and marked needs_review;
+ * email-level holds (no customer email / inbox not set) put every unit in needs_review,
+ * but the draft is still built so it's ready the moment the gap is fixed.
+ */
+function buildWarrantyEmail({ job, units, token, inbox, company, today }) {
+  const companyName = company || WARRANTY_COMPANY_NAME;
+  const fwd = warrantyInboxAddress(inbox, token);
+  const to = looksLikeEmail(job && job.email) ? String(job.email).trim() : '';
+  const emailHolds = [];
+  if (!to) emailHolds.push('no_customer_email');
+  if (!fwd) emailHolds.push('inbox_not_set');
+
+  const unitResults = (units || []).map(({ eq, mf }) => {
+    const holds = warrantyUnitHolds(eq, mf);
+    return {
+      eq, mf, holds,
+      equipment_id: eq.id,
+      brand_key: mf ? mf.brand_key : null,
+      registration_url: mf && mf.registration_url ? mf.registration_url : null,
+    };
+  });
+  const ready = unitResults.filter(u => !u.holds.length);
+  unitResults.forEach(u => {
+    u.status = (u.holds.length || emailHolds.length || !ready.length) ? 'needs_review' : 'email_prepared';
+  });
+
+  const makers = Array.from(new Set(ready.map(u => u.mf.display_name)));
+  const windows = ready.map(u => u.mf.window_days).filter(n => Number.isFinite(n) && n > 0);
+  const windowDays = windows.length ? Math.min.apply(null, windows) : null;
+  const ref = token ? `W-${token}` : '';
+  const subject = `Register your new ${makers.length ? makers.join(' & ') + ' ' : ''}equipment warranty — ${companyName}${ref ? ` [Ref ${ref}]` : ''}`;
+
+  const first = warrantyFirstName(job && job.customer);
+  const lines = [];
+  lines.push(`Hi ${first || 'there'},`);
+  lines.push('');
+  lines.push(`Thank you for choosing ${companyName} for your installation. To get the full manufacturer warranty, please register your new equipment with the manufacturer${windowDays ? ` within ${windowDays} days of installation` : ' as soon as you can'}. Here are the details you'll need:`);
+  ready.forEach(u => {
+    const installed = warrantyFmtDate(u.eq.install_date || today);
+    lines.push('');
+    lines.push(`${u.eq.label ? u.eq.label + ' — ' : ''}${u.mf.display_name}`);
+    lines.push(`  Model number: ${String(u.eq.model_number).trim()}`);
+    lines.push(`  Serial number: ${String(u.eq.serial_number).trim()}`);
+    if (installed) lines.push(`  Installation date: ${installed}`);
+    lines.push(`  Register at: ${u.mf.registration_url}`);
+  });
+  lines.push('');
+  if (fwd) {
+    lines.push('After you register, the manufacturer will usually email you a confirmation. Please forward that confirmation email to:');
+    lines.push(`  ${fwd}`);
+    lines.push('Please keep the address exactly as written. The code after the "+" lets us match the confirmation to your equipment and record your warranty as registered.');
+    lines.push('');
+  }
+  if (ref) lines.push(`Your reference: ${ref}`);
+  lines.push('');
+  lines.push('Thank you,');
+  lines.push(companyName);
+
+  return {
+    to, subject, body: lines.join('\n'), emailHolds, forwardTo: fwd,
+    units: unitResults.map(u => ({
+      equipment_id: u.equipment_id, brand_key: u.brand_key, registration_url: u.registration_url,
+      holds: u.holds.concat(emailHolds), status: u.status,
+    })),
+  };
+}
+
+function warrantyMailtoHref(to, subject, body) {
+  return `mailto:${encodeURIComponent(to || '')}?subject=${encodeURIComponent(subject || '')}&body=${encodeURIComponent(body || '')}`;
+}
+// WARRANTY-CORE-END
+
+// Missing-table errors mean db/migrations/0006 hasn't been run yet — warranty features
+// then quietly stand down instead of erroring at techs.
+function isWarrantyNotMigrated(error) {
+  if (!error) return false;
+  const msg = `${error.code || ''} ${error.message || ''}`;
+  return error.code === '42P01' || error.code === 'PGRST205' || error.code === 'PGRST200' || /warranty_(registrations|manufacturers|inbound)/.test(msg);
+}
+
+let _warrantyMfCache = null;
+async function fetchWarrantyManufacturers(force) {
+  if (_warrantyMfCache && !force) return _warrantyMfCache;
+  const { data, error } = await sb.from('warranty_manufacturers').select('*');
+  if (error) { if (!isWarrantyNotMigrated(error)) console.warn('fetchWarrantyManufacturers', error); return null; }
+  _warrantyMfCache = data || [];
+  return _warrantyMfCache;
+}
+
+async function fetchWarrantyRegistration(equipmentId) {
+  const { data, error } = await sb.from('warranty_registrations').select('*').eq('equipment_id', equipmentId).maybeSingle();
+  if (error) { if (!isWarrantyNotMigrated(error)) console.warn('fetchWarrantyRegistration', error); return { notMigrated: isWarrantyNotMigrated(error), row: null }; }
+  return { notMigrated: false, row: data || null };
+}
+
+/**
+ * Prepare (or re-prepare) the warranty email for a job's equipment. Safe to call repeatedly:
+ * units already emailed / sent / registered are left alone unless opts.force.
+ * Returns { skipped } or { prepared, held, rows }.
+ */
+async function prepareWarrantyEmailsForJob(job, opts = {}) {
+  const manufacturers = await fetchWarrantyManufacturers(true);
+  if (!manufacturers) return { skipped: 'not_migrated' };
+  const equipment = await fetchEquipment(job.id);
+  if (!equipment) return { skipped: 'equipment_fetch_failed' };
+  const scoped = opts.equipmentIds ? equipment.filter(e => opts.equipmentIds.includes(e.id)) : equipment;
+  if (!scoped.length) return { skipped: 'no_equipment' };
+
+  const { data: existing, error } = await sb.from('warranty_registrations').select('*').eq('job_id', job.id);
+  if (error) { if (!isWarrantyNotMigrated(error)) console.warn('prepareWarranty', error); return { skipped: 'not_migrated' }; }
+  const { data: byEquip } = await sb.from('warranty_registrations').select('*').in('equipment_id', scoped.map(e => e.id));
+  const regFor = id => (byEquip || []).find(r => r.equipment_id === id) || null;
+  const LOCKED = ['email_prepared', 'sent', 'registered'];
+  const todo = scoped.filter(e => { const r = regFor(e.id); return opts.force ? (!r || r.status !== 'registered') : (!r || !LOCKED.includes(r.status)); });
+  if (!todo.length) return { prepared: 0, held: 0, rows: [] };
+
+  const token = ((existing || []).find(r => r.email_token) || {}).email_token || newWarrantyToken();
+  const today = todayISO();
+  // An install date is what starts the maker's registration window — fill it in on completion
+  // for install jobs where the tech didn't enter one (never overwrites an existing date).
+  if (isWarrantyInstallJob(job)) {
+    for (const e of todo) {
+      if (!e.install_date) { const err = await updateEquipment(e.id, { install_date: today }); if (!err) e.install_date = today; }
+    }
+  }
+  const built = buildWarrantyEmail({
+    job, token, inbox: WARRANTY_INBOX, today,
+    units: todo.map(eq => ({ eq, mf: resolveWarrantyManufacturer(eq.brand, manufacturers) })),
+  });
+  const now = new Date().toISOString();
+  const rows = built.units.map(u => ({
+    equipment_id: u.equipment_id, job_id: job.id, customer_id: job._customer_id || null,
+    brand_key: u.brand_key, email_token: token, status: u.status, hold_reasons: u.holds,
+    registration_url: u.registration_url, email_to: built.to || null,
+    email_subject: built.subject, email_body: built.body, prepared_at: now,
+    prepared_by: validUUID(opts.userId) || null,
+  }));
+  const { data: saved, error: upErr } = await sb.from('warranty_registrations').upsert(rows, { onConflict: 'equipment_id' }).select();
+  if (upErr) { console.error('prepareWarranty upsert', upErr); return { skipped: 'save_failed', error: upErr }; }
+  return {
+    prepared: rows.filter(r => r.status === 'email_prepared').length,
+    held: rows.filter(r => r.status === 'needs_review').length,
+    rows: saved || [],
+  };
+}
+
+function warrantyPrepToast(r) {
+  if (!r || r.skipped || (!r.prepared && !r.held)) return null;
+  if (r.prepared && !r.held) return `Warranty email ready for ${r.prepared} unit${r.prepared > 1 ? 's' : ''}`;
+  return `Warranty: ${r.held} unit${r.held > 1 ? 's' : ''} need review (menu → WARRANTY REVIEW)`;
 }
 
 // Deterministic capacity-code table for split-system condensers/heat pumps — model number
@@ -2696,6 +2955,245 @@ function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
   );
 }
 
+/* ── WarrantyReviewScreen (r266) ────────────────────────────────────────────
+   Hamburger menu → WARRANTY REVIEW. Three lists:
+   1. forwarded confirmations the warranty-inbound function wasn't sure about
+      (warranty_inbound.status needs_review / unmatched) → pick the unit(s) or reject;
+   2. customer emails held at prepare time (warranty_registrations.status needs_review);
+   3. last 30 days of auto-matches, each with UNDO, so a wrong auto-match is one tap to fix. */
+function WarrantyReviewScreen({ currentUser, onClose, onOpenJob }) {
+  const [loading, setLoading] = useState(true);
+  const [notMigrated, setNotMigrated] = useState(false);
+  const [inbound, setInbound] = useState([]);
+  const [autoRecent, setAutoRecent] = useState([]);
+  const [regs, setRegs] = useState([]);
+  const [selected, setSelected] = useState({});   // inboundId → Set(registrationId)
+  const [search, setSearch] = useState({});       // inboundId → text
+  const [openSnippet, setOpenSnippet] = useState(null);
+  const [showAuto, setShowAuto] = useState(false);
+  const [busy, setBusy] = useState(null);
+
+  async function load() {
+    setLoading(true);
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const [inb, auto, rg] = await Promise.all([
+      sb.from('warranty_inbound').select('*').in('status', ['needs_review', 'unmatched']).order('received_at', { ascending: false }).limit(100),
+      sb.from('warranty_inbound').select('*').eq('status', 'auto_matched').gte('received_at', since).order('received_at', { ascending: false }).limit(30),
+      sb.from('warranty_registrations')
+        .select('id,job_id,equipment_id,status,email_token,brand_key,hold_reasons,registered_via,equipment(id,label,brand,model_number,serial_number),customers(name,email)')
+        .order('created_at', { ascending: false }).limit(2000),
+    ]);
+    const err = inb.error || auto.error || rg.error;
+    if (err) { setNotMigrated(isWarrantyNotMigrated(err)); if (!isWarrantyNotMigrated(err)) console.warn('WarrantyReview load', err); }
+    setInbound(inb.data || []);
+    setAutoRecent(auto.data || []);
+    setRegs(rg.data || []);
+    setLoading(false);
+  }
+  useEffect(() => { load(); }, []);
+
+  const regById = useMemo(() => { const m = {}; regs.forEach(r => { m[r.id] = r; }); return m; }, [regs]);
+  const held = regs.filter(r => r.status === 'needs_review');
+
+  function toggleSel(inbId, regId) {
+    setSelected(prev => {
+      const next = new Set(prev[inbId] || []);
+      next.has(regId) ? next.delete(regId) : next.add(regId);
+      return { ...prev, [inbId]: next };
+    });
+  }
+
+  async function confirmMatch(inb) {
+    const ids = Array.from(selected[inb.id] || []);
+    if (!ids.length) return;
+    setBusy(inb.id);
+    const now = new Date().toISOString();
+    const { error } = await sb.from('warranty_registrations').update({
+      status: 'registered', registered_at: now, registered_via: 'manual_review', matched_inbound_id: inb.id,
+      confirmation_number: (inb.parsed && inb.parsed.confirmation_number) || null, hold_reasons: [],
+    }).in('id', ids).neq('status', 'registered');
+    if (!error) {
+      await sb.from('warranty_inbound').update({
+        status: 'resolved_matched', matched_registration_ids: ids,
+        reviewed_by: validUUID(currentUser?.id) || null, reviewed_at: now,
+      }).eq('id', inb.id);
+    }
+    setBusy(null);
+    if (error) { alert(`Failed: ${error.message}`); return; }
+    load();
+  }
+
+  async function rejectInbound(inb) {
+    setBusy(inb.id);
+    const { error } = await sb.from('warranty_inbound').update({
+      status: 'resolved_rejected', reviewed_by: validUUID(currentUser?.id) || null, reviewed_at: new Date().toISOString(),
+    }).eq('id', inb.id);
+    setBusy(null);
+    if (error) { alert(`Failed: ${error.message}`); return; }
+    load();
+  }
+
+  // Undo a wrong auto-match: units go back to "email sent", legacy flag cleared, email back in the queue.
+  async function undoAuto(inb) {
+    if (!confirm('Undo this auto-match? The units go back to "email sent" and the email returns to the review list.')) return;
+    setBusy(inb.id);
+    const ids = inb.matched_registration_ids || [];
+    const { error } = await sb.from('warranty_registrations').update({
+      status: 'sent', registered_at: null, registered_via: null, matched_inbound_id: null, confirmation_number: null,
+    }).in('id', ids).eq('matched_inbound_id', inb.id);
+    if (!error) {
+      for (const id of ids) {
+        const r = regById[id];
+        if (r && r.equipment_id) await updateEquipment(r.equipment_id, { warranty_registered: false, warranty_registered_date: null });
+      }
+      await sb.from('warranty_inbound').update({ status: 'needs_review', summary: 'Auto-match undone by reviewer.' }).eq('id', inb.id);
+    }
+    setBusy(null);
+    if (error) { alert(`Failed: ${error.message}`); return; }
+    load();
+  }
+
+  function regLine(r) {
+    const e = r.equipment || {};
+    return {
+      title: `${(r.customers && r.customers.name) || 'Unknown customer'}${e.label ? ' — ' + e.label : ''}`,
+      sub: [e.brand, e.model_number, e.serial_number ? `S/N ${e.serial_number}` : null, r.email_token ? `W-${r.email_token}` : null].filter(Boolean).join(' · '),
+    };
+  }
+
+  const card = { marginBottom:10, background:'var(--panel)', border:'1px solid var(--line)', borderRadius:10, padding:12 };
+  const head = { fontSize:13, fontWeight:700, color:'var(--muted)', margin:'14px 0 8px' };
+  const small = { fontSize:11, color:'var(--muted)' };
+
+  // Called as plain functions (not <RegPick/>), so React doesn't remount them — and the
+  // search input inside InboundCard keeps focus — on every keystroke.
+  function RegPick({ inb, r, reasons }) {
+    const { title, sub } = regLine(r);
+    const on = (selected[inb.id] || new Set()).has(r.id);
+    return (
+      <button onClick={() => toggleSel(inb.id, r.id)}
+        style={{ display:'flex', gap:10, width:'100%', textAlign:'left', padding:'8px 0', borderTop:'1px solid var(--line)' }}>
+        <span className="mono" style={{ fontSize:16, color: on ? 'var(--green)' : 'var(--muted)' }}>{on ? '☑' : '☐'}</span>
+        <span style={{ flex:1 }}>
+          <span className="head" style={{ fontSize:13, display:'block' }}>{title}</span>
+          <span className="mono" style={{ ...small, display:'block' }}>{sub}{r.status === 'registered' ? ' · ALREADY REGISTERED' : ''}</span>
+          {reasons && <span className="mono" style={{ fontSize:10, color:'var(--olive-bright)', display:'block' }}>{reasons}</span>}
+        </span>
+      </button>
+    );
+  }
+
+  function InboundCard({ inb }) {
+    const p = inb.parsed || {};
+    const cands = (inb.candidates || []).map(c => ({ c, r: regById[c.registration_id] })).filter(x => x.r);
+    const q = (search[inb.id] || '').trim().toLowerCase();
+    const candIds = new Set(cands.map(x => x.r.id));
+    const found = q.length >= 2 ? regs.filter(r => !candIds.has(r.id) && [
+      r.customers && r.customers.name, r.equipment && r.equipment.serial_number, r.equipment && r.equipment.model_number, r.email_token,
+    ].some(v => String(v || '').toLowerCase().includes(q))).slice(0, 8) : [];
+    const nSel = (selected[inb.id] || new Set()).size;
+    return (
+      <div style={card}>
+        <div className="head" style={{ fontSize:14, fontWeight:700 }}>{inb.subject || '(no subject)'}</div>
+        <div className="mono" style={small}>{inb.from_email || 'unknown sender'} · {inb.received_at ? new Date(inb.received_at).toLocaleString() : ''}</div>
+        <div className="mono" style={{ fontSize:12, color:'var(--brass-bright)', marginTop:6 }}>
+          {inb.summary}{inb.confidence != null ? ` (${Math.round(Number(inb.confidence) * 100)}%)` : ''}
+        </div>
+        <div className="mono" style={{ ...small, marginTop:4 }}>
+          {[(p.tokens || []).map(t => `REF W-${t}`).join(' '), (p.serials || []).length ? `S/N ${(p.serials || []).join(', ')}` : '',
+            (p.models || []).length ? `MODEL ${(p.models || []).join(', ')}` : '', p.confirmation_number ? `CONF ${p.confirmation_number}` : ''].filter(Boolean).join(' · ') || 'nothing parsed'}
+        </div>
+        <button onClick={() => setOpenSnippet(openSnippet === inb.id ? null : inb.id)} className="mono"
+          style={{ ...small, textDecoration:'underline', background:'none', border:'none', padding:0, marginTop:4 }}>
+          {openSnippet === inb.id ? 'hide email' : 'show email'}
+        </button>
+        {openSnippet === inb.id && (
+          <pre style={{ whiteSpace:'pre-wrap', fontFamily:'inherit', fontSize:12, background:'var(--bg)', padding:8, borderRadius:6, marginTop:6 }}>{inb.snippet}</pre>
+        )}
+        <div style={{ marginTop:8 }}>
+          {cands.map(({ c, r }) => <React.Fragment key={r.id}>{RegPick({ inb, r, reasons: `${Math.round((c.confidence || 0) * 100)}% · ${(c.reasons || []).join(', ')}` })}</React.Fragment>)}
+          <input value={search[inb.id] || ''} onChange={e => setSearch(s => ({ ...s, [inb.id]: e.target.value }))}
+            placeholder="Find other equipment (customer, serial, model, ref)" style={{ marginTop:8, padding:8, fontSize:14 }} />
+          {found.map(r => <React.Fragment key={r.id}>{RegPick({ inb, r })}</React.Fragment>)}
+        </div>
+        <div style={{ display:'flex', gap:8, marginTop:10 }}>
+          <button onClick={() => confirmMatch(inb)} disabled={!nSel || busy === inb.id} className="head"
+            style={{ flex:1, padding:11, borderRadius:8, fontSize:13, fontWeight:700, background: nSel ? 'var(--green)' : 'var(--panel-2)', color: nSel ? '#fff' : 'var(--muted)' }}>
+            {busy === inb.id ? 'SAVING…' : `MARK ${nSel || ''} REGISTERED`}
+          </button>
+          <button onClick={() => rejectInbound(inb)} disabled={busy === inb.id} className="head"
+            style={{ flex:1, padding:11, borderRadius:8, fontSize:13, fontWeight:700, background:'transparent', border:'1px solid var(--line)', color:'var(--text)' }}>
+            NOT A CONFIRMATION
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fade-in" style={{ minHeight:'100vh', background:'var(--bg)' }}>
+      <div style={{ padding:'18px 16px 14px', borderBottom:'1px solid var(--line)', background:'var(--panel)', position:'sticky', top:0, zIndex:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <button onClick={onClose} className="head" style={{ fontSize:22, color:'var(--text)', background:'none', border:'none', padding:'0 6px', cursor:'pointer' }}>‹</button>
+          <div className="head" style={{ fontSize:20, fontWeight:700, flex:1 }}>WARRANTY REVIEW</div>
+          <button onClick={load} className="mono" style={{ fontSize:18, color:'var(--muted)' }}>↺</button>
+        </div>
+      </div>
+      <div style={{ padding:'4px 16px 40px' }}>
+        {loading ? (
+          <div className="mono" style={{ ...small, marginTop:20 }}>Loading…</div>
+        ) : notMigrated ? (
+          <div className="mono" style={{ fontSize:13, color:'var(--brass-bright)', marginTop:20 }}>Warranty tracking needs its one-time database setup — ask Jack.</div>
+        ) : (
+          <React.Fragment>
+            <div className="head" style={head}>CONFIRMATIONS TO REVIEW ({inbound.length})</div>
+            {!inbound.length && <div className="mono" style={small}>Nothing waiting.</div>}
+            {inbound.map(inb => <React.Fragment key={inb.id}>{InboundCard({ inb })}</React.Fragment>)}
+
+            <div className="head" style={head}>EMAILS ON HOLD ({held.length})</div>
+            {!held.length && <div className="mono" style={small}>Nothing on hold.</div>}
+            {held.map(r => {
+              const { title, sub } = regLine(r);
+              return (
+                <div key={r.id} style={card}>
+                  <div className="head" style={{ fontSize:13, fontWeight:700 }}>{title}</div>
+                  <div className="mono" style={small}>{sub}</div>
+                  <div className="mono" style={{ fontSize:11, color:'var(--brass-bright)', marginTop:6 }}>
+                    {(r.hold_reasons || []).map(h => <div key={h}>⚠ {WARRANTY_HOLD_LABEL[h] || h}</div>)}
+                  </div>
+                  {r.job_id && (
+                    <button onClick={() => onOpenJob(r.job_id)} className="head"
+                      style={{ marginTop:8, padding:'8px 12px', borderRadius:8, fontSize:12, fontWeight:700, border:'1px solid var(--line)' }}>
+                      OPEN JOB →
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+
+            <button onClick={() => setShowAuto(v => !v)} className="head" style={{ ...head, background:'none', border:'none', padding:0, display:'block' }}>
+              {showAuto ? '▾' : '▸'} RECENTLY AUTO-MATCHED ({autoRecent.length})
+            </button>
+            {showAuto && autoRecent.map(inb => (
+              <div key={inb.id} style={card}>
+                <div className="head" style={{ fontSize:13, fontWeight:700 }}>{inb.subject || '(no subject)'}</div>
+                <div className="mono" style={small}>{inb.from_email} · {new Date(inb.received_at).toLocaleString()}</div>
+                {(inb.matched_registration_ids || []).map(id => regById[id] ? (
+                  <div key={id} className="mono" style={{ fontSize:12, marginTop:4 }}>✓ {regLine(regById[id]).title} · {regLine(regById[id]).sub}</div>
+                ) : null)}
+                <button onClick={() => undoAuto(inb)} disabled={busy === inb.id} className="head"
+                  style={{ marginTop:8, padding:'8px 12px', borderRadius:8, fontSize:12, fontWeight:700, border:'1px solid var(--danger)', color:'var(--danger)' }}>
+                  UNDO
+                </button>
+              </div>
+            ))}
+          </React.Fragment>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ── HoursReport ────────────────────────────────────────────────────────────── */
 function HoursReport({ jobs, users, onClose, onOpenJobDay, onOpenJob }) {
   const [weekOffset, setWeekOffset] = useState(0);
@@ -3338,6 +3836,7 @@ function App() {
   const [showHours, setShowHours] = useState(false);
   const [focusTimeLog, setFocusTimeLog] = useState(null); // { jobId, date, nonce } | null — deep-link from Hours' BY DAY tab
   const [showBalances, setShowBalances] = useState(false);
+  const [showWarrantyReview, setShowWarrantyReview] = useState(false); // r266 WarrantyReviewScreen
   const [showMaterials, setShowMaterials] = useState(false);
   const [showCalendar, setShowCalendar] = useState(false);
   const [users, setUsers] = useState(FALLBACK_USERS);
@@ -4017,6 +4516,11 @@ Command: "${transcript}"`
       if (patch.status === "Completed/Needs Billing") spawnBillingChore({ ...job, ...patch });
       if (patch.status === "Completed/Paid") setCloseJobPromptId(id);
     }
+    // Outside the _skipNote block on purpose: clockOut() sets the final status with _skipNote,
+    // and "last one out → job complete" is the most common way an install gets finished.
+    if (patch.status && patch.status !== job.status && shouldPrepareWarranty({ ...job, ...patch }, patch.status)) {
+      autoPrepareWarranty({ ...job, ...patch });
+    }
     setJobs(js => js.map(j => j.id === id ? { ...j, ...patch } : j));
   }
 
@@ -4081,6 +4585,7 @@ Command: "${transcript}"`
   }
 
   async function saveEdit(edited) {
+    const prevStatus = jobs.find(j => j.id === edited.id)?.status;
     const customerId = await resolveCustomer(edited);
     if (!customerId) { showToast("Could not resolve customer", true); return; }
     const { error } = await sb.from('jobs').update(toRow(edited, customerId, currentUser?.id)).eq('id', edited.id);
@@ -4090,6 +4595,7 @@ Command: "${transcript}"`
     setEditingId(null);
     showToast("Changes saved");
     if (edited.status === "Completed/Needs Billing") spawnBillingChore({ ...edited, _customer_id: customerId });
+    if (prevStatus !== edited.status && shouldPrepareWarranty(edited, edited.status)) autoPrepareWarranty({ ...edited, _customer_id: customerId });
   }
 
   // Purges every job_id-linked table before deleting the job itself — a job used to be
@@ -4172,6 +4678,15 @@ Command: "${transcript}"`
   async function deleteChore(choreId) {
     await sb.from('chores').delete().eq('id', choreId);
     setChores(cs => cs.filter(c => c.id !== choreId));
+  }
+
+  // Install finished → prepare (never send) the customer's warranty-registration email.
+  // Fire-and-forget like spawnBillingChore; prepareWarrantyEmailsForJob dedupes, so the
+  // repeated calls from saveEdit (which fires on every save while completed) are harmless.
+  function autoPrepareWarranty(job) {
+    prepareWarrantyEmailsForJob(job, { userId: currentUser?.id })
+      .then(r => { const msg = warrantyPrepToast(r); if (msg) showToast(msg, !!r.held); })
+      .catch(e => console.warn('autoPrepareWarranty', e));
   }
 
   async function spawnBillingChore(job) {
@@ -4613,6 +5128,8 @@ Command: "${transcript}"`
   if (showHours) return <HoursReport jobs={jobs} users={users} onClose={() => setShowHours(false)}
     onOpenJobDay={(jobId, dayKey) => { setShowHours(false); setSelectedId(jobId); setFocusTimeLog({ jobId, date: dayKey, nonce: Date.now() }); }}
     onOpenJob={(jobId) => { setShowHours(false); setSelectedId(jobId); }} />;
+  if (showWarrantyReview) return <WarrantyReviewScreen currentUser={currentUser} onClose={() => setShowWarrantyReview(false)}
+    onOpenJob={(id) => { setShowWarrantyReview(false); setSelectedId(id); }} />;
   if (showBalances) return <BalancesScreen jobs={jobs} onClose={() => setShowBalances(false)}
     onOpenJob={(id) => { setShowBalances(false); setSelectedId(id); }} />;
   if (showMaterials) return <MaterialsScreen jobs={jobs} onClose={() => setShowMaterials(false)}
@@ -5746,6 +6263,7 @@ Command: "${transcript}"`
             { label:"HOURS REPORT", icon:"⏱", action: () => { setShowMenu(false); setShowHours(true); } },
             { label:"CALENDAR", icon:"📅", action: () => { setShowMenu(false); setShowCalendar(true); } },
             { label:"BALANCES", icon:"$", action: () => { setShowMenu(false); setShowBalances(true); } },
+            { label:"WARRANTY REVIEW", icon:"✉", action: () => { setShowMenu(false); setShowWarrantyReview(true); } },
             { label:"MATERIALS", icon:"🧰", action: () => { setShowMenu(false); setShowMaterials(true); } },
             { label:"CAP CALCULATOR", icon:"μF", action: () => { setShowMenu(false); setShowCapCalc(true); } },
             { label:"SETTINGS", icon:"⚙", action: () => { setShowMenu(false); setShowSettings(true); } },
@@ -7332,6 +7850,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                 ✓ WARRANTY REGISTERED{ws.expires ? ` · exp ${fmtDate(ws.expires)}` : ''}
               </div>
             )}
+            {ws.type !== 'registered' && ['email_prepared','sent','needs_review'].includes(eq.warranty_status) && (
+              <button onClick={() => setShowWarrantySheet(eq)} className="mono"
+                style={{ fontSize:11, color: eq.warranty_status === 'needs_review' ? 'var(--brass-bright)' : 'var(--olive-bright)', marginTop:4, background:'none', border:'none', padding:0, cursor:'pointer', display:'block' }}>
+                ✉ WARRANTY EMAIL: {WARRANTY_STATUS_LABEL[eq.warranty_status]}
+              </button>
+            )}
             {ws.type === 'pending' && (
               <button onClick={() => setShowWarrantySheet(eq)}
                 className="mono" style={{ fontSize:11, color:'var(--muted)', marginTop:4, background:'none', border:'none', padding:0, textDecoration:'underline', cursor:'pointer' }}>
@@ -8286,6 +8810,12 @@ function JobDetail({ job, onBack, onUpdate, onEdit, onDelete, currentUser, users
                     onUpdate({ status: s });
                   } else {
                     await sb.from('jobs').update({ current_status: s, updated_at: new Date().toISOString() }).eq('id', wrapJobId);
+                    // This path skips App.updateJob, so prepare the warranty email here too.
+                    const wrapJob = (jobs || []).find(j => j.id === wrapJobId);
+                    if (wrapJob && shouldPrepareWarranty(wrapJob, s)) {
+                      prepareWarrantyEmailsForJob({ ...wrapJob, status: s }, { userId: currentUser?.id })
+                        .catch(e => console.warn('prepareWarranty (wrap-up)', e));
+                    }
                   }
                   setShowCompleteCheck(null);
                   if (pendingWrapUpJobId) doCrewWrapUp(wrapJobId);
@@ -9437,7 +9967,30 @@ function VoiceButton({ onCommand }) {
 function WarrantySheet({ eq, job, onRegistered, onClose }) {
   const [copied, setCopied] = useState(false);
   const [marking, setMarking] = useState(false);
+  // r266: registration-email state. `reg === undefined` = still loading; `notMigrated` = 0006
+  // not run yet, in which case the sheet behaves exactly as it did before r266.
+  const [reg, setReg] = useState(undefined);
+  const [notMigrated, setNotMigrated] = useState(false);
+  const [manufacturers, setManufacturers] = useState(null);
+  const [showEmail, setShowEmail] = useState(false);
+  const [working, setWorking] = useState(false);
   const ws = warrantyStatus(eq);
+
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      const [mfs, r] = await Promise.all([fetchWarrantyManufacturers(), fetchWarrantyRegistration(eq.id)]);
+      if (!alive) return;
+      setManufacturers(mfs);
+      setNotMigrated(!mfs || r.notMigrated);
+      setReg(r.row);
+    })();
+    return () => { alive = false; };
+  }, [eq.id]);
+
+  const mf = manufacturers ? resolveWarrantyManufacturer(eq.brand, manufacturers) : null;
+  const regUrl = (reg && reg.registration_url) || (mf && mf.registration_url) || null;
+  const regUrlVerified = !!(mf && mf.url_verified && regUrl === mf.registration_url);
 
   const installDisplay = eq.install_date ? fmtDate(eq.install_date) : '—';
   const lines = [
@@ -9462,10 +10015,38 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
     setMarking(true);
     const today = todayISO();
     const err = await updateEquipment(eq.id, { warranty_registered: true, warranty_registered_date: today });
+    if (!err && reg && reg.status !== 'registered') {
+      const { error: rErr } = await sb.from('warranty_registrations')
+        .update({ status: 'registered', registered_at: new Date().toISOString(), registered_via: 'manual', hold_reasons: [] })
+        .eq('id', reg.id);
+      if (rErr) console.warn('markRegistered registration row', rErr);
+    }
     setMarking(false);
     if (err) { alert(`Failed: ${err.message}`); return; }
-    onRegistered({ ...eq, warranty_registered: true, warranty_registered_date: today });
+    onRegistered({ ...eq, warranty_registered: true, warranty_registered_date: today, warranty_status: 'registered' });
     onClose();
+  }
+
+  async function prepareEmail() {
+    setWorking(true);
+    const r = await prepareWarrantyEmailsForJob(job, { equipmentIds: [eq.id], force: true });
+    setWorking(false);
+    if (r.skipped) { alert(r.skipped === 'no_equipment' ? 'This unit is not linked to this job.' : `Could not prepare the email (${r.skipped}).`); return; }
+    const row = (r.rows || []).find(x => x.equipment_id === eq.id);
+    if (row) { setReg(row); setShowEmail(true); onRegistered({ ...eq, warranty_status: row.status }); }
+  }
+
+  async function markEmailSent() {
+    if (!reg) return;
+    setWorking(true);
+    // Every unit on this job shares the one email, so mark them all sent together.
+    const { data, error } = await sb.from('warranty_registrations')
+      .update({ status: 'sent', sent_at: new Date().toISOString() })
+      .eq('job_id', reg.job_id).eq('email_token', reg.email_token).eq('status', 'email_prepared').select();
+    setWorking(false);
+    if (error) { alert(`Failed: ${error.message}`); return; }
+    const mine = (data || []).find(x => x.id === reg.id);
+    if (mine) { setReg(mine); onRegistered({ ...eq, warranty_status: 'sent' }); }
   }
 
   const bannerColor = ws.type === 'urgent' ? '#b8923f' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? 'var(--green)' : 'var(--muted)';
@@ -9475,6 +10056,11 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
     : ws.type === 'lapsed' ? `⚠ 60-day window closed — standard 10yr warranty applies`
     : ws.type === 'pending' ? `📋 ${ws.daysLeft} days left to register for 12yr warranty`
     : `📋 Register to lock in 12yr warranty`;
+
+  const regStatus = reg ? reg.status : null;
+  const regColor = regStatus === 'registered' ? 'var(--green)' : regStatus === 'needs_review' ? 'var(--brass-bright)' : regStatus ? 'var(--olive-bright)' : 'var(--muted)';
+  const canSend = reg && reg.email_to && (regStatus === 'email_prepared' || regStatus === 'sent');
+  const btn = { width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10, boxSizing:"border-box" };
 
   return (
     <Sheet onClose={onClose} title="REGISTER WARRANTY">
@@ -9508,12 +10094,76 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
         {copied ? '✓ COPIED TO CLIPBOARD' : '📋 COPY ALL'}
       </button>
 
-      <a href="https://my.daikincomfort.com/product-registration" target="_blank" rel="noreferrer"
-        style={{ display:"block", width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10,
-          background:"var(--olive-bright)", color:"var(--bg)", textAlign:"center", textDecoration:"none", boxSizing:"border-box" }}
-        className="head">
-        🌐 OPEN DAIKIN REGISTRATION →
-      </a>
+      {notMigrated || reg === undefined ? (
+        // Pre-0006 (or still loading): the original Daikin link, unchanged.
+        <a href="https://my.daikincomfort.com/product-registration" target="_blank" rel="noreferrer"
+          style={{ display:"block", width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10,
+            background:"var(--olive-bright)", color:"var(--bg)", textAlign:"center", textDecoration:"none", boxSizing:"border-box" }}
+          className="head">
+          🌐 OPEN DAIKIN REGISTRATION →
+        </a>
+      ) : regUrl ? (
+        <a href={regUrl} target="_blank" rel="noreferrer"
+          style={{ ...btn, display:"block", background:"var(--olive-bright)", color:"var(--bg)", textAlign:"center", textDecoration:"none" }}
+          className="head">
+          🌐 OPEN {(mf ? mf.display_name : 'MAKER').toUpperCase()} REGISTRATION →{regUrlVerified ? '' : ' (UNVERIFIED)'}
+        </a>
+      ) : (
+        <div className="mono" style={{ fontSize:12, color:"var(--brass-bright)", marginBottom:10 }}>
+          {mf ? `${mf.display_name} has no homeowner registration link on file.` : `No registration link on file for "${eq.brand || 'unknown brand'}".`}
+        </div>
+      )}
+
+      {!notMigrated && reg !== undefined && (
+        <div style={{ border:"1px solid var(--line)", borderRadius:8, padding:12, marginBottom:10 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:8 }}>
+            <span className="head" style={{ fontSize:13, fontWeight:700 }}>CUSTOMER EMAIL</span>
+            <span className="mono" style={{ fontSize:11, color: regColor }}>{regStatus ? WARRANTY_STATUS_LABEL[regStatus] : 'NOT PREPARED'}</span>
+          </div>
+          {reg && (reg.hold_reasons || []).length > 0 && (
+            <div className="mono" style={{ fontSize:11, color:"var(--brass-bright)", marginBottom:8 }}>
+              {(reg.hold_reasons || []).map(h => <div key={h}>⚠ {WARRANTY_HOLD_LABEL[h] || h}</div>)}
+            </div>
+          )}
+          {reg && reg.email_token && (
+            <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:8 }}>
+              REF W-{reg.email_token}{reg.confirmation_number ? ` · CONF ${reg.confirmation_number}` : ''}{reg.registered_via ? ` · ${reg.registered_via.replace('_', ' ').toUpperCase()}` : ''}
+            </div>
+          )}
+          {reg && reg.email_body && (
+            <button onClick={() => setShowEmail(v => !v)} className="mono"
+              style={{ fontSize:11, color:"var(--muted)", background:"none", border:"none", padding:0, textDecoration:"underline", marginBottom:8 }}>
+              {showEmail ? 'hide email' : 'show email'}
+            </button>
+          )}
+          {showEmail && reg && reg.email_body && (
+            <div style={{ background:"var(--bg)", borderRadius:6, padding:10, marginBottom:10, border:"1px solid var(--line)" }}>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)" }}>TO: {reg.email_to || '— no customer email —'}</div>
+              <div className="mono" style={{ fontSize:11, color:"var(--muted)", marginBottom:6 }}>SUBJECT: {reg.email_subject}</div>
+              <pre style={{ whiteSpace:"pre-wrap", fontFamily:"inherit", fontSize:13, margin:0 }}>{reg.email_body}</pre>
+            </div>
+          )}
+          {regStatus !== 'registered' && (
+            <button onClick={prepareEmail} disabled={working} className="head"
+              style={{ ...btn, background:"var(--panel)", border:"1px solid var(--line)", color:"var(--text)", opacity: working ? 0.6 : 1 }}>
+              {working ? 'WORKING…' : reg ? '↻ RE-PREPARE EMAIL' : '✉ PREPARE EMAIL'}
+            </button>
+          )}
+          {canSend && (
+            <a href={warrantyMailtoHref(reg.email_to, reg.email_subject, reg.email_body)}
+              style={{ ...btn, display:"block", background:"var(--olive-bright)", color:"var(--bg)", textAlign:"center", textDecoration:"none" }}
+              className="head">
+              ✉ OPEN IN EMAIL APP →
+            </a>
+          )}
+          {regStatus === 'email_prepared' && (
+            <button onClick={markEmailSent} disabled={working} className="head"
+              style={{ ...btn, marginBottom:0, background:"transparent", border:"1px solid var(--olive-bright)", color:"var(--olive-bright)", opacity: working ? 0.6 : 1 }}>
+              ✓ I SENT THE EMAIL
+            </button>
+          )}
+        </div>
+      )}
 
       {!eq.warranty_registered && (
         <button onClick={markRegistered} disabled={marking} className="head"

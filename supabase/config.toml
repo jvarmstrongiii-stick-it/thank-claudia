@@ -1,0 +1,7 @@
+# Minimal Supabase CLI config — only what the warranty-inbound function needs.
+# (Claudia's schema is still managed by pasting db/migrations/*.sql into the SQL editor.)
+project_id = "asiviwwstglniuhsryze"
+
+[functions.warranty-inbound]
+# Email providers can't send a Supabase JWT; the function checks WARRANTY_INBOUND_SECRET instead.
+verify_jwt = false

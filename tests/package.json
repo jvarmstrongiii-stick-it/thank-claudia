@@ -1,0 +1,15 @@
+{
+  "name": "claudia-tests",
+  "private": true,
+  "type": "module",
+  "description": "Tests for claudia.html and the warranty Edge Function. Kept separate from the Expo package.json so running them never touches the app's dependencies.",
+  "scripts": {
+    "test": "node --test --test-timeout=60000 --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --disable-warning=ExperimentalWarning \"*.test.mjs\" \"*.test.ts\""
+  },
+  "devDependencies": {
+    "@babel/standalone": "7.26.10",
+    "jsdom": "25.0.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  }
+}

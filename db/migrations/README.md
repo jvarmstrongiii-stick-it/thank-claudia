@@ -39,3 +39,17 @@ go on until the app is actually sending an authenticated session on every
 request, which only happens once Phase B's `claudia.html` is deployed.
 Enabling it any earlier would make every list in the app appear empty for
 everyone, since the old app never authenticates at all.
+
+## 0006 — warranty registration (independent of 0001–0005)
+
+**`0006_warranty_registration.sql`** adds `equipment.warranty_status`, the
+`warranty_manufacturers` / `warranty_registrations` / `warranty_inbound` /
+`warranty_inbound_raw` tables, the trigger that keeps `equipment` in step with
+registrations, RLS, and the manufacturer seed (registration links checked on
+each maker's own site, 2026-11-16). It doesn't depend on the multi-tenancy
+series and is safe to re-run (re-running refreshes the seed rows).
+
+Run it **before** deploying the claudia.html that uses it (r266+). The app
+copes without it, but the warranty features stay dormant until it exists.
+If 0001–0004 run later, add the four new tables to their `company_id` / RLS
+lists. To try it first on a throwaway local Postgres: `tests/sql/run.sh`.
