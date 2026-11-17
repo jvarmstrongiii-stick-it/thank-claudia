@@ -5,8 +5,11 @@
 // erasable TypeScript (no enums / namespaces / parameter properties) — Node runs
 // the tests with built-in type stripping.
 //
-// The flow: a customer forwards the manufacturer's "thanks for registering" email to
-// the warranty inbox. We parse it, score every open registration against it, and only
+// The flow: we send the customer an email (Reply-To: warranty+CODE@…). They register with
+// the manufacturer and reply to our email with the confirmation. The reply is tied back to
+// that exact send (the tracker: In-Reply-To / References → our stored Message-IDs, or the
+// coded reply address used by the address we sent to). We parse it, score every open
+// registration against it, and only
 // auto-mark a registration as registered when the evidence is strong AND unambiguous.
 // Anything else goes to the in-app WARRANTY REVIEW queue for a human.
 
@@ -23,6 +26,7 @@ export const SCORE = {
   brand: 5,           // the manufacturer is named in the email
   customerName: 5,    // the customer's last name appears in the email
   confirmation: 10,   // reads like a registration confirmation
+  reply: 25,          // a reply to the email we sent for this job (the tracker)
   serialConflict: -30 // the email lists serial numbers, none of them this unit's
 } as const;
 
@@ -36,6 +40,7 @@ export interface ParsedEmail {
   looksLikeConfirmation: boolean;
   brandKeys: string[];           // manufacturers named in the email
   normalizedText: string;        // upper-case text, used for name checks
+  replyTokens: string[];         // job ref codes of our sends this email is a reply to
 }
 
 export interface ManufacturerAliasRow {
@@ -135,6 +140,10 @@ const CONFIRMATION_RES: RegExp[] = [
   /warranty\s+(certificate|registration)/i,
   /confirmation\s+(number|no\.?|#)/i,
   /your\s+(product|unit|equipment|warranty)\s+(is|has been)\s+registered/i,
+  // A customer's own words when replying to our email.
+  /\b(i|we)\s+(just\s+|have\s+|already\s+|went\s+ahead\s+and\s+)?registered\b/i,
+  /\b(i|we)('ve| have)\s+(just\s+|already\s+)?registered\b/i,
+  /\bregistration\s+(is\s+)?(done|finished)\b/i,
 ];
 
 // (?![a-z]) stops "serialized" / "models" from counting as labels; bare "SN" needs a ":" or "#".
@@ -173,13 +182,16 @@ export function parseConfirmationEmail(input: {
   subject?: string | null;
   text?: string | null;
   html?: string | null;
+  /** Ref codes of our own sends this email replies to (found by the caller's tracker lookup). */
+  replyTokens?: string[] | null;
 }, manufacturers: ManufacturerAliasRow[] = []): ParsedEmail {
   const toList = Array.isArray(input.to) ? input.to : input.to ? [input.to] : [];
   const body = (input.text && input.text.trim()) ? input.text : htmlToText(input.html);
   const full = `${input.subject ?? ""}\n${body ?? ""}`;
   const upper = full.toUpperCase();
 
-  const tokens: string[] = [];
+  const replyTokens = uniq((input.replyTokens ?? []).map((x) => String(x).toUpperCase()));
+  const tokens: string[] = [...replyTokens];
   for (const addr of toList) {
     TOKEN_RE_ADDR.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -220,6 +232,7 @@ export function parseConfirmationEmail(input: {
     looksLikeConfirmation: CONFIRMATION_RES.some((re) => re.test(full)),
     brandKeys: uniq(brandKeys),
     normalizedText: upper,
+    replyTokens,
   };
 }
 
@@ -246,6 +259,9 @@ export function scoreCandidate(c: Candidate, parsed: ParsedEmail): CandidateScor
 
   const tokenMatch = !!c.token && parsed.tokens.includes(c.token.toUpperCase());
   if (tokenMatch) { score += SCORE.token; reasons.push(`job ref W-${c.token!.toUpperCase()} matches`); }
+  if (c.token && parsed.replyTokens.includes(c.token.toUpperCase())) {
+    score += SCORE.reply; reasons.push("reply to the warranty email we sent for this job");
+  }
 
   const serialMatch = idPresent(c.serial, parsed, parsed.labeledSerials);
   if (serialMatch) { score += SCORE.serial; reasons.push(`serial ${c.serial} found`); }

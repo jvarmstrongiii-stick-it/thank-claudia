@@ -19,7 +19,7 @@ export function loadHtml(path) {
     .replace(/<script>\s*\(g\s*=>[\s\S]*?<\/script>/, "");
 }
 
-export async function bootClaudia({ html, tables = {}, missingTables = [], storage = {} }) {
+export async function bootClaudia({ html, tables = {}, missingTables = [], storage = {}, fetchHandler = null }) {
   const { client, db, log } = createMockSupabase({ tables, missingTables });
   const errors = [];
   const vc = new VirtualConsole();
@@ -39,7 +39,13 @@ export async function bootClaudia({ html, tables = {}, missingTables = [], stora
       window.alert = (m) => errors.push(`alert: ${m}`);
       window.confirm = () => true;
       window.navigator.clipboard = { writeText: async () => {} };
-      window.fetch = async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => "" });
+      // Edge Function calls: tests can supply fetchHandler(url, init, db) → { status, body }.
+      const fetchCalls = (window.__fetchCalls = []);
+      window.fetch = async (url, init) => {
+        fetchCalls.push({ url: String(url), init });
+        const r = fetchHandler ? await fetchHandler(String(url), init, db) : { status: 503, body: {} };
+        return { ok: r.status >= 200 && r.status < 300, status: r.status, json: async () => r.body, text: async () => JSON.stringify(r.body) };
+      };
       window.L = { map: () => ({}), tileLayer: () => ({ addTo() {} }), marker: () => ({ addTo() {} }) };
       window.google = { maps: { importLibrary: async () => ({}) } };
       window.eval(REACT);

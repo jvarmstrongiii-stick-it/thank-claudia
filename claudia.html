@@ -90,7 +90,7 @@ setTimeout(function() {
 <script id="app-script" type="text/plain">
 const { useState, useEffect, useCallback, useRef, useMemo } = React;
 
-const APP_REV = 266;
+const APP_REV = 267;
 
 /* ── Supabase ──────────────────────────────────────────────────────────────── */
 const SUPABASE_URL = 'https://asiviwwstglniuhsryze.supabase.co';
@@ -834,16 +834,18 @@ function warrantyStatus(eq) {
 }
 
 /* ── Warranty registration workflow (r266) ───────────────────────────────────
-   Install completes → a customer email is PREPARED (never auto-sent) with each unit's maker,
-   model, serial and the maker's verified registration link, plus a forwarding address that
-   carries the job's ref code. Customers forward the maker's confirmation there; the
-   `warranty-inbound` Edge Function matches it and only auto-registers confident matches —
-   the rest land in WARRANTY REVIEW (hamburger menu). Tables: db/migrations/0006. */
+   Install completes → a customer email is PREPARED with each unit's maker, model, serial and
+   the maker's verified registration link. The office taps SEND EMAIL; the `warranty-send` Edge
+   Function sends it with a tracker (Reply-To warranty+CODE@…, [Ref W-CODE] in the subject, and
+   a stored Message-ID). The customer registers and simply REPLIES with the confirmation; the
+   `warranty-inbound` Edge Function ties the reply back to that send, and only auto-registers
+   confident matches — the rest land in WARRANTY REVIEW (hamburger menu). Tables: 0006. */
 
 // WARRANTY-CORE-BEGIN — pure helpers (no sb/React); tests/claudia-warranty.test.mjs extracts
 // and unit-tests exactly this block, so keep it free of anything defined elsewhere in the file.
-// Forwarding inbox for manufacturer confirmations. Must accept plus-addressing
-// (warranty+CODE@…). null = not chosen yet → prepared emails are held for review.
+// Inbox customer replies go to. Each email's Reply-To is warranty+CODE@… (the tracker), so it
+// must accept plus-addressing. Must match WARRANTY_REPLY_INBOX on the warranty-send function.
+// null = not chosen yet → prepared emails are held for review.
 const WARRANTY_INBOX = null;
 const WARRANTY_COMPANY_NAME = 'ABC Mechanical';
 const WARRANTY_INSTALL_TYPES = ['New Install', 'Replacement'];
@@ -855,7 +857,7 @@ const WARRANTY_STATUS_LABEL = {
 };
 const WARRANTY_HOLD_LABEL = {
   no_customer_email: 'No customer email on file',
-  inbox_not_set: 'Forwarding inbox not set up yet',
+  inbox_not_set: 'Reply inbox not set up yet',
   unknown_manufacturer: 'Manufacturer not recognised',
   no_registration_url: 'No registration link on file for this maker',
   unverified_url: "Registration link not verified on the maker's site",
@@ -946,11 +948,11 @@ function warrantyUnitHolds(eq, mf) {
  */
 function buildWarrantyEmail({ job, units, token, inbox, company, today }) {
   const companyName = company || WARRANTY_COMPANY_NAME;
-  const fwd = warrantyInboxAddress(inbox, token);
+  const reply = warrantyInboxAddress(inbox, token);
   const to = looksLikeEmail(job && job.email) ? String(job.email).trim() : '';
   const emailHolds = [];
   if (!to) emailHolds.push('no_customer_email');
-  if (!fwd) emailHolds.push('inbox_not_set');
+  if (!reply) emailHolds.push('inbox_not_set');
 
   const unitResults = (units || []).map(({ eq, mf }) => {
     const holds = warrantyUnitHolds(eq, mf);
@@ -987,10 +989,8 @@ function buildWarrantyEmail({ job, units, token, inbox, company, today }) {
     lines.push(`  Register at: ${u.mf.registration_url}`);
   });
   lines.push('');
-  if (fwd) {
-    lines.push('After you register, the manufacturer will usually email you a confirmation. Please forward that confirmation email to:');
-    lines.push(`  ${fwd}`);
-    lines.push('Please keep the address exactly as written. The code after the "+" lets us match the confirmation to your equipment and record your warranty as registered.');
+  if (reply) {
+    lines.push("Once you've registered, just reply to this email and paste in (or attach) the confirmation the manufacturer sends you. That's all we need to record your warranty as registered.");
     lines.push('');
   }
   if (ref) lines.push(`Your reference: ${ref}`);
@@ -999,16 +999,12 @@ function buildWarrantyEmail({ job, units, token, inbox, company, today }) {
   lines.push(companyName);
 
   return {
-    to, subject, body: lines.join('\n'), emailHolds, forwardTo: fwd,
+    to, subject, body: lines.join('\n'), emailHolds, replyTo: reply,
     units: unitResults.map(u => ({
       equipment_id: u.equipment_id, brand_key: u.brand_key, registration_url: u.registration_url,
       holds: u.holds.concat(emailHolds), status: u.status,
     })),
   };
-}
-
-function warrantyMailtoHref(to, subject, body) {
-  return `mailto:${encodeURIComponent(to || '')}?subject=${encodeURIComponent(subject || '')}&body=${encodeURIComponent(body || '')}`;
 }
 // WARRANTY-CORE-END
 
@@ -1090,6 +1086,29 @@ function warrantyPrepToast(r) {
   if (!r || r.skipped || (!r.prepared && !r.held)) return null;
   if (r.prepared && !r.held) return `Warranty email ready for ${r.prepared} unit${r.prepared > 1 ? 's' : ''}`;
   return `Warranty: ${r.held} unit${r.held > 1 ? 's' : ''} need review (menu → WARRANTY REVIEW)`;
+}
+
+// Ask the warranty-send Edge Function to send this job's prepared email (it rebuilds the text
+// server-side and adds the reply tracker). Returns { ok, mode: 'test'|'live', sent_ids, error }.
+// mode 'test' = recorded but NOT emailed (WARRANTY_SEND_MODE isn't 'live' yet).
+const WARRANTY_SEND_FN = `${SUPABASE_URL}/functions/v1/warranty-send`;
+async function sendWarrantyEmail(reg) {
+  try {
+    const res = await fetch(WARRANTY_SEND_FN, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${SUPABASE_KEY}`, 'apikey': SUPABASE_KEY },
+      body: JSON.stringify({ job_id: reg.job_id, email_token: reg.email_token }),
+    });
+    if (res.status === 404) {
+      const j = await res.json().catch(() => ({}));
+      return { ok: false, error: j && j.error ? j.error : 'Email sending is not switched on yet.' };
+    }
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok || !j.ok) return { ok: false, error: (j && j.error) || `Send failed (${res.status})` };
+    return j;
+  } catch (e) {
+    return { ok: false, error: 'Could not reach the email service.' };
+  }
 }
 
 // Deterministic capacity-code table for split-system condensers/heat pumps — model number
@@ -2957,7 +2976,7 @@ function ScheduleJobSheet({ day, jobs, onClose, onSchedule }) {
 
 /* ── WarrantyReviewScreen (r266) ────────────────────────────────────────────
    Hamburger menu → WARRANTY REVIEW. Three lists:
-   1. forwarded confirmations the warranty-inbound function wasn't sure about
+   1. customer replies the warranty-inbound function wasn't sure about
       (warranty_inbound.status needs_review / unmatched) → pick the unit(s) or reject;
    2. customer emails held at prepare time (warranty_registrations.status needs_review);
    3. last 30 days of auto-matches, each with UNDO, so a wrong auto-match is one tap to fix. */
@@ -3096,6 +3115,9 @@ function WarrantyReviewScreen({ currentUser, onClose, onOpenJob }) {
       <div style={card}>
         <div className="head" style={{ fontSize:14, fontWeight:700 }}>{inb.subject || '(no subject)'}</div>
         <div className="mono" style={small}>{inb.from_email || 'unknown sender'} · {inb.received_at ? new Date(inb.received_at).toLocaleString() : ''}</div>
+        {(p.reply_to_tokens || []).length > 0 && (
+          <div className="mono" style={{ fontSize:11, color:'var(--olive-bright)', marginTop:4 }}>↩ REPLY TO OUR EMAIL {(p.reply_to_tokens || []).map(t => `W-${t}`).join(', ')}</div>
+        )}
         <div className="mono" style={{ fontSize:12, color:'var(--brass-bright)', marginTop:6 }}>
           {inb.summary}{inb.confidence != null ? ` (${Math.round(Number(inb.confidence) * 100)}%)` : ''}
         </div>
@@ -3146,7 +3168,7 @@ function WarrantyReviewScreen({ currentUser, onClose, onOpenJob }) {
           <div className="mono" style={{ fontSize:13, color:'var(--brass-bright)', marginTop:20 }}>Warranty tracking needs its one-time database setup — ask Jack.</div>
         ) : (
           <React.Fragment>
-            <div className="head" style={head}>CONFIRMATIONS TO REVIEW ({inbound.length})</div>
+            <div className="head" style={head}>REPLIES TO REVIEW ({inbound.length})</div>
             {!inbound.length && <div className="mono" style={small}>Nothing waiting.</div>}
             {inbound.map(inb => <React.Fragment key={inb.id}>{InboundCard({ inb })}</React.Fragment>)}
 
@@ -9974,6 +9996,7 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
   const [manufacturers, setManufacturers] = useState(null);
   const [showEmail, setShowEmail] = useState(false);
   const [working, setWorking] = useState(false);
+  const [sendNote, setSendNote] = useState(null);
   const ws = warrantyStatus(eq);
 
   useEffect(() => {
@@ -10036,17 +10059,21 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
     if (row) { setReg(row); setShowEmail(true); onRegistered({ ...eq, warranty_status: row.status }); }
   }
 
-  async function markEmailSent() {
+  async function sendEmail() {
     if (!reg) return;
-    setWorking(true);
-    // Every unit on this job shares the one email, so mark them all sent together.
-    const { data, error } = await sb.from('warranty_registrations')
-      .update({ status: 'sent', sent_at: new Date().toISOString() })
-      .eq('job_id', reg.job_id).eq('email_token', reg.email_token).eq('status', 'email_prepared').select();
+    setWorking(true); setSendNote(null);
+    const r = await sendWarrantyEmail(reg);
+    if (!r.ok) { setWorking(false); setSendNote({ error: true, text: r.error }); return; }
+    if (r.mode === 'test') {
+      setWorking(false);
+      setSendNote({ error: false, text: 'Test mode: recorded, but no email was actually sent.' });
+      return;
+    }
+    // The function marks every unit on this email sent; re-read this unit's row.
+    const { data } = await sb.from('warranty_registrations').select('*').eq('id', reg.id).maybeSingle();
     setWorking(false);
-    if (error) { alert(`Failed: ${error.message}`); return; }
-    const mine = (data || []).find(x => x.id === reg.id);
-    if (mine) { setReg(mine); onRegistered({ ...eq, warranty_status: 'sent' }); }
+    if (data) { setReg(data); onRegistered({ ...eq, warranty_status: data.status }); }
+    setSendNote({ error: false, text: `Sent to ${reg.email_to}. Their reply will be matched automatically.` });
   }
 
   const bannerColor = ws.type === 'urgent' ? '#b8923f' : ws.type === 'lapsed' ? 'var(--danger)' : ws.type === 'registered' ? 'var(--green)' : 'var(--muted)';
@@ -10059,7 +10086,6 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
 
   const regStatus = reg ? reg.status : null;
   const regColor = regStatus === 'registered' ? 'var(--green)' : regStatus === 'needs_review' ? 'var(--brass-bright)' : regStatus ? 'var(--olive-bright)' : 'var(--muted)';
-  const canSend = reg && reg.email_to && (regStatus === 'email_prepared' || regStatus === 'sent');
   const btn = { width:"100%", padding:"11px", borderRadius:8, fontSize:14, fontWeight:700, marginBottom:10, boxSizing:"border-box" };
 
   return (
@@ -10149,18 +10175,21 @@ function WarrantySheet({ eq, job, onRegistered, onClose }) {
               {working ? 'WORKING…' : reg ? '↻ RE-PREPARE EMAIL' : '✉ PREPARE EMAIL'}
             </button>
           )}
-          {canSend && (
-            <a href={warrantyMailtoHref(reg.email_to, reg.email_subject, reg.email_body)}
-              style={{ ...btn, display:"block", background:"var(--olive-bright)", color:"var(--bg)", textAlign:"center", textDecoration:"none" }}
-              className="head">
-              ✉ OPEN IN EMAIL APP →
-            </a>
-          )}
-          {regStatus === 'email_prepared' && (
-            <button onClick={markEmailSent} disabled={working} className="head"
-              style={{ ...btn, marginBottom:0, background:"transparent", border:"1px solid var(--olive-bright)", color:"var(--olive-bright)", opacity: working ? 0.6 : 1 }}>
-              ✓ I SENT THE EMAIL
+          {regStatus === 'email_prepared' && reg.email_to && (
+            <button onClick={sendEmail} disabled={working} className="head"
+              style={{ ...btn, background:"var(--olive-bright)", border:"none", color:"var(--bg)", opacity: working ? 0.6 : 1 }}>
+              {working ? 'SENDING…' : `✉ SEND EMAIL TO ${reg.email_to.toUpperCase()}`}
             </button>
+          )}
+          {regStatus === 'sent' && (
+            <div className="mono" style={{ fontSize:11, color:"var(--olive-bright)", marginBottom:8 }}>
+              ✉ SENT {reg.sent_at ? fmtDate(String(reg.sent_at).slice(0, 10)) : ''} · WAITING FOR THE CUSTOMER'S REPLY
+            </div>
+          )}
+          {sendNote && (
+            <div className="mono" style={{ fontSize:11, color: sendNote.error ? 'var(--danger)' : 'var(--muted)', marginBottom:4 }}>
+              {sendNote.error ? '⚠ ' : ''}{sendNote.text}
+            </div>
           )}
         </div>
       )}

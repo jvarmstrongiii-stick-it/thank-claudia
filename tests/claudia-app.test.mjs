@@ -143,7 +143,7 @@ test("before the 0006 migration runs: completion still works, warranty quietly s
   assert.match(text(window), /MARK AS REGISTERED/);
 });
 
-test("warranty sheet shows the prepared email; I SENT THE EMAIL marks the job's units sent", async (t) => {
+function sheetFixture() {
   const tb = fixture();
   tb.warranty_registrations = [
     { id: "r1", equipment_id: "e1", job_id: "j1", customer_id: "c1", brand_key: "goodman", email_token: "K7M3QX", status: "email_prepared", hold_reasons: [],
@@ -151,20 +151,56 @@ test("warranty sheet shows the prepared email; I SENT THE EMAIL marks the job's 
   ];
   tb.equipment[0].warranty_status = "email_prepared";
   tb.equipment[0].install_date = "2026-11-16";
-  const { window, errors, db } = await boot(t, { html: HTML, tables: tb, storage: STORAGE });
+  return tb;
+}
+
+test("warranty sheet: SEND EMAIL calls warranty-send and shows the unit as sent", async (t) => {
+  // Stand-in for the Edge Function in live mode: it marks the job's prepared rows sent.
+  const fetchHandler = (url, init, db) => {
+    if (!url.endsWith("/functions/v1/warranty-send")) return { status: 404, body: {} };
+    const req = JSON.parse(init.body);
+    const rows = db.warranty_registrations.filter((r) => r.job_id === req.job_id && r.email_token === req.email_token && r.status === "email_prepared");
+    rows.forEach((r) => Object.assign(r, { status: "sent", sent_at: "2026-11-17T12:00:00Z", outbound_id: "o1" }));
+    return { status: 200, body: { ok: true, mode: "live", sent_ids: rows.map((r) => r.id) } };
+  };
+  const { window, errors, db } = await boot(t, { html: HTML, tables: sheetFixture(), storage: STORAGE, fetchHandler });
   await openJob(window);
   await expandEquipment(window);
   assert.match(text(window), /WARRANTY EMAIL: EMAIL READY/);
   await click(window, findByText(window, "WARRANTY EMAIL: EMAIL READY", "button"), 600);
   assert.match(text(window), /OPEN GOODMAN REGISTRATION/);
   assert.doesNotMatch(text(window), /UNVERIFIED/);
-  const mail = Array.from(window.document.querySelectorAll("a")).find((a) => a.href.startsWith("mailto:") && a.href.includes("subject="));
-  assert.ok(mail, "mailto button present");
-  assert.match(mail.href, /^mailto:pat%40example\.com\?subject=Register/);
-  await click(window, findByText(window, "I SENT THE EMAIL", "button"), 500);
+  assert.equal(Array.from(window.document.querySelectorAll("a")).filter((a) => a.href.includes("subject=")).length, 0, "no mailto: sending around the tracker");
+  await click(window, findByText(window, "SEND EMAIL TO PAT@EXAMPLE.COM", "button"), 600);
+  const call = window.__fetchCalls.find((c) => c.url.endsWith("/functions/v1/warranty-send"));
+  assert.ok(call, "warranty-send called");
+  assert.deepEqual(JSON.parse(call.init.body), { job_id: "j1", email_token: "K7M3QX" });
   assert.equal(db.warranty_registrations[0].status, "sent");
-  assert.ok(db.warranty_registrations[0].sent_at);
+  assert.match(text(window), /WAITING FOR THE CUSTOMER'S REPLY/);
+  assert.match(text(window), /Their reply will be matched automatically/);
   assert.deepEqual(realErrors(errors), []);
+});
+
+test("warranty sheet: test mode says nothing was emailed and leaves the unit ready", async (t) => {
+  const fetchHandler = () => ({ status: 200, body: { ok: true, mode: "test", sent_ids: [] } });
+  const { window, db } = await boot(t, { html: HTML, tables: sheetFixture(), storage: STORAGE, fetchHandler });
+  await openJob(window);
+  await expandEquipment(window);
+  await click(window, findByText(window, "WARRANTY EMAIL: EMAIL READY", "button"), 600);
+  await click(window, findByText(window, "SEND EMAIL TO PAT@EXAMPLE.COM", "button"), 600);
+  assert.match(text(window), /Test mode: recorded, but no email was actually sent/);
+  assert.equal(db.warranty_registrations[0].status, "email_prepared");
+});
+
+test("warranty sheet: a send the server refuses shows its reason", async (t) => {
+  const fetchHandler = () => ({ status: 422, body: { ok: false, error: "This email is on hold." } });
+  const { window, db } = await boot(t, { html: HTML, tables: sheetFixture(), storage: STORAGE, fetchHandler });
+  await openJob(window);
+  await expandEquipment(window);
+  await click(window, findByText(window, "WARRANTY EMAIL: EMAIL READY", "button"), 600);
+  await click(window, findByText(window, "SEND EMAIL TO PAT@EXAMPLE.COM", "button"), 600);
+  assert.match(text(window), /This email is on hold/);
+  assert.equal(db.warranty_registrations[0].status, "email_prepared");
 });
 
 test("manual MARK AS REGISTERED still works and also closes the registration row", async (t) => {
@@ -189,7 +225,7 @@ test("menu keeps every existing item and adds WARRANTY REVIEW; review queue matc
   ];
   tb.warranty_inbound = [{
     id: "in1", status: "needs_review", received_at: "2026-11-16T20:00:00Z", from_email: "pat@example.com", subject: "Fwd: Your registration",
-    snippet: "Thank you for registering", parsed: { tokens: ["K7M3QX"], serials: [], models: [], confirmation_number: "DK-1" },
+    snippet: "Thank you for registering", parsed: { tokens: ["K7M3QX"], serials: [], models: [], confirmation_number: "DK-1", reply_to_tokens: ["K7M3QX"] },
     confidence: 0.7, summary: "The job has several units and the email doesn't say which serial numbers were registered.",
     candidates: [{ registration_id: "r1", confidence: 0.7, reasons: ["job ref W-K7M3QX matches"] }],
   }];
@@ -202,7 +238,8 @@ test("menu keeps every existing item and adds WARRANTY REVIEW; review queue matc
     assert.ok(text(window).includes(item), `menu has ${item}`);
   }
   await click(window, findByText(window, "WARRANTY REVIEW", "button"), 600);
-  assert.match(text(window), /CONFIRMATIONS TO REVIEW \(1\)/);
+  assert.match(text(window), /REPLIES TO REVIEW \(1\)/);
+  assert.match(text(window), /REPLY TO OUR EMAIL W-K7M3QX/);
   assert.match(text(window), /EMAILS ON HOLD \(1\)/);
   assert.match(text(window), /Registration link not verified/);
   // Pick the candidate and confirm.
@@ -213,7 +250,7 @@ test("menu keeps every existing item and adds WARRANTY REVIEW; review queue matc
   assert.equal(db.warranty_registrations.find((r) => r.id === "r1").confirmation_number, "DK-1");
   assert.equal(db.warranty_inbound[0].status, "resolved_matched");
   assert.equal(db.warranty_inbound[0].reviewed_by, U.id);
-  assert.match(text(window), /CONFIRMATIONS TO REVIEW \(0\)/);
+  assert.match(text(window), /REPLIES TO REVIEW \(0\)/);
   assert.deepEqual(realErrors(errors), []);
 });
 

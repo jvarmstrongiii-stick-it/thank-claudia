@@ -7,11 +7,12 @@ import {
   normalizeInbound,
   processInboundEmail,
   safeEqual,
+  type OutboundRow,
   type RegistrationRow,
   type WarrantyStore,
 } from "../supabase/functions/_shared/warranty-inbound-core.ts";
 
-function fakeStore(regs: RegistrationRow[]) {
+function fakeStore(regs: RegistrationRow[], outbound: OutboundRow[] = []) {
   const state = {
     raw: [] as unknown[],
     inbound: [] as Record<string, unknown>[],
@@ -28,6 +29,9 @@ function fakeStore(regs: RegistrationRow[]) {
     async loadRegistrations() { return state.regs; },
     async markRegistered(ids, fields) {
       for (const r of state.regs) if (ids.includes(r.id) && r.status !== "registered") Object.assign(r, { status: "registered", ...fields });
+    },
+    async findOutbound({ threadIds, tokens }) {
+      return outbound.filter((o) => (o.message_ids ?? []).some((id) => threadIds.includes(id)) || tokens.includes(o.email_token));
     },
   };
   return { store, state };
@@ -120,4 +124,71 @@ test("webhook secret: header, ?key= and basic-auth password; constant-time compa
   assert.ok(safeEqual("abcdef", "abcdef"));
   assert.ok(!safeEqual("abcdef", "abcdeg"));
   assert.ok(!safeEqual("abc", "abcd"));
+});
+
+// ── replies to the email we sent (the tracker) ──────────────────────────────
+
+const SENT: OutboundRow = { id: "out-1", email_token: "K7M3QX", to_email: "pat@example.com", message_ids: ["warranty.k7m3qx.ab12@abcmech.com", "pm-uuid-777"] };
+const REPLY_WORDS = "Hi, I registered it this morning. Confirmation number: DK-55501234\n\n> On Mon, ABC Mechanical wrote:\n> Register your new Goodman equipment warranty";
+
+test("a reply that threads to our send (In-Reply-To) is tied to it and auto-registers", async () => {
+  const { store, state } = fakeStore([REG], [SENT]);
+  const body = {
+    from: "Pat Smith <pat@example.com>", to: "warranty@abcmech.com", subject: "Re: Register your new Goodman equipment warranty",
+    text: REPLY_WORDS, message_id: "r-1", in_reply_to: "<warranty.k7m3qx.ab12@abcmech.com>",
+  };
+  const email = normalizeInbound(body);
+  assert.deepEqual(email.thread_ids, ["warranty.k7m3qx.ab12@abcmech.com"]);
+  const out = await processInboundEmail(store, body, email);
+  assert.equal(out.status, "auto_matched");
+  assert.equal(state.regs[0].status, "registered");
+  assert.equal(state.regs[0].confirmation_number, "DK-55501234");
+  assert.equal(state.inbound[0].outbound_id, "out-1");
+  assert.deepEqual((state.inbound[0].parsed as { reply_to_tokens: string[] }).reply_to_tokens, ["K7M3QX"]);
+});
+
+test("a reply to the coded Reply-To address from the address we sent to counts, even with no headers", async () => {
+  const { store, state } = fakeStore([REG], [SENT]);
+  const body = { from: "pat@example.com", to: "warranty+K7M3QX@abcmech.com", subject: "Re: warranty", text: "Done, we have registered it. Thanks!", message_id: "r-2" };
+  const out = await processInboundEmail(store, body, normalizeInbound(body));
+  assert.equal(out.status, "auto_matched");
+  assert.equal(state.regs[0].status, "registered");
+});
+
+test("the coded address from a DIFFERENT sender is not treated as the customer's reply", async () => {
+  const { store, state } = fakeStore([REG], [SENT]);
+  const body = { from: "someone@else.com", to: "warranty+K7M3QX@abcmech.com", subject: "hello", text: "I registered it", message_id: "r-3" };
+  const out = await processInboundEmail(store, body, normalizeInbound(body));
+  assert.equal(out.status, "needs_review");
+  assert.equal(state.regs[0].status, "sent");
+  assert.deepEqual((state.inbound[0].parsed as { reply_to_tokens: string[] }).reply_to_tokens, []);
+});
+
+test("a tracked reply that isn't a confirmation goes to review, still tied to the send", async () => {
+  const { store, state } = fakeStore([REG], [SENT]);
+  const body = { from: "pat@example.com", to: "warranty+K7M3QX@abcmech.com", subject: "Re: warranty", text: "Do I need to register the thermostat too?", message_id: "r-4" };
+  const out = await processInboundEmail(store, body, normalizeInbound(body));
+  assert.equal(out.status, "needs_review");
+  assert.equal(state.inbound[0].outbound_id, "out-1");
+});
+
+test("Postmark inbound headers: In-Reply-To with the provider's own id (bare UUID stored) still matches", async () => {
+  const { store, state } = fakeStore([REG], [SENT]);
+  const body = {
+    From: "pat@example.com", FromFull: { Email: "pat@example.com" }, To: "warranty@abcmech.com", Subject: "Re: Register",
+    TextBody: REPLY_WORDS, MessageID: "pm-in-1",
+    Headers: [{ Name: "In-Reply-To", Value: "<pm-uuid-777@mtasv.net>" }, { Name: "References", Value: "<pm-uuid-777@mtasv.net>" }],
+  };
+  const email = normalizeInbound(body);
+  assert.deepEqual(email.thread_ids, ["pm-uuid-777@mtasv.net"]);
+  const out = await processInboundEmail(store, body, email);
+  assert.equal(out.status, "auto_matched");
+  assert.equal(state.inbound[0].outbound_id, "out-1");
+});
+
+test("SendGrid/Mailgun reply headers are read (folded References, message-headers JSON)", () => {
+  const sg = normalizeInbound({ from: "a@b.com", to: "w@x.com", text: "x", headers: "Message-ID: <in@b>\nIn-Reply-To: <one@abc>\nReferences: <zero@abc>\n <one@abc>\n" });
+  assert.deepEqual(sg.thread_ids.sort(), ["one@abc", "zero@abc"]);
+  const mg = normalizeInbound({ sender: "a@b.com", "body-plain": "x", "Message-Id": "<m@b>", "message-headers": JSON.stringify([["In-Reply-To", "<one@abc>"]]) });
+  assert.deepEqual(mg.thread_ids, ["one@abc"]);
 });

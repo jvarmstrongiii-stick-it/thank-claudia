@@ -34,6 +34,8 @@ end $$;
 -- can't delete registrations and can't see raw email bodies.
 insert into public.warranty_inbound_raw (provider, payload) values ('test', '{"secret":"body"}');
 insert into public.warranty_inbound (message_id, status) values ('m-1', 'needs_review');
+insert into public.warranty_outbound (email_token, status, message_ids, to_email)
+  values ('K7M3QX', 'sent', array['warranty.k7m3qx.ab12@abcmech.com', 'pm-uuid-777'], 'pat@example.com');
 set role anon;
 do $$
 declare n int;
@@ -44,6 +46,14 @@ begin
   get diagnostics n = row_count; assert n = 1, 'anon can review inbound';
   delete from public.warranty_registrations; get diagnostics n = row_count; assert n = 0, 'anon must not delete registrations';
   update public.warranty_registrations set status = 'sent'; get diagnostics n = row_count; assert n = 1, 'anon can update registrations';
+  -- The tracker lookup the inbound function does (array overlap on the GIN index).
+  select count(*) into n from public.warranty_outbound where message_ids && array['pm-uuid-777'];
+  assert n = 1, 'anon reads send history / tracker lookup';
+  begin
+    insert into public.warranty_outbound (email_token, status) values ('ZZZZZZ', 'sent');
+    assert false, 'anon must not write send history';
+  exception when insufficient_privilege then null;
+  end;
 end $$;
 reset role;
 select 'ALL 0006 CHECKS PASSED' as result;

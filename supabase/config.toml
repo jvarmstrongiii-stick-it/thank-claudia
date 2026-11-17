@@ -5,3 +5,7 @@ project_id = "asiviwwstglniuhsryze"
 [functions.warranty-inbound]
 # Email providers can't send a Supabase JWT; the function checks WARRANTY_INBOUND_SECRET instead.
 verify_jwt = false
+
+# Called from the app with the anon key, so the JWT check stays on.
+[functions.warranty-send]
+verify_jwt = true

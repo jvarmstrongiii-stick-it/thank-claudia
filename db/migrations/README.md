@@ -43,8 +43,8 @@ everyone, since the old app never authenticates at all.
 ## 0006 — warranty registration (independent of 0001–0005)
 
 **`0006_warranty_registration.sql`** adds `equipment.warranty_status`, the
-`warranty_manufacturers` / `warranty_registrations` / `warranty_inbound` /
-`warranty_inbound_raw` tables, the trigger that keeps `equipment` in step with
+`warranty_manufacturers` / `warranty_registrations` / `warranty_outbound` /
+`warranty_inbound` / `warranty_inbound_raw` tables, the trigger that keeps `equipment` in step with
 registrations, RLS, and the manufacturer seed (registration links checked on
 each maker's own site, 2026-11-16). It doesn't depend on the multi-tenancy
 series and is safe to re-run (re-running refreshes the seed rows).

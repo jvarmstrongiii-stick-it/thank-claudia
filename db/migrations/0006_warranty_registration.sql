@@ -7,7 +7,7 @@
 -- console warning), so the app and this file can ship in either order.
 --
 -- If 0001-0004 are run LATER, add the new tables to their company_id / set_company_id() /
--- RLS lists: warranty_registrations, warranty_inbound, warranty_inbound_raw
+-- RLS lists: warranty_registrations, warranty_outbound, warranty_inbound, warranty_inbound_raw
 -- (warranty_manufacturers is global reference data, like motor_crossref — no company_id).
 
 -- ── 1. Equipment: a single at-a-glance status ───────────────────────────────
@@ -115,6 +115,31 @@ do $$ begin
     foreign key (matched_inbound_id) references public.warranty_inbound(id) on delete set null;
 exception when duplicate_object then null; end $$;
 
+-- Every warranty email we send (or, in test mode, would have sent). message_ids holds our own
+-- Message-ID plus the provider's id, so a customer's reply (In-Reply-To / References) is tied
+-- back to this exact send — the tracker. Written only by the warranty-send Edge Function.
+create table if not exists public.warranty_outbound (
+  id               uuid primary key default gen_random_uuid(),
+  email_token      text not null,
+  job_id           uuid references public.jobs(id) on delete set null,
+  registration_ids uuid[] not null default '{}',
+  to_email         text,
+  reply_to         text,
+  subject          text,
+  body             text,
+  provider         text,
+  status           text not null check (status in ('test','sent','failed')),
+  message_ids      text[] not null default '{}',
+  error            text,
+  created_at       timestamptz not null default now(),
+  sent_at          timestamptz
+);
+create index if not exists warranty_outbound_token_idx on public.warranty_outbound (email_token);
+create index if not exists warranty_outbound_msgids_idx on public.warranty_outbound using gin (message_ids);
+
+alter table public.warranty_registrations add column if not exists outbound_id uuid references public.warranty_outbound(id) on delete set null;
+alter table public.warranty_inbound       add column if not exists outbound_id uuid references public.warranty_outbound(id) on delete set null;
+
 -- ── 5. updated_at ───────────────────────────────────────────────────────────
 create or replace function public.warranty_touch_updated_at() returns trigger
 language plpgsql set search_path = public as $$
@@ -157,6 +182,7 @@ alter table public.warranty_manufacturers enable row level security;
 alter table public.warranty_registrations enable row level security;
 alter table public.warranty_inbound       enable row level security;
 alter table public.warranty_inbound_raw   enable row level security;  -- no policies: service role only
+alter table public.warranty_outbound      enable row level security;
 
 drop policy if exists warranty_manufacturers_read on public.warranty_manufacturers;
 create policy warranty_manufacturers_read on public.warranty_manufacturers for select to anon, authenticated using (true);
@@ -175,6 +201,10 @@ drop policy if exists warranty_inbound_read   on public.warranty_inbound;
 drop policy if exists warranty_inbound_review on public.warranty_inbound;
 create policy warranty_inbound_read   on public.warranty_inbound for select to anon, authenticated using (true);
 create policy warranty_inbound_review on public.warranty_inbound for update to anon, authenticated using (true) with check (true);
+
+-- The app shows send history but never writes it — only warranty-send (service role) does.
+drop policy if exists warranty_outbound_read on public.warranty_outbound;
+create policy warranty_outbound_read on public.warranty_outbound for select to anon, authenticated using (true);
 
 -- ── 8. Seed manufacturers ───────────────────────────────────────────────────
 -- Verified = the registration page itself (or a manufacturer page linking straight to it)

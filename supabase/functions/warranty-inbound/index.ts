@@ -1,7 +1,7 @@
-// warranty-inbound — receives forwarded warranty-registration confirmation emails from an
-// inbound-email provider webhook, matches them to equipment, and auto-marks a registration
-// as registered only when confidently matched. Everything else lands in the app's
-// WARRANTY REVIEW queue (table `warranty_inbound`, status needs_review / unmatched).
+// warranty-inbound — receives customers' REPLIES to the warranty email (Reply-To: warranty+CODE@…)
+// from an inbound-email provider webhook, ties each reply back to the send it answers (the
+// tracker), matches it to equipment, and auto-marks a registration as registered only when
+// confidently matched. Everything else lands in the app's WARRANTY REVIEW queue.
 //
 // Deploy (only after Jack's go-ahead):
 //   supabase functions deploy warranty-inbound --no-verify-jwt
@@ -17,6 +17,7 @@ import {
   normalizeInbound,
   processInboundEmail,
   safeEqual,
+  type OutboundRow,
   type RegistrationRow,
   type WarrantyStore,
 } from "../_shared/warranty-inbound-core.ts";
@@ -76,6 +77,19 @@ function supabaseStore(): WarrantyStore {
         .in("id", ids)
         .neq("status", "registered");
       if (error) throw new Error(`markRegistered: ${error.message}`);
+    },
+    async findOutbound({ threadIds, tokens }) {
+      const rows: OutboundRow[] = [];
+      const cols = "id,email_token,to_email,message_ids";
+      if (threadIds.length) {
+        const { data, error } = await db.from("warranty_outbound").select(cols).overlaps("message_ids", threadIds).limit(20);
+        if (error) console.error("findOutbound(thread)", error); else rows.push(...((data ?? []) as OutboundRow[]));
+      }
+      if (tokens.length) {
+        const { data, error } = await db.from("warranty_outbound").select(cols).in("email_token", tokens).limit(20);
+        if (error) console.error("findOutbound(token)", error); else rows.push(...((data ?? []) as OutboundRow[]));
+      }
+      return Array.from(new Map(rows.map((r) => [r.id, r])).values());
     },
   };
 }

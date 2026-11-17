@@ -10,7 +10,7 @@ const end = html.indexOf("// WARRANTY-CORE-END");
 assert.ok(begin > 0 && end > begin, "WARRANTY-CORE markers present in claudia.html");
 const core = new Function(`${html.slice(begin, end)}
   return { WARRANTY_INBOX, isWarrantyInstallJob, shouldPrepareWarranty, resolveWarrantyManufacturer, newWarrantyToken,
-           warrantyInboxAddress, warrantyFirstName, buildWarrantyEmail, warrantyUnitHolds, warrantyMailtoHref, WARRANTY_TOKEN_ALPHABET };`)();
+           warrantyInboxAddress, warrantyFirstName, buildWarrantyEmail, warrantyUnitHolds, WARRANTY_TOKEN_ALPHABET };`)();
 
 const MFS = [
   { brand_key: "daikin", display_name: "Daikin", aliases: ["daikin comfort"], registration_url: "https://warranty.goodmanmfg.com/newregistration/", url_verified: true, window_days: null },
@@ -72,15 +72,16 @@ test("first name from 'Last, First' and 'First Last'", () => {
   assert.equal(core.warrantyFirstName(""), "");
 });
 
-test("ready email contains manufacturer, model, serial, verified URL, forwarding address and ref", () => {
+test("ready email contains manufacturer, model, serial, verified URL, reply instructions and ref", () => {
   const r = core.buildWarrantyEmail({ job: JOB, units: [{ eq: EQ, mf: MFS[1] }], token: "K7M3QX", inbox: "warranty@abcmech.com", today: "2026-11-16" });
   assert.equal(r.to, "pat@example.com");
+  assert.equal(r.replyTo, "warranty+K7M3QX@abcmech.com", "coded Reply-To is the tracker");
   assert.deepEqual(r.emailHolds, []);
   assert.equal(r.units[0].status, "email_prepared");
   assert.match(r.subject, /Goodman/);
   assert.match(r.subject, /\[Ref W-K7M3QX\]/);
   for (const s of ["Hi Pat,", "Goodman", "Model number: GSXC160361", "Serial number: 2105123456", "Installation date: 11/16/2026",
-    "Register at: https://warranty.goodmanmfg.com/newregistration/", "warranty+K7M3QX@abcmech.com", "within 60 days", "W-K7M3QX"]) {
+    "Register at: https://warranty.goodmanmfg.com/newregistration/", "just reply to this email", "within 60 days", "W-K7M3QX"]) {
     assert.ok(r.body.includes(s), `body missing: ${s}`);
   }
 });
@@ -90,7 +91,8 @@ test("no inbox chosen yet → email is built but held for review", () => {
   assert.deepEqual(r.emailHolds, ["inbox_not_set"]);
   assert.equal(r.units[0].status, "needs_review");
   assert.ok(r.units[0].holds.includes("inbox_not_set"));
-  assert.ok(!r.body.includes("forward that confirmation"));
+  assert.ok(!r.body.includes("reply to this email"));
+  assert.equal(r.replyTo, null);
 });
 
 test("missing customer email holds the whole email", () => {
@@ -128,7 +130,3 @@ test("two makers on one job → one email listing both", () => {
   assert.equal((r.body.match(/Register at:/g) || []).length, 2);
 });
 
-test("mailto link encodes subject and body", () => {
-  const href = core.warrantyMailtoHref("pat@example.com", "A & B", "line1\nline2");
-  assert.equal(href, "mailto:pat%40example.com?subject=A%20%26%20B&body=line1%0Aline2");
-});
